@@ -38,6 +38,10 @@ function passiveEnemy(world: World, type: EnemyState['type'], x: number, z: numb
   return e;
 }
 
+function damageOf(type: EnemyState['type'], attackId: string): number {
+  return ENEMIES[type].attacks.find((a) => a.id === attackId)!.dmg;
+}
+
 function events(world: World, kind: GameEvent['e']): GameEvent[] {
   return world.events.filter((e) => e.e === kind);
 }
@@ -194,7 +198,7 @@ describe('defence', () => {
     const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
     const w = windup(world, e, p, 'fendente');
     run(world, 'a', T(w + 0.6));
-    expect(p.hp).toBe(HEROES.jusef.hp - 10);
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
     expect(events(world, 'phit')).toHaveLength(1);
     expect(p.z).toBeLessThan(world.layout.playerSpawns[0]!.z);
   });
@@ -255,7 +259,7 @@ describe('defence', () => {
     run(world, 'a', T(w) - 8);
     run(world, 'a', 30, { buttons: Btn.Block });
     expect(events(world, 'parry')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - 16);
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'affondo'));
   });
 
   it("Alexios' guard stops red attacks", () => {
@@ -274,7 +278,7 @@ describe('defence', () => {
     const w = windup(world, e, p, 'fendente');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block, lock: front.id });
     expect(events(world, 'block')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - 10);
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
   });
 
   it('blocking with no stamina left breaks the guard', () => {
@@ -323,7 +327,7 @@ describe('defence', () => {
     while (e2.state === EState.Windup) idle.world.step(0.05);
     expect(idle.p.hp).toBe(HEROES.jusef.hp);
     for (let i = 0; i < 8; i++) idle.world.step(0.05);
-    expect(idle.p.hp).toBe(HEROES.jusef.hp - 10);
+    expect(idle.p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
   });
 
   it('the grace window never exceeds its cap', () => {
@@ -391,6 +395,37 @@ describe('stagger, executions and co-op', () => {
     e.sinceHit = 0;
     for (let i = 0; i < 20 * 8; i++) world.step(0.05);
     expect(e.poise).toBeLessThan(5);
+  });
+
+  it('an enemy flinched several times in a row stops being interrupted for a while', () => {
+    const { world, p } = setup();
+    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2);
+    e.hp = e.maxHp = 10000;
+    e.maxPoise = 10000;
+    for (let i = 0; i < TUNING.flinchLimit; i++) {
+      e.state = EState.Chase;
+      world.damageEnemy(e, 1, 1, p, {});
+      expect(e.state).toBe(EState.Stagger);
+    }
+    e.state = EState.Chase;
+    world.damageEnemy(e, 1, 1, p, {});
+    expect(e.state).toBe(EState.Chase);
+
+    // Left alone, it can be interrupted again.
+    for (let i = 0; i < 20 * 4; i++) world.step(0.05);
+    e.state = EState.Chase;
+    world.damageEnemy(e, 1, 1, p, {});
+    expect(e.state).toBe(EState.Stagger);
+  });
+
+  it('elites and bosses get a longer stagger bar when the party is larger', () => {
+    const solo = makeWorld();
+    solo.addPlayer('a', 'jusef', 0);
+    const big = makeWorld();
+    for (const [i, hero] of (['jusef', 'alexios', 'rycard', 'fabyorn'] as const).entries()) big.addPlayer(`p${i}`, hero, i);
+    expect(big.spawnEnemy('inquisitore', 20, 20).maxPoise).toBeGreaterThan(solo.spawnEnemy('inquisitore', 20, 20).maxPoise);
+    expect(big.spawnEnemy('cultista', 20, 20).maxPoise).toBe(solo.spawnEnemy('cultista', 20, 20).maxPoise);
+    expect(big.spawnEnemy('klaus', 20, 20).maxHp).toBeGreaterThan(solo.spawnEnemy('klaus', 20, 20).maxHp * 3);
   });
 
   it('a hero at zero health is downed and can be revived by an ally', () => {

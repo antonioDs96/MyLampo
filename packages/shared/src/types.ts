@@ -155,6 +155,8 @@ export interface EnemyState {
   hp: number;
   maxHp: number;
   poise: number;
+  /** Stagger bar size (grows with the party for elites and bosses). */
+  maxPoise: number;
   state: number;
   /** Seconds in current state. */
   t: number;
@@ -180,6 +182,9 @@ export interface EnemyState {
   phase: number;
   /** Generic per-attack counter. */
   n: number;
+  /** Flinches taken in a row, and seconds left in which hits no longer interrupt. */
+  flinches: number;
+  resolve: number;
 }
 
 export interface Projectile {

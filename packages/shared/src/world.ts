@@ -380,15 +380,20 @@ export class World {
 
     if (e.state !== EState.Broken) {
       e.poise += poise;
-      if (e.poise >= def.poise) {
+      if (e.poise >= e.maxPoise) {
         this.breakEnemy(e);
       } else if (!def.steady && !hasStatus(e.st, ES.Frozen)) {
         const atk = def.attacks[e.atk];
-        const armored = e.state === EState.Windup && atk?.kind === 'red';
+        const armored = (e.state === EState.Windup && atk?.kind === 'red') || e.resolve > 0;
         if (!armored) {
           e.state = EState.Stagger;
           e.t = 0;
           e.n = opts.heavy ? 0.55 : 0.36;
+          // Nobody can be pinned forever: after a few flinches in a row the enemy shrugs hits off.
+          if (++e.flinches >= TUNING.flinchLimit) {
+            e.flinches = 0;
+            e.resolve = TUNING.resolveTime;
+          }
         }
       }
     }
@@ -429,7 +434,7 @@ export class World {
     const def = ENEMIES[e.type];
     e.state = EState.Broken;
     e.t = 0;
-    e.poise = def.poise;
+    e.poise = e.maxPoise;
     this.events.push({ e: 'broken', id: e.id });
   }
 
@@ -775,7 +780,7 @@ export class World {
       const def = ENEMIES[e.type];
       e.poise += def.elite ? 38 : 30;
       e.sinceHit = 0;
-      if (e.poise >= def.poise) this.breakEnemy(e);
+      if (e.poise >= e.maxPoise) this.breakEnemy(e);
       else if (!def.boss) {
         e.state = EState.Stagger;
         e.t = 0;
@@ -883,7 +888,9 @@ export class World {
   spawnEnemy(type: EnemyTypeId, x: number, z: number): EnemyState {
     const def = ENEMIES[type];
     const n = Math.max(1, this.players.size);
-    const scale = def.dummy ? 1 : def.bar ? 1 + 0.75 * (n - 1) : def.elite ? 1 + 0.45 * (n - 1) : 1 + 0.1 * (n - 1);
+    const scale = def.dummy ? 1 : def.bar ? 1 + 1.0 * (n - 1) : def.elite ? 1 + 0.6 * (n - 1) : 1 + 0.15 * (n - 1);
+    // More heroes fill a stagger bar faster: the big ones get a longer bar to compensate.
+    const maxPoise = Math.round(def.poise * (def.dummy || !def.elite ? 1 : 1 + 0.5 * (n - 1)));
     const hp = Math.round(def.hp * scale);
     const c = this.layout.center;
     const e: EnemyState = {
@@ -897,6 +904,7 @@ export class World {
       hp,
       maxHp: hp,
       poise: 0,
+      maxPoise,
       state: def.dummy ? EState.Idle : EState.Spawn,
       t: 0,
       atk: 0,
@@ -912,6 +920,8 @@ export class World {
       struck: 0,
       phase: 0,
       n: 0,
+      flinches: 0,
+      resolve: 0,
     };
     this.enemies.push(e);
     this.events.push({ e: 'spawn', id: e.id });
@@ -1141,6 +1151,8 @@ export class World {
       else if (s.k === ES.Slow) slow *= 1 - s.p;
     }
     e.sinceHit += dt;
+    if (e.resolve > 0) e.resolve -= dt;
+    if (e.sinceHit > 1.5) e.flinches = 0;
     if (e.sinceHit > TUNING.poiseDecayDelay && e.state !== EState.Broken) {
       e.poise = Math.max(0, e.poise - TUNING.poiseDecay * dt);
     }
@@ -1186,7 +1198,7 @@ export class World {
       if (e.t >= e.n) {
         e.state = EState.Chase;
         e.t = 0;
-        e.cool = Math.max(e.cool, 0.45);
+        e.cool = Math.max(e.cool, 0.3);
       }
       return;
     }
@@ -1324,7 +1336,7 @@ export class World {
     const lungeTime = 0.28;
     const lungeStart = atk.windup - lungeTime;
     if (target && target.act !== Act.Downed && e.t < lungeStart) {
-      e.yaw = approachAngle(e.yaw, yawOf(target.x - e.x, target.z - e.z), 5 * dt);
+      e.yaw = approachAngle(e.yaw, yawOf(target.x - e.x, target.z - e.z), 7 * dt);
       if (atk.aoe && e.t < atk.windup * 0.55) this.setAim(e, atk, target);
     }
     if (atk.lunge > 0 && e.t >= lungeStart && prevT < atk.windup) {
@@ -1354,7 +1366,9 @@ export class World {
     if (e.struck >= e.n) {
       e.state = EState.Recover;
       e.t = 0;
-      e.cool = atk.cd * this.rng.range(0.8, 1.3);
+      // A boss facing a crowd keeps the pressure up: he has more heroes to answer.
+      const crowd = def.boss ? 1 / (1 + 0.12 * (Math.max(1, this.players.size) - 1)) : 1;
+      e.cool = atk.cd * this.rng.range(0.8, 1.3) * crowd;
     }
   }
 
@@ -1659,7 +1673,7 @@ export class World {
     let at = this.time + 0.4;
     for (const [type, base] of wave.spawns) {
       const def = ENEMIES[type];
-      const count = def.bar ? base : def.elite ? base + Math.floor((n - 1) / 3) : Math.max(1, Math.round(base * (0.6 + 0.4 * n)));
+      const count = def.bar ? base : def.elite ? base + Math.floor((n - 1) / 3) : Math.max(1, Math.round(base * (0.4 + 0.6 * n)));
       for (let i = 0; i < count; i++) {
         this.spawnQueue.push({ type, at });
         at += def.bar ? 0 : 0.45;

@@ -50,7 +50,7 @@ export const TUNING = {
   executeRange: 5.5,
   executeDur: 0.95,
   executeAt: 0.42,
-  executeEliteFrac: 0.45,
+  executeEliteFrac: 0.3,
   executeBossFrac: 0.1,
   executeHeal: 0.1,
 
@@ -75,6 +75,10 @@ export const TUNING = {
   poiseDecayDelay: 3,
   poiseDecay: 14,
 
-  maxMeleeAttackers: 2,
+  /** Flinches in a row before an enemy stops being interrupted, and for how long. */
+  flinchLimit: 3,
+  resolveTime: 2.2,
+
+  maxMeleeAttackers: 3,
   maxRangedAttackers: 2,
 } as const;

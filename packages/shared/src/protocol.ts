@@ -146,7 +146,7 @@ export function quantizeCmd(c: InputCmd): InputCmd {
   return unpackCmds(packCmds([c]))[0]!;
 }
 
-export function packEnemy(e: EnemyState, poiseMax: number): number[] {
+export function packEnemy(e: EnemyState): number[] {
   let st = 0;
   for (const s of e.st) st |= 1 << s.k;
   return [
@@ -157,7 +157,7 @@ export function packEnemy(e: EnemyState, poiseMax: number): number[] {
     Math.round(e.yaw * 1000),
     Math.max(0, Math.round(e.hp)),
     e.maxHp,
-    Math.round(Math.min(1, e.poise / poiseMax) * 100),
+    Math.round(Math.min(1, e.poise / e.maxPoise) * 100),
     e.state,
     Math.round(e.t * 100),
     e.atk,

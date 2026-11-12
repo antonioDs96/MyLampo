@@ -392,7 +392,7 @@ export class GameHost {
       t: this.clock,
       ack,
       p: [...world.players.values()].map(clonePlayer),
-      e: world.enemies.map((e) => packEnemy(e, ENEMIES[e.type].poise)),
+      e: world.enemies.map((e) => packEnemy(e)),
       pr: world.projectiles.map(packProjectile),
       z: world.zones.map(packZone),
       ev: world.drainEvents(),
