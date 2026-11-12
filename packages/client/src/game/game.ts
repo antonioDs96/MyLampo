@@ -224,7 +224,7 @@ export class Game {
 
   private attach(conn: Connection): void {
     this.conn = conn;
-    conn.onMessage = (msg) => this.onMessage(msg);
+    conn.onMessage = (msg, at) => this.onMessage(msg, at);
     conn.onClose = (reason) => this.leave(reason);
     this.lastPing = 0;
     this.rtt = 0;
@@ -293,7 +293,7 @@ export class Game {
 
   // ---------------------------------------------------------------- messages
 
-  private onMessage(msg: ServerMsg): void {
+  private onMessage(msg: ServerMsg, at: number): void {
     switch (msg.t) {
       case 'welcome':
         this.myId = msg.id;
@@ -305,10 +305,10 @@ export class Game {
         this.onWorld(msg.w);
         break;
       case 'snap':
-        this.onSnapshot(msg.s);
+        this.onSnapshot(msg.s, at);
         break;
       case 'pong': {
-        const ms = performance.now() - msg.at;
+        const ms = Math.max(0, at - msg.at);
         this.rtt = this.rtt === 0 ? ms : this.rtt * 0.7 + ms * 0.3;
         this.send({ t: 'rtt', ms: Math.round(this.rtt) });
         break;
@@ -411,9 +411,8 @@ export class Game {
     this.syncInput();
   }
 
-  private onSnapshot(s: Snapshot): void {
+  private onSnapshot(s: Snapshot, now: number): void {
     if (!this.info || s.w !== this.info.wid) return;
-    const now = performance.now();
     const target = s.t - now;
     if (!this.hasOffset || Math.abs(target - this.clockOffset) > 400) {
       this.clockOffset = target;

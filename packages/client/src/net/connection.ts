@@ -4,7 +4,8 @@ import { GameHost, type ClientMsg, type ServerMsg } from '@malampu/shared';
 export interface Connection {
   /** True when the whole game runs inside this browser tab. */
   readonly offline: boolean;
-  onMessage: (msg: ServerMsg) => void;
+  /** `at` is when the message arrived (performance.now), which may be well before this frame. */
+  onMessage: (msg: ServerMsg, at: number) => void;
   onClose: (reason: string) => void;
   send(msg: ClientMsg): void;
   /** Called every frame with a monotonic clock in ms. */
@@ -17,7 +18,7 @@ const LOCAL_ID = 'solo';
 /** Runs the same game host the server uses, in memory, for solo play without a server. */
 export class LocalConnection implements Connection {
   readonly offline = true;
-  onMessage: (msg: ServerMsg) => void = () => {};
+  onMessage: (msg: ServerMsg, at: number) => void = () => {};
   onClose: (reason: string) => void = () => {};
   private readonly host: GameHost;
   private readonly inbox: ServerMsg[] = [];
@@ -38,7 +39,7 @@ export class LocalConnection implements Connection {
     this.host.update(nowMs);
     if (this.inbox.length === 0) return;
     const batch = this.inbox.splice(0);
-    for (const msg of batch) this.onMessage(msg);
+    for (const msg of batch) this.onMessage(msg, nowMs);
   }
 
   close(): void {
@@ -62,13 +63,13 @@ function describe(err: unknown): string {
 
 export class RemoteConnection implements Connection {
   readonly offline = false;
-  onMessage: (msg: ServerMsg) => void = () => {};
+  onMessage: (msg: ServerMsg, at: number) => void = () => {};
   onClose: (reason: string) => void = () => {};
-  private readonly inbox: ServerMsg[] = [];
+  private readonly inbox: { msg: ServerMsg; at: number }[] = [];
   private closed = false;
 
   private constructor(private readonly room: Room) {
-    room.onMessage('m', (msg: ServerMsg) => this.inbox.push(msg));
+    room.onMessage('m', (msg: ServerMsg) => this.inbox.push({ msg, at: performance.now() }));
     room.onLeave((code: number) => {
       if (this.closed) return;
       this.closed = true;
@@ -95,7 +96,7 @@ export class RemoteConnection implements Connection {
   update(): void {
     if (this.inbox.length === 0) return;
     const batch = this.inbox.splice(0);
-    for (const msg of batch) this.onMessage(msg);
+    for (const m of batch) this.onMessage(m.msg, m.at);
   }
 
   close(): void {

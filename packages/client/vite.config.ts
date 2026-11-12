@@ -7,6 +7,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // `public/assets` holds the models, so the hashed bundles get a folder of their own.
+    assetsDir: 'build',
     target: 'es2022',
     chunkSizeWarningLimit: 6000,
   },

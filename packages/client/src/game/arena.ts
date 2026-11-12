@@ -64,7 +64,7 @@ const THEMES: Record<Theme, ThemeDef> = {
   alley: {
     floor: ['floor_dirt_large', 'floor_dirt_large', 'floor_dirt_large_rocky'],
     walls: ['wall', 'wall_scaffold', 'wall_cracked', 'wall_window_closed', 'wall_broken', 'wall'],
-    mass: [1.2, 2.3],
+    mass: [1, 1],
     massColor: [0.07, 0.05, 0.1],
     clear: [0.07, 0.035, 0.12],
     fog: [0.11, 0.06, 0.17],

@@ -79,7 +79,13 @@ export class Input {
       if (!this.enabled) return;
       // The click that captures the mouse also counts as an action.
       if (document.pointerLockElement !== canvas) this.requestLock();
-      this.mouseButtons |= 1 << e.button;
+      // Middle click locks on, like Tab.
+      if (e.button === 1) {
+        e.preventDefault();
+        this.lockToggle = true;
+      } else {
+        this.mouseButtons |= 1 << e.button;
+      }
       this.usingPad = false;
     });
     window.addEventListener('mouseup', (e) => {
@@ -169,7 +175,6 @@ export class Input {
     for (const code in KEY_BUTTONS) if (k.has(code)) out.buttons |= KEY_BUTTONS[code]!;
     if (this.mouseButtons & 1) out.buttons |= Btn.Light;
     if (this.mouseButtons & 4) out.buttons |= Btn.Heavy;
-    if (this.mouseButtons & 2) out.buttons |= Btn.Block;
     out.lookX = this.lookX;
     out.lookY = this.lookY;
     this.lookX = 0;

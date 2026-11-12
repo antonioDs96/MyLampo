@@ -3,6 +3,8 @@ import { angleDiff, clamp, rayDistance, wrapAngle, yawOf, type Layout } from '@m
 
 const PITCH_MIN = 0.08;
 const PITCH_MAX = 1.15;
+const WALL_TOP = 4.3;
+const FEET = 0.2;
 
 /** Third-person chase camera with lock-on framing, wall avoidance and shake. */
 export class ChaseCamera {
@@ -106,10 +108,13 @@ export class ChaseCamera {
     let horiz = Math.cos(this.pitch) * dist;
     if (layout) {
       const clear = rayDistance(layout, lookX, lookZ, -fx, -fz, horiz + 0.6) - 0.6;
-      // The camera may rise above the walls: only pull in what the ground distance requires.
-      const overWalls = Math.sin(this.pitch) * dist + lookY > 4.6;
-      if (!overWalls) horiz = Math.max(1.4, Math.min(horiz, clear));
-      else horiz = Math.max(1.4, Math.min(horiz, clear + 3.5));
+      if (clear < horiz) {
+        // The camera may sit behind a wall only while it still sees the hero's feet over the top of it.
+        const tan = Math.tan(this.pitch);
+        const rise = WALL_TOP - FEET - clear * tan;
+        const over = rise <= 0 ? Infinity : ((lookY - FEET) * clear) / rise;
+        horiz = Math.max(1.4, Math.min(horiz, Math.max(clear, over)));
+      }
     }
     const want = horiz / Math.max(0.2, Math.cos(this.pitch));
     const rate = want < this.curDist ? 18 : 4;
