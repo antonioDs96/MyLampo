@@ -8,6 +8,7 @@ import {
   Matrix,
   Mesh,
   MeshBuilder,
+  type Plane,
   PointLight,
   Quaternion,
   type Scene,
@@ -200,6 +201,8 @@ export class Arena {
     private readonly scene: Scene,
     assets: Assets,
     readonly layout: Layout,
+    /** Scenery on the positive side of this plane is not drawn (walls hiding the hero). */
+    cutPlane: Plane | null = null,
   ) {
     const theme = (this.theme = THEMES[layout.def.theme]);
     const { w, h } = layout;
@@ -313,6 +316,7 @@ export class Arena {
     envMat.diffuseTexture = assets.envTexture;
     envMat.specularColor = Color3.Black();
     envMat.maxSimultaneousLights = 6;
+    envMat.clipPlane = cutPlane;
     this.owned.push(envMat);
     const envMesh = env.build('arena', scene);
     if (envMesh) {
@@ -324,6 +328,7 @@ export class Arena {
     massMat.diffuseColor = new Color3(...theme.massColor);
     massMat.specularColor = Color3.Black();
     massMat.emissiveColor = new Color3(...theme.massColor).scale(0.5);
+    massMat.clipPlane = cutPlane;
     this.owned.push(massMat);
     const massMesh = mass.build('mass', scene);
     if (massMesh) {
@@ -334,7 +339,10 @@ export class Arena {
     // Catch-all ground so nothing shows through gaps between tiles.
     const ground = MeshBuilder.CreateGround('ground', { width: w * CELL + 80, height: h * CELL + 80 }, scene);
     ground.position.set((w * CELL) / 2, -0.12, (h * CELL) / 2);
-    ground.material = massMat;
+    const groundMat = massMat.clone('ground');
+    groundMat.clipPlane = null;
+    this.owned.push(groundMat);
+    ground.material = groundMat;
     ground.isPickable = false;
     this.owned.push(ground);
 

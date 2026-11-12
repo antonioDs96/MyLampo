@@ -1,10 +1,8 @@
-import { FreeCamera, type Scene, Vector3 } from '@babylonjs/core';
+import { FreeCamera, Plane, type Scene, Vector3 } from '@babylonjs/core';
 import { angleDiff, clamp, rayDistance, wrapAngle, yawOf, type Layout } from '@malampu/shared';
 
 const PITCH_MIN = 0.08;
 const PITCH_MAX = 1.15;
-const WALL_TOP = 4.3;
-const FEET = 0.2;
 
 /** Third-person chase camera with lock-on framing, wall avoidance and shake. */
 export class ChaseCamera {
@@ -14,6 +12,9 @@ export class ChaseCamera {
   pitch = 0.42;
   distance = 9.2;
   private shoulder = 0;
+  /** Scenery on the positive side of this plane hides the hero and must not be drawn. */
+  readonly cutPlane = new Plane(0, 0, -1, -1000);
+  private cutDist = 50;
   /** View axes, refreshed by update(). */
   readonly right = new Vector3(1, 0, 0);
   readonly up = new Vector3(0, 1, 0);
@@ -105,25 +106,26 @@ export class ChaseCamera {
     this.shoulder += ((lock ? 1.1 : 0) - this.shoulder) * (1 - Math.exp(-dt * 4));
     lookX += fz * this.shoulder;
     lookZ -= fx * this.shoulder;
-    let horiz = Math.cos(this.pitch) * dist;
-    if (layout) {
-      const clear = rayDistance(layout, lookX, lookZ, -fx, -fz, horiz + 0.6) - 0.6;
-      if (clear < horiz) {
-        // The camera may sit behind a wall only while it still sees the hero's feet over the top of it.
-        const tan = Math.tan(this.pitch);
-        const rise = WALL_TOP - FEET - clear * tan;
-        const over = rise <= 0 ? Infinity : ((lookY - FEET) * clear) / rise;
-        horiz = Math.max(1.4, Math.min(horiz, Math.max(clear, over)));
-      }
-    }
+    const horiz = Math.cos(this.pitch) * dist;
     const want = horiz / Math.max(0.2, Math.cos(this.pitch));
-    const rate = want < this.curDist ? 18 : 4;
-    this.curDist += (want - this.curDist) * (1 - Math.exp(-dt * rate));
+    this.curDist += (want - this.curDist) * (1 - Math.exp(-dt * 5));
     this.punch = Math.max(0, this.punch - dt * 3.5);
     const d = this.curDist * (1 - this.punch * 0.08);
+    const back = Math.cos(this.pitch) * d;
 
-    const cx = lookX - fx * Math.cos(this.pitch) * d;
-    const cz = lookZ - fz * Math.cos(this.pitch) * d;
+    // Walls between the camera and the hero are cut away instead of pulling the camera in:
+    // everything on the camera's side of a vertical plane just in front of the wall is hidden.
+    let cut = back + 4;
+    if (layout) {
+      const wall = rayDistance(layout, lookX, lookZ, -fx, -fz, back + 1.5);
+      if (wall < back + 1.2) cut = Math.max(0.75, wall - 0.2);
+    }
+    this.cutDist = cut < this.cutDist ? cut : this.cutDist + (cut - this.cutDist) * (1 - Math.exp(-dt * 10));
+    this.cutPlane.normal.set(-fx, 0, -fz);
+    this.cutPlane.d = fx * (lookX - fx * this.cutDist) + fz * (lookZ - fz * this.cutDist);
+
+    const cx = lookX - fx * back;
+    const cz = lookZ - fz * back;
     const cy = lookY + Math.sin(this.pitch) * d;
 
     this.shakeClock += dt;

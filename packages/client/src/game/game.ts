@@ -369,7 +369,7 @@ export class Game {
     this.info = info;
     this.layout = parseLayout(def);
     this.arena?.dispose();
-    this.arena = new Arena(this.scene, this.assets, this.layout);
+    this.arena = new Arena(this.scene, this.assets, this.layout, this.cam.cutPlane);
     this.frames = [];
     this.hasOffset = false;
     this.me = null;
@@ -1587,6 +1587,8 @@ export class Game {
     if (emit) this.flameTimer = 0.05;
     for (const f of arena.flames) {
       if (Math.hypot(f.x - x, f.z - z) > 46) continue;
+      // Torches on a wall that is being cut away would float in mid-air.
+      if (this.cam.cutPlane.normal.x * f.x + this.cam.cutPlane.normal.z * f.z + this.cam.cutPlane.d > 0) continue;
       const flick = 1 + Math.sin(vfx.clock * 17 + f.x * 3) * 0.12;
       vfx.sprite(f.x, f.y, f.z, (f.big ? 0.75 : 0.36) * flick, f.color, 0.85);
       vfx.sprite(f.x, f.y, f.z, (f.big ? 2.4 : 1.3) * flick, f.color, 0.12);
