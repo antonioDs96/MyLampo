@@ -193,15 +193,30 @@ export class CharacterView {
     };
     switch (kind) {
       case 'horns': {
-        const mat = this.extraMaterial([0.2, 0.16, 0.14], [0.04, 0.02, 0.05]);
-        for (const side of [-1, 1]) {
-          const horn = add(
-            MeshBuilder.CreateCylinder('horn', { height: 0.62, diameterTop: 0.02, diameterBottom: 0.2, tessellation: 7 }, this.scene),
+        // Curved ram horns: three tapering segments sweeping back from the temples.
+        const mat = this.extraMaterial([0.7, 0.52, 0.34], [0.06, 0.03, 0.015]);
+        for (const side of [-1, 1] as const) {
+          const base = add(
+            MeshBuilder.CreateCylinder('horn0', { height: 0.28, diameterTop: 0.14, diameterBottom: 0.22, tessellation: 8 }, this.scene),
             head,
             mat,
           );
-          horn.position.set(side * 0.34, 0.98, -0.02);
-          horn.rotation.set(-0.5, 0, -side * 0.5);
+          base.position.set(side * 0.28, 0.92, 0.02);
+          base.rotation.set(0.35, 0, -side * 0.85);
+          const mid = add(
+            MeshBuilder.CreateCylinder('horn1', { height: 0.34, diameterTop: 0.07, diameterBottom: 0.14, tessellation: 8 }, this.scene),
+            base,
+            mat,
+          );
+          mid.position.set(0, 0.26, 0);
+          mid.rotation.set(0.55, 0, -side * 0.35);
+          const tip = add(
+            MeshBuilder.CreateCylinder('horn2', { height: 0.3, diameterTop: 0.01, diameterBottom: 0.07, tessellation: 7 }, this.scene),
+            mid,
+            mat,
+          );
+          tip.position.set(0, 0.28, 0);
+          tip.rotation.set(0.7, 0, -side * 0.25);
         }
         break;
       }
@@ -209,25 +224,32 @@ export class CharacterView {
         const mat = this.extraMaterial([0.96, 0.76, 0.62], [0.08, 0.05, 0.04]);
         for (const side of [-1, 1]) {
           const ear = add(
-            MeshBuilder.CreateCylinder('ear', { height: 0.36, diameterTop: 0, diameterBottom: 0.14, tessellation: 5 }, this.scene),
+            MeshBuilder.CreateCylinder('ear', { height: 0.42, diameterTop: 0, diameterBottom: 0.12, tessellation: 5 }, this.scene),
             head,
             mat,
           );
-          ear.position.set(side * 0.55, 0.52, 0);
-          ear.rotation.set(-0.3, 0, -side * 1.15);
+          ear.position.set(side * 0.52, 0.58, -0.02);
+          ear.rotation.set(-0.15, 0, -side * 1.05);
         }
         break;
       }
       case 'halo': {
-        const mat = this.extraMaterial([1, 0.9, 0.4], [1, 0.82, 0.25]);
-        const halo = add(MeshBuilder.CreateTorus('halo', { diameter: 0.85, thickness: 0.045, tessellation: 24 }, this.scene), head, mat);
-        halo.position.set(0, 1.55, 0);
+        const mat = this.extraMaterial([0.95, 0.92, 0.75], [0.85, 0.8, 0.45]);
+        const halo = add(MeshBuilder.CreateTorus('halo', { diameter: 0.7, thickness: 0.035, tessellation: 24 }, this.scene), head, mat);
+        halo.position.set(0, 1.35, 0);
         break;
       }
       case 'runes': {
-        const mat = this.extraMaterial([0.2, 0.9, 1], [0.25, 0.95, 1]);
-        const core = add(MeshBuilder.CreatePolyhedron('rune', { type: 1, size: 0.12 }, this.scene), chest, mat);
-        core.position.set(0, 0.18, 0.31);
+        // Mossy stone nodules instead of cyan crystal.
+        const mat = this.extraMaterial([0.28, 0.42, 0.24], [0.08, 0.18, 0.06]);
+        for (const [x, y, z, s] of [
+          [0, 0.16, 0.34, 0.13],
+          [-0.22, 0.28, 0.22, 0.09],
+          [0.24, 0.1, 0.26, 0.1],
+        ] as const) {
+          const core = add(MeshBuilder.CreatePolyhedron('moss', { type: 1, size: s }, this.scene), chest, mat);
+          core.position.set(x, y, z);
+        }
         break;
       }
       case 'claws': {
