@@ -1449,7 +1449,7 @@ export class Game {
           if (Math.random() < dt * 14) vfx.burst(z.x, 0.3, z.z, 1, GOLD, { speed: 0.3, life: 1.2, up: 1.6, flat: 1, radius: z.r * Math.random(), size: 0.1 });
           break;
         case 'silence':
-          vfx.dome(z.x, z.z, z.r, [0.07, 0.02, 0.14], 0.5 * fade, true);
+          vfx.dome(z.x, z.z, z.r, [0.07, 0.02, 0.14], 0.34 * fade, true);
           vfx.ring(z.x, z.z, z.r, VIOLET, 0.95 * fade);
           vfx.ring(z.x, z.z, z.r * (0.3 + ((vfx.clock * 0.35) % 1) * 0.7), VIOLET, 0.3 * fade);
           break;

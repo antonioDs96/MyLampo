@@ -334,6 +334,18 @@ export class Arena {
     if (massMesh) {
       massMesh.material = massMat;
       this.owned.push(massMesh);
+      if (cutPlane) {
+        // Walls sliced by the camera cut show a flat dark section instead of the void behind them.
+        const coreMat = new StandardMaterial('massCore', scene);
+        coreMat.disableLighting = true;
+        coreMat.emissiveColor = new Color3(...theme.massColor).scale(0.16);
+        coreMat.cullBackFaces = false;
+        coreMat.clipPlane = cutPlane;
+        const core = massMesh.clone('massCore');
+        core.material = coreMat;
+        core.isPickable = false;
+        this.owned.push(coreMat, core);
+      }
     }
 
     // Catch-all ground so nothing shows through gaps between tiles.
