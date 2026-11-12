@@ -177,6 +177,7 @@ export class Game {
     ui: HTMLElement,
   ) {
     this.input = new Input(canvas);
+    this.input.onPadStart = () => this.onKey('KeyH');
     this.cam = new ChaseCamera(scene);
     this.vfx = new Vfx(scene);
     this.shadow = makeShadowSource(scene);

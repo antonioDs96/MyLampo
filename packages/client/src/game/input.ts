@@ -52,6 +52,9 @@ export class Input {
   private lockToggle = false;
   private lockCycle = 0;
   private padLockHeld = false;
+  private padStartHeld = false;
+  /** Called when Start is pressed on a gamepad, also while a menu is open. */
+  onPadStart: (() => void) | null = null;
   private padCycleHeld = false;
   private usingPad = false;
 
@@ -153,6 +156,9 @@ export class Input {
       lockCycle: 0,
       usingPad: this.usingPad,
     };
+    const start = !!this.gamepad()?.buttons[9]?.pressed;
+    if (start && !this.padStartHeld) this.onPadStart?.();
+    this.padStartHeld = start;
     if (this.script) {
       out.moveX = this.script.moveX;
       out.moveY = this.script.moveY;
