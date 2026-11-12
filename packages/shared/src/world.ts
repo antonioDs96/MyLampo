@@ -180,7 +180,7 @@ export class World {
     this.lite.length = 0;
     for (const e of this.enemies) {
       const def = ENEMIES[e.type];
-      const alive = e.state !== EState.Dead && e.state !== EState.Spawn;
+      const alive = e.state !== EState.Dead;
       this.lite.push({ id: e.id, x: e.x, z: e.z, r: def.radius, alive, broken: e.state === EState.Broken });
     }
     this.allies.length = 0;
@@ -313,7 +313,7 @@ export class World {
   }
 
   private hittable(e: EnemyState): boolean {
-    return e.state !== EState.Dead && e.state !== EState.Spawn && e.state !== EState.Special;
+    return e.state !== EState.Dead && e.state !== EState.Special;
   }
 
   /** Applies damage from a hero (or from the world when `p` is null). Returns true if it landed. */
@@ -392,7 +392,8 @@ export class World {
         }
       }
     }
-    if (p && opts.kb) {
+    // Broken enemies stay put so the execution can reach them.
+    if (p && opts.kb && e.state !== EState.Broken) {
       const dx = e.x - p.x;
       const dz = e.z - p.z;
       const d = Math.hypot(dx, dz) || 1;
@@ -676,6 +677,24 @@ export class World {
   }
 
   // ---------------------------------------------------------------- hits on players
+
+  /**
+   * Where a hit volume should look for this hero. A hero who has just started dodging is tested
+   * at the spot the dodge began, so slipping out of an attack at the last instant is rewarded
+   * as a perfect dodge instead of silently missing.
+   */
+  private hitPos(p: PlayerState, out: Point): Point {
+    out.x = p.x;
+    out.z = p.z;
+    if (p.act === Act.Dodge && p.t <= T(TUNING.perfectDodge)) {
+      const d = HEROES[p.hero].dodge;
+      const u = clamp(p.t / T(d.dur), 0, 1);
+      const travelled = d.kind === 'blink' ? d.dist : d.dist * (1 - (1 - u) * (1 - u));
+      out.x -= p.dx * travelled;
+      out.z -= p.dz * travelled;
+    }
+    return out;
+  }
 
   private tryHitPlayer(p: PlayerState, spec: HitSpec): HitResult {
     if (p.act === Act.Downed) return 'none';
@@ -1061,7 +1080,8 @@ export class World {
       const r = atk.aoe;
       this.events.push({ e: 'ecast', id: e.id, what: 'slam', x: cx, z: cz, r });
       for (const p of this.players.values()) {
-        if (Math.hypot(p.x - cx, p.z - cz) > r + TUNING.playerRadius * 0.5) continue;
+        const at = this.hitPos(p, tmp);
+        if (Math.hypot(at.x - cx, at.z - cz) > r + TUNING.playerRadius * 0.5) continue;
         this.tryHitPlayer(p, {
           dmg: atk.dmg,
           red,
@@ -1078,8 +1098,9 @@ export class World {
     const half = (atk.arc / 2) * RAD;
     const yaw = e.yaw;
     for (const p of this.players.values()) {
-      const dx = p.x - ox;
-      const dz = p.z - oz;
+      const at = this.hitPos(p, tmp);
+      const dx = at.x - ox;
+      const dz = at.z - oz;
       const d = Math.hypot(dx, dz);
       if (d > atk.reach + TUNING.playerRadius * 0.5) continue;
       if (atk.arc < 360 && d > def.radius + 0.6 && Math.abs(angleDiff(yawOf(dx, dz), yaw)) > half) continue;
@@ -1327,6 +1348,8 @@ export class World {
     while (e.struck < e.n && e.t >= atk.windup + e.struck * gapT) {
       this.strike(e, def, atk);
       e.struck++;
+      // A perfect parry staggers or breaks the attacker mid-swing.
+      if (e.state !== EState.Windup) return;
     }
     if (e.struck >= e.n) {
       e.state = EState.Recover;
@@ -1582,8 +1605,9 @@ export class World {
           z.r = z.t * RING_SPEED;
           for (const p of this.players.values()) {
             if (p.act === Act.Downed || z.hit.includes(p.id)) continue;
-            const d = Math.hypot(p.x - z.x, p.z - z.z);
-            if (Math.abs(d - z.r) > 0.95) continue;
+            const at = this.hitPos(p, tmp);
+            const d = Math.hypot(at.x - z.x, at.z - z.z);
+            if (Math.abs(d - z.r) > 0.95 && Math.abs(Math.hypot(p.x - z.x, p.z - z.z) - z.r) > 0.95) continue;
             z.hit.push(p.id);
             this.tryHitPlayer(p, { dmg: z.power, red: true, kb: 6, ox: z.x, oz: z.z, src: 0 });
           }

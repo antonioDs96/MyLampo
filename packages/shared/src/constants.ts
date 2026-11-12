@@ -47,7 +47,7 @@ export const TUNING = {
   reviveHp: 0.45,
   reviveInvuln: 2,
 
-  executeRange: 3.6,
+  executeRange: 5.5,
   executeDur: 0.95,
   executeAt: 0.42,
   executeEliteFrac: 0.45,
