@@ -27,8 +27,14 @@ export class BotBrain {
   private step = 0;
   /** Lets every button be released between presses, as the rules act on fresh presses. */
   private lastButtons = 0;
-  /** `skill` is the share of telegraphed attacks the bot reacts to (1 = all of them). */
-  constructor(private readonly skill = 1) {}
+  /**
+   * `skill` is the share of telegraphed attacks the bot reacts to (1 = all of them);
+   * `react` is how long before a strike lands the bot starts defending, in seconds.
+   */
+  constructor(
+    private readonly skill = 1,
+    private readonly react = 0.26,
+  ) {}
 
   idle(): InputCmd {
     this.lastButtons = 0;
@@ -124,7 +130,7 @@ export class BotBrain {
   /** Returns the strike about to land on this bot, if any. */
   private danger(view: BotView, alive: EnemySnap[]): { x: number; z: number; id: number; parry: boolean } | null {
     const { me } = view;
-    const react = 0.26;
+    const react = this.react;
     for (const e of alive) {
       if (e.state !== EState.Windup) continue;
       if (!this.notices(e.id * 7919 + Math.round(e.ax * 13 + e.az * 31))) continue;
