@@ -191,12 +191,16 @@ describe('a mission over the network', () => {
     await until('mission world', () => bots.every((b) => b.world?.kind === 'mission'));
 
     for (const b of bots) b.play();
+    // The last hub snapshot may still be the latest one: it must not count as the mission.
+    const inMission = (b: NetBot) => b.snap !== null && b.world !== null && b.snap.w === b.world.wid;
+    await until('mission snapshots', () => bots.every(inMission));
     const first = bots[0]!.snaps;
     const t0 = Date.now();
-    await until('first wave', () => bots[0]!.snap!.e.length > 0, 15000);
+    await sleep(2000);
     const rate = (bots[0]!.snaps - first) / ((Date.now() - t0) / 1000);
     expect(rate).toBeGreaterThan(15);
     expect(rate).toBeLessThan(25);
+    await until('first wave', () => inMission(bots[0]!) && bots[0]!.snap!.e.length > 0, 15000);
 
     await until('a kill', () => bots[0]!.events.includes('hit') && bots[0]!.snap!.e.some((e) => unpackEnemy(e).state === EState.Dead), 30000);
     const snap = bots[0]!.snap!;
