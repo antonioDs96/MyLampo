@@ -4,7 +4,6 @@
  * runs it in the browser through an in-memory loopback.
  */
 import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
-import { ENEMIES } from './enemies';
 import { HEROES, isHeroId } from './heroes';
 import { collide, nearestFloor, parseLayout } from './layout';
 import { HUB_LINES } from './lore';

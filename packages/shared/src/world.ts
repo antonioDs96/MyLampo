@@ -431,7 +431,6 @@ export class World {
   }
 
   private breakEnemy(e: EnemyState): void {
-    const def = ENEMIES[e.type];
     e.state = EState.Broken;
     e.t = 0;
     e.poise = e.maxPoise;
