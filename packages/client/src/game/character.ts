@@ -230,6 +230,23 @@ export class CharacterView {
         core.position.set(0, 0.18, 0.31);
         break;
       }
+      case 'claws': {
+        const mat = this.extraMaterial([0.92, 0.9, 0.84], [0.1, 0.09, 0.08]);
+        for (const slot of ['handslot.r', 'handslot.l']) {
+          const hand = this.nodes.get(slot);
+          if (!hand) continue;
+          for (let i = -1; i <= 1; i++) {
+            const claw = add(
+              MeshBuilder.CreateCylinder('claw', { height: 0.3, diameterTop: 0, diameterBottom: 0.07, tessellation: 5 }, this.scene),
+              hand,
+              mat,
+            );
+            claw.position.set(i * 0.075, 0.2, 0.02);
+            claw.rotation.z = -i * 0.22;
+          }
+        }
+        break;
+      }
       case 'orb': {
         const mat = this.extraMaterial([0.5, 0.15, 0.9], [0.62, 0.2, 1]);
         this.orb = add(MeshBuilder.CreateSphere('orb', { diameter: 0.42, segments: 10 }, this.scene), this.root, mat);
