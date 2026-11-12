@@ -13,10 +13,12 @@
     "@colyseus/core": "^0.18.28",
     "@colyseus/ws-transport": "^0.18.5",
     "@malampu/shared": "workspace:*",
+    "compression": "^1.8.2",
     "express": "^5.3.0"
   },
   "devDependencies": {
     "@colyseus/sdk": "^0.18.10",
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.2",

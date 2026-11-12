@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
+import compression from 'compression';
 import express from 'express';
 import { MalampuRoom, ROOM_NAME } from './room';
 
@@ -31,6 +32,7 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
         res.json({ ok: true });
       });
       if (!staticDir) return;
+      app.use(compression());
       // Hashed build files never change; the page itself must always be fresh.
       app.use('/build', express.static(path.join(staticDir, 'build'), { immutable: true, maxAge: '30d' }));
       app.use(express.static(staticDir, { maxAge: '1h', setHeaders: noCacheForHtml }));
