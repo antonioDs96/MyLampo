@@ -1586,6 +1586,8 @@ export class Game {
       hud.setBoss(null);
     }
 
+    const rangedFree = !!(me && HEROES[me.hero].ranged && !lock);
+    hud.crosshair(rangedFree && !this.menus.open);
     if (lock) {
       const at = this.project(lock.x, this.enemyHeight(lock.id) * 0.55, lock.z);
       hud.reticle(at?.x ?? 0, at?.y ?? 0, !!at);

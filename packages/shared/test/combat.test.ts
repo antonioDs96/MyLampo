@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   Act,
+  addStatus,
+  angleDiff,
   clonePlayer,
   ENEMIES,
   ES,
@@ -707,6 +709,51 @@ describe('impact physics', () => {
     for (let i = 0; i < 8; i++) world.step(0.05);
     expect(Math.hypot(b.kx, b.kz)).toBeGreaterThan(1);
     expect(events(world, 'fx').some((ev) => ev.e === 'fx' && ev.what === 'clash')).toBe(true);
+  });
+});
+
+describe('ranged free aim', () => {
+  function frozenDummy(world: World, x: number, z: number) {
+    const e = passiveEnemy(world, 'cultista', x, z);
+    e.state = EState.Idle;
+    e.cool = 999;
+    addStatus(e.st, ES.Frozen, 30, 0);
+    return e;
+  }
+
+  it("Anthon's orbs follow the camera aim instead of snapping to a nearby enemy", () => {
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'anthon', 0);
+    p.x = 4 * 4;
+    p.z = 3 * 4;
+    // Enemy north of Anthon; looking west must miss.
+    const e = frozenDummy(world, p.x, p.z + 5);
+    const hp0 = e.hp;
+    tap(world, 'a', Btn.Light, { aim: -Math.PI / 2 });
+    run(world, 'a', T(HEROES.anthon.light[0]!.dur) + 8, { aim: -Math.PI / 2 });
+    for (let i = 0; i < 20; i++) world.step(0.05);
+    expect(e.hp).toBe(hp0);
+    expect(Math.abs(angleDiff(p.yaw, -Math.PI / 2))).toBeLessThan(0.15);
+
+    // Looking straight at the cultist lands the shot.
+    tap(world, 'a', Btn.Light, { aim: 0 });
+    run(world, 'a', T(HEROES.anthon.light[0]!.dur) + 8, { aim: 0 });
+    for (let i = 0; i < 20; i++) world.step(0.05);
+    expect(e.hp).toBeLessThan(hp0);
+  });
+
+  it('Tab lock still lets a ranged hero track a target', () => {
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'anthon', 0);
+    p.x = 4 * 4;
+    p.z = 3 * 4;
+    const e = frozenDummy(world, p.x + 5, p.z + 5);
+    const hp0 = e.hp;
+    // Aim elsewhere, but lock the enemy: the body faces the lock and the orb hits.
+    tap(world, 'a', Btn.Light, { aim: Math.PI, lock: e.id });
+    run(world, 'a', T(HEROES.anthon.light[0]!.dur) + 8, { aim: Math.PI, lock: e.id });
+    for (let i = 0; i < 25; i++) world.step(0.05);
+    expect(e.hp).toBeLessThan(hp0);
   });
 });
 
