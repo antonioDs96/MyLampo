@@ -712,8 +712,9 @@ describe('waves', () => {
 
     const party = makeWorld([{ spawns: [['cultista', 2]] }]);
     for (const [i, h] of (['jusef', 'alexios', 'rycard', 'anthon'] as const).entries()) party.addPlayer(`p${i}`, h, i);
-    for (let i = 0; i < 60; i++) party.step(0.05);
-    expect(party.enemies.length).toBeGreaterThan(2);
+    for (let i = 0; i < 80; i++) party.step(0.05);
+    // 4 heroes → ~3× solo grunt count and tougher HP (partyScale).
+    expect(party.enemies.length).toBeGreaterThanOrEqual(6);
     expect(party.enemies[0]!.maxHp).toBeGreaterThan(ENEMIES.cultista.hp);
 
     for (const e of solo.enemies) solo.damageEnemy(e, 9999, 0, null);
