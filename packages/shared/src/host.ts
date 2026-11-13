@@ -167,7 +167,27 @@ export class GameHost {
       case 'progress':
         this.mergeProgress(c, msg.xp);
         break;
+      case 'useBelt':
+        if (this.world.useBelt(id, Number(msg.slot) | 0)) this.sendInv(id);
+        break;
+      case 'pickCard':
+        if (this.world.pickLevelCard(id, Number(msg.index) | 0)) this.sendInv(id);
+        break;
+      case 'asi':
+        if (typeof msg.ability === 'string' && this.world.spendAsi(id, msg.ability as import('./dndMegabonkRules').AbilityId)) {
+          this.sendInv(id);
+        }
+        break;
+      case 'inv':
+        if (this.world.invAction(id, msg.op, String(msg.uid), msg.slot)) this.sendInv(id);
+        break;
     }
+  }
+
+  private sendInv(id: string): void {
+    const inv = this.world.getInventory(id);
+    if (!inv) return;
+    this.io.send(id, { t: 'inv', id, inv });
   }
 
   private mergeProgress(c: Client, raw: unknown): void {
@@ -181,7 +201,9 @@ export class GameHost {
       next[k] = Math.max(next[k] ?? 0, Math.floor(n));
     }
     c.xp = next;
+    if (c.hero) this.world.syncPe(c.id, c.xp[c.hero] ?? 0);
     this.sendLobby();
+    this.sendInv(c.id);
   }
 
   private levelOf(c: Client, hero: HeroId | ''): number {
@@ -191,7 +213,9 @@ export class GameHost {
 
   private spawnHero(c: Client, hero: HeroId): void {
     this.world.removePlayer(c.id);
-    this.world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero));
+    this.world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero), { starterGear: true });
+    this.world.syncPe(c.id, c.xp[hero] ?? 0);
+    this.sendInv(c.id);
   }
 
   private pickHero(c: Client, raw: unknown): void {
@@ -322,7 +346,7 @@ export class GameHost {
     });
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
-      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero));
+      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero), { starterGear: true });
       const prev = carry ? old.players.get(c.id) : undefined;
       if (prev && !fresh) {
         const keep = clonePlayer(prev);
@@ -391,11 +415,15 @@ export class GameHost {
       if (!c.hero) continue;
       const st = this.finalStats[c.id];
       if (!st) continue;
-      const prevXp = c.xp[c.hero] ?? 0;
+      const inv = this.world.getInventory(c.id);
+      // Prefer live PE from gem pickups; fall back to the synced book.
+      const prevXp = Math.max(c.xp[c.hero] ?? 0, inv?.pe ?? 0);
       const prevLevel = levelFromXp(prevXp);
       const { gained } = awardXp(c.hero, st, { victory, mode: mission.mode ?? 'story' });
       const xp = prevXp + gained;
       c.xp[c.hero] = xp;
+      if (inv) inv.pe = xp;
+      this.world.syncPe(c.id, xp);
       this.xpGain[c.id] = gained;
       this.io.send(c.id, {
         t: 'xp',
@@ -406,6 +434,7 @@ export class GameHost {
         level: levelFromXp(xp),
         prevLevel,
       });
+      this.sendInv(c.id);
     }
   }
 
@@ -451,8 +480,24 @@ export class GameHost {
     }
 
     world.step(WORLD_DT);
+    // Keep XP books aligned with gem PE and push inventory when progression events fire.
+    const pending = world.events;
+    let needInv = false;
+    for (const ev of pending) {
+      if (ev.e === 'pickup' || ev.e === 'levelup') needInv = true;
+    }
+    for (const c of this.clients.values()) {
+      if (!c.hero) continue;
+      const inv = world.getInventory(c.id);
+      if (!inv) continue;
+      const pe = inv.pe;
+      if (pe > (c.xp[c.hero] ?? 0)) c.xp[c.hero] = pe;
+    }
     this.flow();
     this.io.broadcast({ t: 'snap', s: this.snapshot() });
+    if (needInv) {
+      for (const c of this.clients.values()) this.sendInv(c.id);
+    }
   }
 
   private flow(): void {
@@ -523,6 +568,18 @@ export class GameHost {
         left: world.enemiesLeft(),
         state: world.waveState,
       },
+      loot: world.loot.map((d) => ({
+        dropId: d.dropId,
+        kind: d.kind,
+        x: Math.round(d.x * 100) / 100,
+        z: Math.round(d.z * 100) / 100,
+        vx: Math.round(d.vx * 100) / 100,
+        vz: Math.round(d.vz * 100) / 100,
+        amount: d.amount,
+        gem: d.gem,
+        itemId: d.itemId,
+        rarity: d.rarity,
+      })),
     };
   }
 }

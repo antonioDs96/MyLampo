@@ -260,4 +260,10 @@ export type GameEvent =
   | { e: 'clear' }
   | { e: 'say'; who: string; text: string }
   | { e: 'hint'; text: string }
-  | { e: 'phase'; n: number };
+  | { e: 'phase'; n: number }
+  /** Loot / progression feedback (Megabonk × D&D). */
+  | { e: 'loot'; dropId: string; kind: string; x: number; z: number; amount: number; itemId?: string; rarity?: string; gem?: string }
+  | { e: 'pickup'; id: string; dropId: string; kind: string; amount: number; itemId?: string; toast?: string }
+  | { e: 'levelup'; id: string; level: number; cards: string[] }
+  | { e: 'bonk'; x: number; z: number; r: number }
+  | { e: 'poise'; id: number; dmg: number; x: number; z: number };

@@ -3,9 +3,35 @@
  * It is transport-agnostic: the server runs it, and the offline mode runs the very same code in the browser.
  */
 import { INTERP_DELAY_MS, TICK_HZ, TUNING } from './constants';
+import {
+  ASI_LEVELS,
+  computeHeroStats,
+  levelFromDndXp,
+  levelUpHpGain,
+  rollLevelUpCards,
+  type AbilityId,
+  type ComputedHeroStats,
+  type MegabonkTomeId,
+} from './dndMegabonkRules';
+import { EffectQueue, clearPoisonLike } from './effectQueue';
 import { ENEMIES, type EnemyAttackDef, type EnemyDef } from './enemies';
 import { HEROES, type AttackDef } from './heroes';
-import { scaledHeroVitals } from './progress';
+import { getItem, rollDice } from './itemsCatalog';
+import {
+  awardPartyXp,
+  consumeBeltSlot,
+  emptyInventory,
+  equipFromBag,
+  assignBelt,
+  partyLuckMul,
+  salvageItem,
+  spawnKillLoot,
+  stepLootPhysics,
+  tryClaimDrop,
+  type GroundDrop,
+  type HeroInventory,
+} from './lootSystem';
+import { scaledHeroVitals, levelFromXp } from './progress';
 import {
   buildFlow,
   collide,
@@ -128,6 +154,24 @@ export class World {
   readonly stats = new Map<string, PlayerStats>();
   /** Round-trip time per player in ms, reported by the transport (drives lag forgiveness). */
   readonly rtt = new Map<string, number>();
+  /** Per-hero inventory / PE / tomes (room authority). */
+  readonly inventories = new Map<string, HeroInventory>();
+  /** Ground loot with Megabonk magnet physics. */
+  loot: GroundDrop[] = [];
+  /** EffectQueue per player (consumable buffs). */
+  readonly effectQueues = new Map<string, EffectQueue>();
+  /** Skillful play window: +15% PE on gem pickup (parry / counter / execute). */
+  private readonly skillBonusUntil = new Map<string, number>();
+  /** Cached live D&D×Megabonk stats. */
+  private readonly liveStats = new Map<string, ComputedHeroStats>();
+  /** Vexation mastery: next hit crit bonus. */
+  private readonly vexation = new Map<string, boolean>();
+  /** Fiaccare: next attack damage mul on enemy. */
+  private readonly fiaccare = new Map<number, number>();
+  /** Next kill() should tag loot as executed (richer gems). */
+  private pendingExecuteLoot = false;
+  /** Fractional HP regen accumulator (whole points only). */
+  private readonly regenAcc = new Map<string, number>();
 
   waves: WaveDef[];
   waveIdx = -1;
@@ -160,7 +204,7 @@ export class World {
 
   // ---------------------------------------------------------------- players
 
-  addPlayer(id: string, hero: HeroId, slot: number, level = 1): PlayerState {
+  addPlayer(id: string, hero: HeroId, slot: number, level = 1, opts?: { starterGear?: boolean }): PlayerState {
     const spawns = this.layout.playerSpawns;
     const s = spawns[slot % spawns.length]!;
     const vitals = scaledHeroVitals(HEROES[hero], level);
@@ -181,12 +225,81 @@ export class World {
         heals: 0,
       });
     }
+    if (!this.inventories.has(id) || this.inventories.get(id)!.hero !== hero) {
+      const inv = emptyInventory(hero, { starter: !!opts?.starterGear });
+      inv.pe = 0;
+      this.inventories.set(id, inv);
+    }
+    if (!this.effectQueues.has(id)) this.effectQueues.set(id, new EffectQueue());
+    this.refreshLiveStats(id);
+    const live = this.liveStats.get(id);
+    if (live) {
+      p.maxHp = Math.max(p.maxHp, live.maxHp);
+      p.hp = Math.min(p.maxHp, Math.max(p.hp, live.maxHp));
+      p.maxStamina = Math.max(p.maxStamina, live.maxStamina);
+      p.stamina = Math.min(p.maxStamina, p.stamina);
+    }
     return p;
   }
 
   removePlayer(id: string): void {
     this.players.delete(id);
     this.pending = this.pending.filter((h) => h.pid !== id);
+    this.inventories.delete(id);
+    this.effectQueues.delete(id);
+    this.liveStats.delete(id);
+    this.skillBonusUntil.delete(id);
+    this.vexation.delete(id);
+  }
+
+  /** Sync PE book from client progress into the live inventory. */
+  syncPe(id: string, pe: number): void {
+    const inv = this.inventories.get(id);
+    if (!inv) return;
+    inv.pe = Math.max(inv.pe, Math.floor(pe));
+    this.refreshLiveStats(id);
+  }
+
+  getInventory(id: string): HeroInventory | undefined {
+    return this.inventories.get(id);
+  }
+
+  private refreshLiveStats(id: string): ComputedHeroStats | null {
+    const p = this.players.get(id);
+    const inv = this.inventories.get(id);
+    if (!p || !inv) return null;
+    const hero = HEROES[p.hero];
+    const level = Math.max(levelFromXp(inv.pe), levelFromDndXp(inv.pe));
+    const queue = this.effectQueues.get(id);
+    const buffs = queue?.toActiveBuffs() ?? [];
+    const stats = computeHeroStats(
+      p.hero,
+      level,
+      {
+        mainHand: inv.mainHand,
+        offHand: inv.offHand,
+        armor: inv.armor,
+        relic: inv.relic,
+        belt: inv.belt,
+      },
+      buffs,
+      inv.tomes,
+      { baseHp: hero.hp, baseStamina: hero.stamina, asiSpends: inv.asiSpends },
+    );
+    this.liveStats.set(id, stats);
+    // Soft-apply vitals without clipping current HP below current.
+    // Keep p.dmgMul as the pure level bonus — light/heavy Megabonk muls apply in melee.
+    const prevMax = p.maxHp || hero.hp;
+    const levelHp = Math.round(hero.hp * (1 + 0.028 * (level - 1)));
+    p.maxHp = Math.max(stats.maxHp, levelHp);
+    if (p.maxHp > prevMax) p.hp += p.maxHp - prevMax;
+    p.maxStamina = Math.max(p.maxStamina, stats.maxStamina);
+    p.dmgMul = 1 + 0.018 * (level - 1);
+    return stats;
+  }
+
+  liveOf(id: string): ComputedHeroStats | null {
+    return this.liveStats.get(id) ?? this.refreshLiveStats(id);
   }
 
   alivePlayers(): PlayerState[] {
@@ -272,14 +385,20 @@ export class World {
 
   private playerMelee(p: PlayerState, def: AttackDef, heavy: boolean): void {
     const { mult, full } = this.chargeOf(p, heavy);
+    const live = this.liveOf(p.id);
+    const areaMul = live?.areaMul ?? 1;
+    const kbMul = live?.knockbackMul ?? 1;
+    const postureMul = live?.postureMul ?? 1;
+    const dmgMul = heavy ? live?.heavyDmgMul ?? 1 : live?.lightDmgMul ?? 1;
+    const mastery = live?.mastery;
     const fx = Math.sin(p.yaw);
     const fz = Math.cos(p.yaw);
     let any = false;
     const hitRival = (q: PlayerState, cx: number, cz: number): boolean => {
       const res = this.tryHitPlayer(q, {
-        dmg: def.dmg * mult,
+        dmg: def.dmg * mult * dmgMul,
         red: heavy,
-        kb: def.kb * (heavy ? 1.15 : 1),
+        kb: def.kb * (heavy ? 1.15 : 1) * kbMul,
         ox: cx,
         oz: cz,
         src: 0,
@@ -287,16 +406,24 @@ export class World {
       });
       return res !== 'none' && res !== 'dodged';
     };
+    const strike = (e: EnemyState, dmg: number, poise: number, kb: number): boolean =>
+      this.damageEnemy(e, dmg, poise, p, {
+        kb,
+        heavy,
+        effect: full ? def.charged : undefined,
+        mastery: mastery ?? undefined,
+      });
+
     if (def.aoe) {
       const ahead = def.aoeAhead ?? 0;
       const cx = p.x + fx * ahead;
       const cz = p.z + fz * ahead;
-      const radius = def.aoe * (full && def.charged === 'slam' ? 1.35 : 1);
+      const radius = def.aoe * (full && def.charged === 'slam' ? 1.35 : 1) * areaMul;
       for (const e of this.enemies) {
         if (!this.hittable(e)) continue;
         const d = Math.hypot(e.x - cx, e.z - cz) - ENEMIES[e.type].radius;
         if (d > radius + TUNING.lagPad) continue;
-        any = this.damageEnemy(e, def.dmg * mult, def.poise * mult, p, { kb: def.kb, heavy, effect: full ? def.charged : undefined }) || any;
+        any = strike(e, def.dmg * mult * dmgMul, def.poise * mult * postureMul, def.kb * kbMul) || any;
       }
       if (this.pvp) {
         for (const q of this.players.values()) {
@@ -308,15 +435,36 @@ export class World {
       }
       this.events.push({ e: 'fx', what: 'slam', x: cx, z: cz, r: radius });
     } else {
-      const half = (def.arc / 2 + 12) * RAD;
+      const half = (def.arc / 2 + 12) * areaMul * RAD;
+      const range = def.range * Math.min(1.25, 0.85 + areaMul * 0.15);
+      const hitIds: number[] = [];
       for (const e of this.enemies) {
         if (!this.hittable(e)) continue;
         const dx = e.x - p.x;
         const dz = e.z - p.z;
         const d = Math.hypot(dx, dz) - ENEMIES[e.type].radius;
-        if (d > def.range + TUNING.lagPad) continue;
+        if (d > range + TUNING.lagPad) continue;
         if (def.arc < 360 && d > 0.8 && Math.abs(angleDiff(yawOf(dx, dz), p.yaw)) > half) continue;
-        any = this.damageEnemy(e, def.dmg * mult, def.poise * mult, p, { kb: def.kb, heavy, effect: full ? def.charged : undefined }) || any;
+        const landed = strike(e, def.dmg * mult * dmgMul, def.poise * mult * postureMul, def.kb * kbMul);
+        any = landed || any;
+        if (landed) hitIds.push(e.id);
+      }
+      // Mastery: Doppio Fendente — cleave a second adjacent target
+      if (mastery === 'doppioFendente' && hitIds.length > 0) {
+        const primary = this.enemies.find((e) => e.id === hitIds[0]);
+        if (primary) {
+          for (const e of this.enemies) {
+            if (e.id === primary.id || !this.hittable(e)) continue;
+            if (Math.hypot(e.x - primary.x, e.z - primary.z) > 2.4) continue;
+            strike(e, def.dmg * mult * dmgMul * 0.55, def.poise * mult * postureMul * 0.5, def.kb * kbMul * 0.7);
+            break;
+          }
+        }
+      }
+      // Mastery: Graffio — extra light nick
+      if (mastery === 'graffio' && !heavy && any) {
+        const e = this.enemies.find((x) => hitIds.includes(x.id) && this.hittable(x));
+        if (e) strike(e, Math.max(3, def.dmg * 0.35 * dmgMul), def.poise * 0.25 * postureMul, 1);
       }
       if (this.pvp) {
         for (const q of this.players.values()) {
@@ -324,7 +472,7 @@ export class World {
           const dx = q.x - p.x;
           const dz = q.z - p.z;
           const d = Math.hypot(dx, dz) - TUNING.playerRadius;
-          if (d > def.range + TUNING.lagPad) continue;
+          if (d > range + TUNING.lagPad) continue;
           if (def.arc < 360 && d > 0.8 && Math.abs(angleDiff(yawOf(dx, dz), p.yaw)) > half) continue;
           any = hitRival(q, p.x, p.z) || any;
         }
@@ -395,12 +543,22 @@ export class World {
     dmg: number,
     poise: number,
     p: PlayerState | null,
-    opts: { kb?: number; heavy?: boolean; effect?: string; raw?: boolean; crit?: number } = {},
+    opts: {
+      kb?: number;
+      heavy?: boolean;
+      effect?: string;
+      raw?: boolean;
+      crit?: number;
+      mastery?: string;
+    } = {},
   ): boolean {
     if (!this.hittable(e)) return false;
     const def = ENEMIES[e.type];
     let mul = 1;
     let crit = opts.crit ?? 0;
+    let poiseMul = 1;
+    let kbMul = 1;
+    const mastery = opts.mastery;
     if (p && !opts.raw) {
       const up = getStatus(p.st, PS.DmgUp);
       if (up) mul *= 1 + up.p;
@@ -410,6 +568,7 @@ export class World {
         mul *= TUNING.counterDamage;
         poise *= TUNING.counterPoise;
         crit = 2;
+        this.skillBonusUntil.set(p.id, this.time + 6);
       }
       if (hasStatus(p.st, PS.Stealth)) {
         mul *= 2;
@@ -420,6 +579,19 @@ export class World {
           mul *= 1.6;
           crit = 1;
         }
+      }
+      if (this.vexation.get(p.id)) {
+        mul *= 1.15;
+        crit = Math.max(crit, 1);
+        this.vexation.set(p.id, false);
+      }
+      if (mastery === 'vessazione') this.vexation.set(p.id, true);
+      if (mastery === 'rovesciamento' && opts.heavy) poiseMul *= 1.35;
+      if (mastery === 'spinta') kbMul *= 1.55;
+      const live = this.liveOf(p.id);
+      if (live) {
+        kbMul *= live.knockbackMul;
+        poiseMul *= live.postureMul;
       }
     }
     if (!opts.raw) {
@@ -451,20 +623,27 @@ export class World {
       crit,
       kill,
       heavy: !!opts.heavy,
-      kb: opts.kb ?? 0,
+      kb: (opts.kb ?? 0) * kbMul,
     });
     if (kill) {
       this.kill(e, p);
       return true;
     }
 
-    if (opts.effect === 'freeze') this.freeze(e, 2.5);
-    else if (opts.effect === 'confuse') this.confuse(e, 2.5);
+    const statusMul = p ? this.liveOf(p.id)?.statusDurationMul ?? 1 : 1;
+    if (opts.effect === 'freeze') this.freeze(e, 2.5 * statusMul);
+    else if (opts.effect === 'confuse') this.confuse(e, 2.5 * statusMul);
+    if (mastery === 'lentezza') addStatus(e.st, ES.Slow, 3 * statusMul, 0.3);
+    if (mastery === 'fiaccare') this.fiaccare.set(e.id, 0.8);
 
     if (opts.heavy && hasStatus(e.st, ES.Frozen) && opts.effect !== 'freeze') removeStatus(e.st, ES.Frozen);
 
+    const poiseDmg = poise * poiseMul;
     if (e.state !== EState.Broken) {
-      e.poise += poise;
+      e.poise += poiseDmg;
+      if (poiseDmg > 0) {
+        this.events.push({ e: 'poise', id: e.id, dmg: Math.round(poiseDmg), x: e.x, z: e.z });
+      }
       if (e.poise >= e.maxPoise) {
         this.breakEnemy(e);
       } else if (!def.steady && !hasStatus(e.st, ES.Frozen)) {
@@ -473,7 +652,7 @@ export class World {
         if (!armored) {
           e.state = EState.Stagger;
           e.t = 0;
-          e.n = opts.heavy ? 0.55 : 0.36;
+          e.n = opts.heavy || mastery === 'rovesciamento' ? 0.55 : 0.36;
           // Nobody can be pinned forever: after a few flinches in a row the enemy shrugs hits off.
           if (++e.flinches >= TUNING.flinchLimit) {
             e.flinches = 0;
@@ -489,7 +668,7 @@ export class World {
       const d = Math.hypot(dx, dz) || 1;
       const mass = HEROES[p.hero].mass;
       const resist = def.boss ? 0.15 : def.steady ? 0.5 : 1;
-      const k = opts.kb * resist * TUNING.knockMul * (0.75 + mass * 0.35);
+      const k = opts.kb * kbMul * resist * TUNING.knockMul * (0.75 + mass * 0.35);
       e.kx += (dx / d) * k;
       e.kz += (dz / d) * k;
     }
@@ -530,11 +709,33 @@ export class World {
     e.state = EState.Dead;
     e.t = 0;
     e.st.length = 0;
+    this.fiaccare.delete(e.id);
     if (p) {
       const st = this.stats.get(p.id);
       if (st) st.kills++;
     }
     if (def.burst) this.addZone('burst', e.x, e.z, 3, 0.9, '', def.burst);
+    // Megabonk loot: gems / coins / gear — no pause menus
+    if (!this.safe && !def.dummy) {
+      const luck = partyLuckMul(this.inventories.values());
+      const drops = spawnKillLoot(e.type, e.x, e.z, luck, () => this.rng.next(), {
+        executed: this.pendingExecuteLoot,
+      });
+      for (const d of drops) {
+        this.loot.push(d);
+        this.events.push({
+          e: 'loot',
+          dropId: d.dropId,
+          kind: d.kind,
+          x: d.x,
+          z: d.z,
+          amount: d.amount,
+          itemId: d.itemId,
+          rarity: d.rarity,
+          gem: d.gem,
+        });
+      }
+    }
   }
 
   private execute(p: PlayerState, targetId: number): void {
@@ -552,7 +753,10 @@ export class World {
     p.ult = Math.min(100, p.ult + TUNING.ultExecute);
     this.heal(p, (p.maxHp || HEROES[p.hero].hp) * TUNING.executeHeal, false, p.id);
     this.events.push({ e: 'exec', id: e.id, by: p.id });
+    this.skillBonusUntil.set(p.id, this.time + 8);
+    this.pendingExecuteLoot = true;
     this.damageEnemy(e, amount, 0, p, { raw: true, crit: 3 });
+    this.pendingExecuteLoot = false;
     if (e.state === EState.Broken) {
       e.state = EState.Stagger;
       e.t = 0;
@@ -822,7 +1026,8 @@ export class World {
       return 'dodged';
     }
     if (p.act === Act.Block && this.canGuard(p, spec, true)) {
-      if (!spec.red && p.t <= T(TUNING.perfectParry)) {
+      const parryWindow = TUNING.perfectParry + (this.liveOf(p.id)?.perfectParryBonus ?? 0);
+      if (!spec.red && p.t <= T(parryWindow)) {
         this.parry(p, spec);
         return 'parried';
       }
@@ -883,6 +1088,7 @@ export class World {
     p.ult = Math.min(100, p.ult + TUNING.ultPerfectParry);
     p.iframes = Math.max(p.iframes, T(0.3));
     addStatus(p.st, PS.Counter, T(TUNING.counterDuration), 0);
+    this.skillBonusUntil.set(p.id, this.time + 6);
     const st = this.stats.get(p.id);
     if (st) st.parries++;
     this.events.push({ e: 'parry', id: p.id, x: p.x, z: p.z, enemy: spec.src });
@@ -1014,6 +1220,13 @@ export class World {
 
   private applyHit(p: PlayerState, spec: HitSpec): void {
     let dmg = spec.dmg * TUNING.threatMul;
+    const live = this.liveOf(p.id);
+    if (live) dmg *= live.physDamageTakenMul;
+    const weaken = this.fiaccare.get(spec.src);
+    if (weaken != null) {
+      dmg *= weaken;
+      this.fiaccare.delete(spec.src);
+    }
     const guard = getStatus(p.st, PS.Guard);
     if (guard) dmg *= 1 - guard.p;
     if (hasStatus(p.st, PS.Bubble)) dmg *= 0.5;
@@ -2011,9 +2224,258 @@ export class World {
     this.stepZones(dt);
     this.resolvePending();
     this.stepWaves(dt);
+    this.stepLoot(dt);
+    this.stepHeroRegen(dt);
     if (this.enemies.some((e) => e.state === EState.Dead && e.t > CORPSE_TIME)) {
       this.enemies = this.enemies.filter((e) => !(e.state === EState.Dead && e.t > CORPSE_TIME));
     }
+  }
+
+  private stepHeroRegen(dt: number): void {
+    for (const p of this.players.values()) {
+      if (p.act === Act.Downed) continue;
+      const live = this.liveOf(p.id);
+      const q = this.effectQueues.get(p.id);
+      if (q) {
+        q.step(dt);
+        if (live) q.syncPlayerStatuses(p, live.statusDurationMul);
+      }
+      // COS vigour: rest regen in the hub / safe rooms (combat uses potions & pickups).
+      if (!this.safe || !live || live.hpRegenPerSec <= 0) continue;
+      if (p.act !== Act.Idle) continue;
+      if (p.hp >= p.maxHp) {
+        this.regenAcc.set(p.id, 0);
+        continue;
+      }
+      const acc = (this.regenAcc.get(p.id) ?? 0) + live.hpRegenPerSec * dt;
+      if (acc >= 1) {
+        const whole = Math.floor(acc);
+        this.regenAcc.set(p.id, acc - whole);
+        this.heal(p, whole, false);
+      } else {
+        this.regenAcc.set(p.id, acc);
+      }
+    }
+  }
+
+  private stepLoot(dt: number): void {
+    if (this.loot.length === 0) return;
+    const heroes = [...this.players.values()]
+      .filter((p) => p.act !== Act.Downed)
+      .map((p) => ({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        pickupRadius: this.liveOf(p.id)?.pickupRadius ?? 2.4,
+      }));
+    this.loot = stepLootPhysics(this.loot, heroes, dt);
+
+    // Atomic claims when within 0.55 m
+    for (const d of this.loot) {
+      if (d.claimedBy) continue;
+      let best: { id: string; dist: number } | null = null;
+      for (const h of heroes) {
+        const dist = Math.hypot(h.x - d.x, h.z - d.z);
+        if (dist <= 0.55 && (!best || dist < best.dist)) best = { id: h.id, dist };
+      }
+      if (!best) continue;
+      const inv = this.inventories.get(best.id);
+      if (!inv) continue;
+      const skill = (this.skillBonusUntil.get(best.id) ?? 0) > this.time;
+      const result = tryClaimDrop(d, best.id, inv, { skillBonus: skill });
+      if (!result.ok) continue;
+
+      if (result.sharedXp != null) {
+        const prevLevels = new Map<string, number>();
+        for (const [id, inv2] of this.inventories) prevLevels.set(id, levelFromDndXp(inv2.pe));
+        awardPartyXp(this.inventories, {
+          shared: result.sharedXp,
+          bonus: result.bonusXp ?? 0,
+          pickerId: best.id,
+        });
+        for (const [id, inv2] of this.inventories) {
+          this.refreshLiveStats(id);
+          const prev = prevLevels.get(id) ?? 1;
+          const next = levelFromDndXp(inv2.pe);
+          if (next > prev) this.onLevelUp(id, prev, next);
+        }
+      }
+
+      if (result.magnet) this.magnetAllGems(best.id);
+      if (result.item && result.instantHeal) {
+        const def = getItem(result.item.itemId);
+        const healOp = def?.effects?.find((o) => o.op === 'heal_dice');
+        if (healOp?.param) {
+          const p = this.players.get(best.id);
+          if (p) this.heal(p, rollDice(healOp.param, () => this.rng.next()), true, best.id);
+        }
+      }
+      if (result.fillUlt) {
+        const p = this.players.get(best.id);
+        if (p) p.ult = Math.min(100, p.ult + result.fillUlt);
+        for (const e of this.enemiesNear(
+          this.players.get(best.id)?.x ?? 0,
+          this.players.get(best.id)?.z ?? 0,
+          5,
+        )) {
+          e.poise = Math.min(e.maxPoise, e.poise + e.maxPoise * 0.3);
+          if (e.poise >= e.maxPoise) this.breakEnemy(e);
+        }
+      }
+      // Arena judgment / blood handled via item effects enqueue for consumables later
+      if (result.item && getItem(result.item.itemId)?.kind === 'arena') {
+        const def = getItem(result.item.itemId)!;
+        const q = this.effectQueues.get(best.id);
+        const p = this.players.get(best.id);
+        if (q && p && def.effects) {
+          q.enqueueOpcodes(def.id, def.effects, {
+            heal: (amt) => this.heal(p, amt, true, best.id),
+            magnetAll: () => this.magnetAllGems(best.id),
+            fillUlt: (pct) => {
+              p.ult = Math.min(100, p.ult + pct);
+            },
+            fillPoiseNear: (frac) => {
+              for (const e of this.enemiesNear(p.x, p.z, 5)) {
+                e.poise = Math.min(e.maxPoise, e.poise + e.maxPoise * frac);
+                if (e.poise >= e.maxPoise) this.breakEnemy(e);
+              }
+            },
+            rng: () => this.rng.next(),
+          });
+        }
+      }
+
+      this.events.push({
+        e: 'pickup',
+        id: best.id,
+        dropId: d.dropId,
+        kind: d.kind,
+        amount: d.amount + (result.bonusXp ?? 0),
+        itemId: result.item?.itemId ?? d.itemId,
+        toast: result.toast,
+      });
+    }
+    this.loot = this.loot.filter((d) => !d.claimedBy);
+  }
+
+  private magnetAllGems(pickerId: string): void {
+    const inv = this.inventories.get(pickerId);
+    if (!inv) return;
+    let shared = 0;
+    for (const d of this.loot) {
+      if (d.kind !== 'gem' || d.claimedBy) continue;
+      d.claimedBy = pickerId;
+      shared += d.amount;
+    }
+    if (shared <= 0) return;
+    const skill = (this.skillBonusUntil.get(pickerId) ?? 0) > this.time;
+    const bonus = skill ? Math.round(shared * 0.15) : 0;
+    const prevLevels = new Map<string, number>();
+    for (const [id, inv2] of this.inventories) prevLevels.set(id, levelFromDndXp(inv2.pe));
+    awardPartyXp(this.inventories, { shared, bonus, pickerId });
+    for (const [id, inv2] of this.inventories) {
+      this.refreshLiveStats(id);
+      const prev = prevLevels.get(id) ?? 1;
+      const next = levelFromDndXp(inv2.pe);
+      if (next > prev) this.onLevelUp(id, prev, next);
+    }
+    this.events.push({
+      e: 'pickup',
+      id: pickerId,
+      dropId: 'magnet',
+      kind: 'gem',
+      amount: shared + bonus,
+      toast: `Magnete! +${shared + bonus} PE`,
+    });
+  }
+
+  private onLevelUp(id: string, from: number, to: number): void {
+    const p = this.players.get(id);
+    const inv = this.inventories.get(id);
+    if (!p || !inv) return;
+    const hero = HEROES[p.hero];
+    for (let L = from + 1; L <= to; L++) {
+      const live = this.refreshLiveStats(id);
+      const gain = levelUpHpGain(p.hero, live?.mods.COS ?? 0, hero.hp);
+      p.maxHp += gain;
+      p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.45));
+      if (ASI_LEVELS.includes(L as (typeof ASI_LEVELS)[number])) inv.asiPoints += 2;
+      inv.pendingCards = rollLevelUpCards(() => this.rng.next(), L);
+      this.events.push({ e: 'levelup', id, level: L, cards: inv.pendingCards });
+      // Bonk! shockwave — shove nearby enemies so you don't die mid level-up
+      this.events.push({ e: 'bonk', x: p.x, z: p.z, r: 4.5 });
+      for (const e of this.enemiesNear(p.x, p.z, 4.5)) {
+        if (!this.hittable(e)) continue;
+        const dx = e.x - p.x;
+        const dz = e.z - p.z;
+        const d = Math.hypot(dx, dz) || 1;
+        e.kx += (dx / d) * 10;
+        e.kz += (dz / d) * 10;
+        e.poise += 12;
+      }
+    }
+  }
+
+  useBelt(id: string, slot: number): boolean {
+    const p = this.players.get(id);
+    const inv = this.inventories.get(id);
+    const q = this.effectQueues.get(id);
+    if (!p || !inv || !q || p.act === Act.Downed) return false;
+    const used = consumeBeltSlot(inv, slot);
+    if (!used) return false;
+    const def = getItem(used.itemId);
+    if (!def?.effects) return false;
+    const live = this.liveOf(id);
+    q.enqueueOpcodes(def.id, def.effects, {
+      heal: (amt) => this.heal(p, amt, true, id),
+      damageAoe: (dice, _type, radius) => {
+        const dmg = rollDice(dice, () => this.rng.next());
+        for (const e of this.enemiesNear(p.x, p.z, radius)) {
+          this.damageEnemy(e, dmg, dmg * 0.6, p, { kb: 3, heavy: true });
+        }
+        this.events.push({ e: 'fx', what: 'slam', x: p.x, z: p.z, r: radius });
+      },
+      magnetAll: () => this.magnetAllGems(id),
+      fillUlt: (pct) => {
+        p.ult = Math.min(100, p.ult + pct);
+      },
+      curePoison: () => clearPoisonLike(p.st),
+      rng: () => this.rng.next(),
+    });
+    q.syncPlayerStatuses(p, live?.statusDurationMul ?? 1);
+    this.refreshLiveStats(id);
+    return true;
+  }
+
+  pickLevelCard(id: string, index: number): boolean {
+    const inv = this.inventories.get(id);
+    if (!inv || !inv.pendingCards.length) return false;
+    const card = inv.pendingCards[index] as MegabonkTomeId | undefined;
+    if (!card) return false;
+    inv.tomes.push(card);
+    inv.pendingCards = [];
+    this.refreshLiveStats(id);
+    return true;
+  }
+
+  spendAsi(id: string, ability: AbilityId): boolean {
+    const inv = this.inventories.get(id);
+    if (!inv || inv.asiPoints <= 0) return false;
+    inv.asiSpends[ability] = (inv.asiSpends[ability] ?? 0) + 1;
+    inv.asiPoints -= 1;
+    this.refreshLiveStats(id);
+    return true;
+  }
+
+  invAction(id: string, op: 'equip' | 'salvage' | 'belt', uid: string, slot?: number): boolean {
+    const inv = this.inventories.get(id);
+    if (!inv) return false;
+    let ok = false;
+    if (op === 'equip') ok = equipFromBag(inv, uid);
+    else if (op === 'salvage') ok = salvageItem(inv, uid) > 0;
+    else if (op === 'belt') ok = assignBelt(inv, uid, slot ?? 0);
+    if (ok) this.refreshLiveStats(id);
+    return ok;
   }
 
   drainEvents(): GameEvent[] {
