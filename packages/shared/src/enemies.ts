@@ -90,8 +90,9 @@ function ea(s: AtkSpec): EnemyAttackDef {
     recover: 0.7,
     kind: 'blue',
     startRange: 3,
-    reach: 3.1,
-    arc: 110,
+    // Default melee volume stays close to the telegraph / weapon swing (was 3.1 / 110°).
+    reach: 2.85,
+    arc: 95,
     lunge: 1,
     kb: 3,
     cd: 2.4,

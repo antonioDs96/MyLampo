@@ -422,6 +422,24 @@ describe('defence', () => {
     for (let i = 0; i < 8; i++) world.step(0.05);
     expect(p.hp).toBe(HEROES.jusef.hp);
   });
+
+  it('grace re-check uses the same melee volume as the strike (no phantom reach)', () => {
+    const { world, p } = setup();
+    world.rtt.set('a', 150);
+    const atk = ENEMIES.cultista.attacks.find((a) => a.id === 'fendente')!;
+    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.2);
+    windup(world, e, p, 'fendente');
+    while (e.state === EState.Windup) world.step(0.05);
+    // Just outside the real hit volume — previously still allowed reach+1.1 and would punish this.
+    const limit = atk.reach + TUNING.enemyHitPad + 0.05;
+    const dx = p.x - e.x;
+    const dz = p.z - e.z;
+    const d = Math.hypot(dx, dz) || 1;
+    p.x = e.x + (dx / d) * limit;
+    p.z = e.z + (dz / d) * limit;
+    for (let i = 0; i < 8; i++) world.step(0.05);
+    expect(p.hp).toBe(HEROES.jusef.hp);
+  });
 });
 
 describe('stagger, executions and co-op', () => {

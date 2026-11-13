@@ -57,6 +57,11 @@ export const TUNING = {
   /** Lag forgiveness: hits wait this long (ms) for a late dodge/parry before applying. */
   graceMinMs: 100,
   graceMaxMs: 260,
+  /**
+   * How far past the telegraph edge (enemy centre → reach) a player centre may still be hit.
+   * Keep small so spacing out of the glow actually avoids damage; must match the grace re-check.
+   */
+  enemyHitPad: 0.2,
   /** Extra reach granted to player attacks to cover what the attacker saw on screen. */
   lagPad: 0.45,
 

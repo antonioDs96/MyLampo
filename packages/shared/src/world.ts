@@ -1283,6 +1283,7 @@ export class World {
     }
     const ox = e.x;
     const oz = e.z;
+    const pad = TUNING.enemyHitPad;
     if (atk.aoe) {
       const cx = e.ax;
       const cz = e.az;
@@ -1290,7 +1291,7 @@ export class World {
       this.events.push({ e: 'ecast', id: e.id, what: 'slam', x: cx, z: cz, r });
       for (const p of this.players.values()) {
         const at = this.hitPos(p, tmp);
-        if (Math.hypot(at.x - cx, at.z - cz) > r + TUNING.playerRadius * 0.5) continue;
+        if (Math.hypot(at.x - cx, at.z - cz) > r + pad) continue;
         this.tryHitPlayer(p, {
           dmg: atk.dmg,
           red,
@@ -1299,20 +1300,25 @@ export class World {
           oz: cz,
           src: e.id,
           slow: atk.slow,
-          still: (q) => Math.hypot(q.x - cx, q.z - cz) <= r + 0.9,
+          // Same radius as the strike — walking out of the slam must cancel the pending hit.
+          still: (q) => Math.hypot(q.x - cx, q.z - cz) <= r + pad,
         });
       }
       return;
     }
     const half = (atk.arc / 2) * RAD;
     const yaw = e.yaw;
+    const inMelee = (x: number, z: number): boolean => {
+      const dx = x - ox;
+      const dz = z - oz;
+      const d = Math.hypot(dx, dz);
+      if (d > atk.reach + pad) return false;
+      if (atk.arc < 360 && d > def.radius + 0.55 && Math.abs(angleDiff(yawOf(dx, dz), yaw)) > half) return false;
+      return true;
+    };
     for (const p of this.players.values()) {
       const at = this.hitPos(p, tmp);
-      const dx = at.x - ox;
-      const dz = at.z - oz;
-      const d = Math.hypot(dx, dz);
-      if (d > atk.reach + TUNING.playerRadius * 0.5) continue;
-      if (atk.arc < 360 && d > def.radius + 0.6 && Math.abs(angleDiff(yawOf(dx, dz), yaw)) > half) continue;
+      if (!inMelee(at.x, at.z)) continue;
       this.tryHitPlayer(p, {
         dmg: atk.dmg,
         red,
@@ -1321,7 +1327,8 @@ export class World {
         oz,
         src: e.id,
         slow: atk.slow,
-        still: (q) => Math.hypot(q.x - ox, q.z - oz) <= atk.reach + 1.1,
+        // Re-check the exact swing volume after lag forgiveness (was reach+1.1 — phantom hits).
+        still: (q) => inMelee(q.x, q.z),
       });
     }
   }
