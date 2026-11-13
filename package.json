@@ -1,0 +1,32 @@
+{
+  "name": "malampu",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Malampu — L'Eclissi della Dea Velata: gioco d'azione co-op PvE per browser",
+  "type": "module",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @malampu/server --filter @malampu/client dev",
+    "dev:server": "pnpm --filter @malampu/server dev",
+    "dev:client": "pnpm --filter @malampu/client dev",
+    "build": "pnpm --filter @malampu/client build && pnpm --filter @malampu/server build",
+    "start": "node packages/server/dist/server.mjs",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "assets": "node scripts/build-assets.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "eslint": "^10.14.0",
+    "puppeteer-core": "^25.17.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
+  }
+}

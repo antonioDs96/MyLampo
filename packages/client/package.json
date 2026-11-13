@@ -1,0 +1,21 @@
+{
+  "name": "@malampu/client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.36.0",
+    "@babylonjs/loaders": "^9.36.0",
+    "@colyseus/sdk": "^0.18.10",
+    "@malampu/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}
