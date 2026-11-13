@@ -897,13 +897,13 @@ export class World {
         break;
       }
       case 'provocazione': {
-        for (const e of this.enemiesNear(p.x, p.z, 11)) {
+        for (const e of this.enemiesNear(p.x, p.z, 10)) {
           if (ENEMIES[e.type].dummy) continue;
           e.target = p.id;
-          addStatus(e.st, ES.Taunted, 6, 0);
+          addStatus(e.st, ES.Taunted, 5, 0);
         }
-        addStatus(p.st, PS.Guard, T(6), 0.5);
-        cast(id, 11);
+        addStatus(p.st, PS.Guard, T(5), 0.4);
+        cast(id, 10);
         break;
       }
       case 'marchio': {
@@ -1001,15 +1001,15 @@ export class World {
         break;
       }
       case 'sisma': {
-        for (const e of this.enemiesNear(p.x, p.z, 10)) this.damageEnemy(e, 60, 80, p, { kb: 12, heavy: true });
+        for (const e of this.enemiesNear(p.x, p.z, 9)) this.damageEnemy(e, 48, 65, p, { kb: 10, heavy: true });
         if (this.pvp) {
           for (const q of this.players.values()) {
             if (q.id === p.id || q.act === Act.Downed) continue;
-            if (Math.hypot(q.x - p.x, q.z - p.z) > 10) continue;
-            this.tryHitPlayer(q, { dmg: 60, red: true, kb: 12, ox: p.x, oz: p.z, src: 0, by: p.id });
+            if (Math.hypot(q.x - p.x, q.z - p.z) > 9) continue;
+            this.tryHitPlayer(q, { dmg: 48, red: true, kb: 10, ox: p.x, oz: p.z, src: 0, by: p.id });
           }
         }
-        cast(10);
+        cast(9);
         break;
       }
       case 'pioggia': {
