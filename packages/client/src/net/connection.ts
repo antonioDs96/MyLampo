@@ -25,6 +25,8 @@ export class LocalConnection implements Connection {
   private readonly host: GameHost;
   private readonly inbox: ServerMsg[] = [];
   private closed = false;
+  /** Mirrors host pause so we only transition on edges (avoids per-frame unpause calls). */
+  private paused = false;
 
   constructor(name: string) {
     const deliver = (msg: ServerMsg) => this.inbox.push(msg);
@@ -37,7 +39,8 @@ export class LocalConnection implements Connection {
   }
 
   setPaused(on: boolean, nowMs = performance.now()): void {
-    if (this.closed) return;
+    if (this.closed || on === this.paused) return;
+    this.paused = on;
     if (on) this.host.pause();
     else this.host.unpause(nowMs);
   }
