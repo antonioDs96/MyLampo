@@ -509,8 +509,11 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
         vz = mz * speed;
         const lock = findEnemy(ctx, cmd.lock);
         if (lock) p.yaw = approachAngle(p.yaw, yawOf(lock.x - p.x, lock.z - p.z), turn);
-        else if (hero.ranged) p.yaw = approachAngle(p.yaw, cmd.aim, turn * 1.8);
-        else if (moving) p.yaw = approachAngle(p.yaw, yawOf(mx, mz), turn);
+        else if (hero.ranged) {
+          // Keep the body loosely aligned with the camera so shots match the crosshair,
+          // but do not hard-snap every idle tick (that feels glued).
+          p.yaw = approachAngle(p.yaw, cmd.aim, turn * (moving ? 1.1 : 1.4));
+        } else if (moving) p.yaw = approachAngle(p.yaw, yawOf(mx, mz), turn);
       }
       break;
     }

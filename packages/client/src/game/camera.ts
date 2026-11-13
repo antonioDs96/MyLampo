@@ -3,6 +3,9 @@ import { angleDiff, clamp, rayDistance, wrapAngle, yawOf, type Layout } from '@m
 
 const PITCH_MIN = 0.08;
 const PITCH_MAX = 1.15;
+/** Free-aim pitch: closer to horizontal so the crosshair sits in the world, not on the hero. */
+const AIM_PITCH_MIN = -0.12;
+const AIM_PITCH_MAX = 0.72;
 
 /** Third-person chase camera with lock-on framing, wall avoidance and shake. */
 export class ChaseCamera {
@@ -26,6 +29,7 @@ export class ChaseCamera {
   private shakeClock = 0;
   private curDist = 9.2;
   private punch = 0;
+  private aimBlend = 0;
 
   constructor(scene: Scene) {
     this.camera = new FreeCamera('chase', new Vector3(0, 6, -10), scene);
@@ -57,9 +61,16 @@ export class ChaseCamera {
 
   rotate(dYaw: number, dPitch: number): void {
     this.yaw = wrapAngle(this.yaw + dYaw);
-    this.pitch = clamp(this.pitch + dPitch, PITCH_MIN, PITCH_MAX);
+    // Pitch limits depend on whether free-aim is blended in; keep a shared clamp.
+    const lo = AIM_PITCH_MIN;
+    const hi = PITCH_MAX;
+    this.pitch = clamp(this.pitch + dPitch, lo, hi);
   }
 
+  /**
+   * @param aimMode shooter framing: look past the hero so the centre crosshair aims into the world
+   *                instead of sitting on the character's back.
+   */
   update(
     dt: number,
     layout: Layout | null,
@@ -67,6 +78,7 @@ export class ChaseCamera {
     z: number,
     lock: { x: number; z: number; h: number } | null,
     free: boolean,
+    aimMode = false,
   ): void {
     const tx = x;
     const tz = z;
@@ -77,6 +89,10 @@ export class ChaseCamera {
     const follow = 1 - Math.exp(-dt * 14);
     this.focus.x += (tx - this.focus.x) * follow;
     this.focus.z += (tz - this.focus.z) * follow;
+
+    // Soft blend so swapping heroes does not pop the lens.
+    this.aimBlend += ((aimMode && !lock ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-dt * 5));
+    const aim = this.aimBlend;
 
     let lookX = this.focus.x;
     let lookZ = this.focus.z;
@@ -98,23 +114,37 @@ export class ChaseCamera {
       dist += clamp(d * 0.28, 0, 4.5);
       const wantPitch = clamp(0.42 + d * 0.012, 0.3, 0.62);
       this.pitch += (wantPitch - this.pitch) * (1 - Math.exp(-dt * 2.5));
+    } else if (aim > 0.01) {
+      // Look at a point ahead of the hero along the view — crosshair = world aim, not hero silhouette.
+      this.pitch = clamp(this.pitch, AIM_PITCH_MIN, AIM_PITCH_MAX);
+      const fx = Math.sin(this.yaw);
+      const fz = Math.cos(this.yaw);
+      const ahead = 16;
+      const chest = 1.45;
+      const aimLookX = this.focus.x + fx * ahead;
+      const aimLookZ = this.focus.z + fz * ahead;
+      // Pitch raises/lowers the aim point so mouse look actually aims up and down.
+      const aimLookY = chest + Math.tan(this.pitch) * ahead * 0.85;
+      lookX += (aimLookX - lookX) * aim;
+      lookZ += (aimLookZ - lookZ) * aim;
+      lookY += (aimLookY - lookY) * aim;
+      dist += (6.4 - dist) * aim;
     }
 
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
-    // Over-the-shoulder while locked, so the hero does not hide the target's telegraphs.
-    this.shoulder += ((lock ? 1.1 : 0) - this.shoulder) * (1 - Math.exp(-dt * 4));
+    // Over-the-shoulder in aim / lock so the hero does not hide what you are shooting.
+    const wantShoulder = lock ? 1.1 : aim > 0.2 ? 1.25 : 0;
+    this.shoulder += (wantShoulder - this.shoulder) * (1 - Math.exp(-dt * 4));
     lookX += fz * this.shoulder;
     lookZ -= fx * this.shoulder;
-    const horiz = Math.cos(this.pitch) * dist;
-    const want = horiz / Math.max(0.2, Math.cos(this.pitch));
+    const want = dist / Math.max(0.2, Math.cos(Math.max(0.05, Math.abs(this.pitch))));
     this.curDist += (want - this.curDist) * (1 - Math.exp(-dt * 5));
     this.punch = Math.max(0, this.punch - dt * 3.5);
     const d = this.curDist * (1 - this.punch * 0.08);
-    const back = Math.cos(this.pitch) * d;
+    const back = Math.cos(Math.max(0.05, this.pitch)) * d;
 
-    // Walls between the camera and the hero are cut away instead of pulling the camera in:
-    // everything on the camera's side of a vertical plane just in front of the wall is hidden.
+    // Walls between the camera and the look point are cut away instead of pulling the camera in.
     let cut = back + 4;
     if (layout) {
       const wall = rayDistance(layout, lookX, lookZ, -fx, -fz, back + 1.5);
@@ -124,9 +154,30 @@ export class ChaseCamera {
     this.cutPlane.normal.set(-fx, 0, -fz);
     this.cutPlane.d = fx * (lookX - fx * this.cutDist) + fz * (lookZ - fz * this.cutDist);
 
-    const cx = lookX - fx * back;
-    const cz = lookZ - fz * back;
-    const cy = lookY + Math.sin(this.pitch) * d;
+    let cx: number;
+    let cy: number;
+    let cz: number;
+    if (aim > 0.5 && !lock) {
+      // Camera rides behind the hero, looking at the world aim point (not at the hero).
+      const chest = 1.45;
+      const camBack = 5.6 * (1 - this.punch * 0.08);
+      const camHeight = chest + 1.15 + Math.max(0, this.pitch) * 1.4;
+      cx = this.focus.x - fx * camBack + fz * this.shoulder;
+      cz = this.focus.z - fz * camBack - fx * this.shoulder;
+      cy = camHeight;
+      if (layout) {
+        const wall = rayDistance(layout, this.focus.x, this.focus.z, -fx, -fz, camBack + 0.8);
+        if (wall < camBack) {
+          const pull = Math.max(1.2, wall - 0.35);
+          cx = this.focus.x - fx * pull + fz * this.shoulder;
+          cz = this.focus.z - fz * pull - fx * this.shoulder;
+        }
+      }
+    } else {
+      cx = lookX - fx * back;
+      cz = lookZ - fz * back;
+      cy = lookY + Math.sin(Math.max(0, this.pitch)) * d;
+    }
 
     this.shakeClock += dt;
     let sx = 0;
@@ -148,5 +199,8 @@ export class ChaseCamera {
     Vector3.CrossToRef(Vector3.UpReadOnly, this.forward, this.right);
     this.right.normalize();
     Vector3.CrossToRef(this.forward, this.right, this.up);
+
+    // Slight FOV punch in aim mode for a tighter shooter feel.
+    this.camera.fov = 0.92 - aim * 0.08;
   }
 }
