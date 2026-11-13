@@ -229,7 +229,7 @@ export interface Zone {
 
 /** Events broadcast to clients for feedback (VFX, audio, HUD). */
 export type GameEvent =
-  | { e: 'hit'; id: number; dmg: number; by: string; x: number; z: number; crit: number; kill: boolean }
+  | { e: 'hit'; id: number; dmg: number; by: string; x: number; z: number; crit: number; kill: boolean; heavy?: boolean; kb?: number }
   | { e: 'phit'; id: string; dmg: number; x: number; z: number; red: boolean }
   | { e: 'block'; id: string; x: number; z: number }
   | { e: 'parry'; id: string; x: number; z: number; enemy: number }
@@ -244,6 +244,8 @@ export type GameEvent =
   | { e: 'cast'; id: string; what: string; x: number; z: number; yaw: number; r: number }
   | { e: 'ecast'; id: number; what: string; x: number; z: number; r: number }
   | { e: 'fx'; what: string; x: number; z: number; r: number }
+  | { e: 'slam'; x: number; z: number; power: number }
+  | { e: 'smash'; x: number; z: number; kind: string }
   | { e: 'wave'; n: number; of: number }
   | { e: 'clear' }
   | { e: 'say'; who: string; text: string }

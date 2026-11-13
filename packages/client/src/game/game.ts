@@ -499,25 +499,29 @@ export class Game {
         const dx = attacker ? ev.x - attacker.x : 0;
         const dz = attacker ? ev.z - attacker.z : 1;
         const d = Math.hypot(dx, dz) || 1;
-        const heavy = ev.dmg >= 20 || ev.crit > 0;
-        vfx.spray(ev.x, h, ev.z, dx / d, dz / d, heavy ? 16 : 9, [1, 0.9, 0.7]);
-        vfx.flash(ev.x, h, ev.z, heavy ? 1.5 : 1, c);
+        const heavy = !!ev.heavy || ev.dmg >= 20 || ev.crit > 0;
+        const kick = Math.min(1.6, 0.35 + (ev.kb ?? 0) * 0.12 + (heavy ? 0.25 : 0) + (ev.crit ? 0.15 : 0));
+        vfx.spray(ev.x, h, ev.z, dx / d, dz / d, heavy ? 18 : 10, [1, 0.9, 0.7]);
+        vfx.flash(ev.x, h, ev.z, heavy ? 1.7 : 1.05, c);
+        if (kick > 0.7) vfx.shockwave(ev.x, ev.z, 1.2 + kick * 1.4, c, 0.22, kick);
         ev2?.view.hitFlash(WHITE, heavy ? 1 : 0.7);
         const at = this.project(ev.x, h + 0.9, ev.z);
         if (at) this.hud.floater(at.x, at.y, String(Math.round(ev.dmg)), `${mine(ev.by) ? 'mine' : ''} ${ev.crit ? 'crit' : ''} ${ev.crit === 3 ? 'exec' : ''}`);
         if (mine(ev.by)) {
           this.hud.hitCombo();
           audio.play(heavy ? 'hitHeavy' : 'hit');
-          if (performance.now() - this.predictedHitAt > 220) this.hitStop = Math.max(this.hitStop, heavy ? 0.08 : 0.045);
-          this.cam.addShake(heavy ? 0.42 : 0.22);
+          if (performance.now() - this.predictedHitAt > 220) this.hitStop = Math.max(this.hitStop, heavy ? 0.09 : 0.05);
+          this.cam.addShake(0.18 + kick * 0.35);
+          if (heavy) this.cam.addPunch(0.25 + kick * 0.2);
           if (ev.crit === 1) this.hud.callout('Colpo critico', 'gold small');
         } else {
           audio.play('hit', 0.35);
         }
         if (ev.kill) {
           audio.play('kill', mine(ev.by) ? 1 : 0.5);
-          vfx.puff(ev.x, 0.8, ev.z, 8, DARK, 0.8, 1.6);
-          vfx.burst(ev.x, 1.2, ev.z, 14, [1, 0.5, 0.2], { speed: 5, life: 0.6, up: 2, gravity: 4 });
+          vfx.puff(ev.x, 0.8, ev.z, 10, DARK, 1, 1.8);
+          vfx.burst(ev.x, 1.2, ev.z, 18, [1, 0.5, 0.2], { speed: 6, life: 0.7, up: 2.4, gravity: 4 });
+          this.cam.addShake(0.35);
         }
         break;
       }
@@ -663,6 +667,37 @@ export class Game {
       case 'fx':
         this.onFx(ev.what, ev.x, ev.z, ev.r);
         break;
+      case 'slam': {
+        const power = Math.min(1.8, ev.power / 8);
+        vfx.shockwave(ev.x, ev.z, 2.2 + power * 1.5, [0.85, 0.75, 0.55], 0.35, power);
+        vfx.puff(ev.x, 0.25, ev.z, Math.round(8 + power * 8), [0.45, 0.38, 0.32], 1.2 + power, 1.6);
+        vfx.burst(ev.x, 0.8, ev.z, Math.round(14 + power * 12), [1, 0.85, 0.55], {
+          speed: 7 + power * 4,
+          life: 0.45,
+          up: 3 + power * 2,
+          gravity: 12,
+          stretch: 0.06,
+          flat: 0.5,
+        });
+        audio.play('slam', Math.min(1, 0.45 + power * 0.35));
+        this.shakeNear(ev.x, ev.z, 0.45 + power * 0.4);
+        this.cam.addPunch(0.2 + power * 0.25);
+        break;
+      }
+      case 'smash': {
+        this.arena?.smashAt(ev.x, ev.z);
+        const wood: [number, number, number] = ev.kind === 'crates' ? [0.55, 0.38, 0.22] : [0.4, 0.28, 0.18];
+        vfx.burst(ev.x, 0.9, ev.z, 28, wood, { speed: 9, life: 0.7, up: 5, gravity: 14, stretch: 0.07 });
+        vfx.burst(ev.x, 0.5, ev.z, 16, [0.75, 0.65, 0.45], { speed: 6, life: 0.55, up: 2.5, gravity: 10, flat: 0.7 });
+        vfx.puff(ev.x, 0.4, ev.z, 10, wood, 1.4, 1.8);
+        vfx.shockwave(ev.x, ev.z, 2.8, wood, 0.3);
+        audio.play('slam', 0.85);
+        this.shakeNear(ev.x, ev.z, 0.55);
+        if (this.me && Math.hypot(ev.x - this.me.x, ev.z - this.me.z) < 10) {
+          this.hud.callout(ev.kind === 'crates' ? 'Casse in frantumi' : 'Barile in pezzi', 'gold small');
+        }
+        break;
+      }
       case 'wave':
         if (ev.of > 1 || ev.n > 1) this.hud.callout(`Ondata ${ev.n} di ${ev.of}`, 'wave');
         audio.play('wave');
@@ -739,6 +774,13 @@ export class Game {
         vfx.burst(x, 0.8, z, 26, [1, 0.3, 0.2], { speed: 10, life: 0.5, stretch: 0.06, gravity: 6 });
         this.audio.play('pop');
         this.shakeNear(x, z, 0.4);
+        break;
+      case 'clash':
+        vfx.flash(x, 1.2, z, 1.6, WHITE, 0.15);
+        vfx.shockwave(x, z, r + 0.8, [0.95, 0.85, 0.55], 0.25);
+        vfx.burst(x, 1.1, z, 18, [1, 0.9, 0.6], { speed: 8, life: 0.4, stretch: 0.05, gravity: 8 });
+        this.audio.play('hitHeavy', 0.55);
+        this.shakeNear(x, z, 0.35);
         break;
     }
   }

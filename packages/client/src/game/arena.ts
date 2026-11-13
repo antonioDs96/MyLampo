@@ -13,6 +13,7 @@ import {
   Quaternion,
   type Scene,
   StandardMaterial,
+  TransformNode,
   Vector3,
   VertexData,
 } from '@babylonjs/core';
@@ -195,6 +196,7 @@ export class Arena {
   readonly theme: ThemeDef;
   private readonly owned: { dispose(): void }[] = [];
   private readonly lights: PointLight[] = [];
+  private readonly breakables: { x: number; z: number; kind: string; nodes: TransformNode[] }[] = [];
   private clock = 0;
 
   constructor(
@@ -271,6 +273,9 @@ export class Arena {
       }
     }
 
+    type BreakablePiece = { model: string; x: number; y: number; z: number; rot: number; s?: number };
+    const pendingBreakables: { x: number; z: number; kind: string; pieces: BreakablePiece[] }[] = [];
+
     for (const p of layout.props) {
       const r = hash(Math.round(p.x), Math.round(p.z), 9);
       switch (p.kind) {
@@ -278,17 +283,34 @@ export class Arena {
           env.add(theme.pillarScale > 1 ? 'pillar_decorated' : 'pillar', p.x, 0, p.z, p.rot, 1, theme.pillarScale, 1);
           break;
         case 'barrels':
-          env.add(r < 0.5 ? 'barrel_large' : 'barrel_large_decorated', p.x, 0, p.z, p.rot);
-          env.add('barrel_small', p.x + 0.9, 0, p.z + 0.5, p.rot, 0.9);
+          pendingBreakables.push({
+            x: p.x,
+            z: p.z,
+            kind: 'barrels',
+            pieces: [
+              { model: r < 0.5 ? 'barrel_large' : 'barrel_large_decorated', x: p.x, y: 0, z: p.z, rot: p.rot },
+              { model: 'barrel_small', x: p.x + 0.9, y: 0, z: p.z + 0.5, rot: p.rot, s: 0.9 },
+            ],
+          });
           break;
         case 'crates':
-          env.add('crates_stacked', p.x, 0, p.z, p.rot);
+          pendingBreakables.push({
+            x: p.x,
+            z: p.z,
+            kind: 'crates',
+            pieces: [{ model: 'crates_stacked', x: p.x, y: 0, z: p.z, rot: p.rot }],
+          });
           break;
         case 'table':
           env.add(r < 0.6 ? 'table_medium_decorated_A' : 'table_medium', p.x, 0, p.z, p.rot);
           break;
         case 'keg':
-          env.add('keg', p.x, 0, p.z, p.rot);
+          pendingBreakables.push({
+            x: p.x,
+            z: p.z,
+            kind: 'keg',
+            pieces: [{ model: 'keg', x: p.x, y: 0, z: p.z, rot: p.rot }],
+          });
           break;
         case 'rubble': {
           const s = 0.7;
@@ -322,6 +344,15 @@ export class Arena {
     if (envMesh) {
       envMesh.material = envMat;
       this.owned.push(envMesh);
+    }
+
+    for (const b of pendingBreakables) {
+      const nodes: TransformNode[] = [];
+      for (const piece of b.pieces) {
+        const mesh = this.propMesh(assets, scene, piece.model, piece.x, piece.y, piece.z, piece.rot, piece.s ?? 1, envMat);
+        if (mesh) nodes.push(mesh);
+      }
+      if (nodes.length) this.breakables.push({ x: b.x, z: b.z, kind: b.kind, nodes });
     }
 
     const massMat = new StandardMaterial('mass', scene);
@@ -473,6 +504,52 @@ export class Arena {
       const base = i === 0 && this.flames.some((f) => f.big) ? 1.5 : 0.95;
       this.lights[i]!.intensity = base * (0.9 + Math.sin(this.clock * (9 + i * 2.3)) * 0.06 + Math.sin(this.clock * 23 + i) * 0.04);
     }
+  }
+
+  /** Hides the nearest breakable cluster smashed by combat physics. */
+  smashAt(x: number, z: number): boolean {
+    let best = -1;
+    let bestD = 2.4;
+    for (let i = 0; i < this.breakables.length; i++) {
+      const b = this.breakables[i]!;
+      const d = Math.hypot(b.x - x, b.z - z);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return false;
+    const [gone] = this.breakables.splice(best, 1);
+    for (const n of gone!.nodes) n.setEnabled(false);
+    return true;
+  }
+
+  private propMesh(
+    assets: Assets,
+    scene: Scene,
+    model: string,
+    x: number,
+    y: number,
+    z: number,
+    rot: number,
+    scale: number,
+    mat: StandardMaterial,
+  ): Mesh | null {
+    const src = assets.env.get(model);
+    if (!src) return null;
+    const vd = new VertexData();
+    vd.positions = Float32Array.from(src.positions!);
+    vd.normals = Float32Array.from(src.normals!);
+    vd.uvs = Float32Array.from(src.uvs!);
+    vd.indices = Uint32Array.from(src.indices!);
+    vd.transform(Matrix.Compose(new Vector3(scale, scale, scale), Quaternion.FromEulerAngles(0, rot, 0), new Vector3(x, y, z)));
+    const mesh = new Mesh(`prop:${model}`, scene);
+    vd.applyToMesh(mesh);
+    mesh.material = mat;
+    mesh.isPickable = false;
+    mesh.alwaysSelectAsActiveMesh = true;
+    this.owned.push(mesh);
+    return mesh;
   }
 
   dispose(): void {

@@ -17,9 +17,9 @@ export const TUNING = {
   playerRadius: 0.6,
   turnRate: 16,
 
-  staminaRegen: 26,
-  staminaRegenBlocking: 9,
-  staminaDelay: 0.75,
+  staminaRegen: 22,
+  staminaRegenBlocking: 8,
+  staminaDelay: 0.8,
 
   inputBuffer: 0.28,
 
@@ -33,9 +33,9 @@ export const TUNING = {
   counterDamage: 1.8,
   counterPoise: 2,
 
-  hitStun: 0.38,
-  hitInvuln: 0.55,
-  guardBreakStun: 0.95,
+  hitStun: 0.46,
+  hitInvuln: 0.48,
+  guardBreakStun: 1.05,
 
   minCharge: 0.14,
   maxCharge: 0.9,
@@ -73,7 +73,7 @@ export const TUNING = {
   confusedDamageMul: 1.3,
 
   poiseDecayDelay: 3,
-  poiseDecay: 14,
+  poiseDecay: 11,
 
   /** Flinches in a row before an enemy stops being interrupted, and for how long. */
   flinchLimit: 3,
@@ -81,4 +81,19 @@ export const TUNING = {
 
   maxMeleeAttackers: 3,
   maxRangedAttackers: 2,
+
+  /** Global enemy damage pressure (co-op feel: slightly meaner telegraphs). */
+  threatMul: 1.12,
+
+  /** Knockback feel: impulse scale and per-tick decay (closer to 1 = slides longer). */
+  knockMul: 3.15,
+  knockDecayPlayer: 0.9,
+  knockDecayEnemy: 0.74,
+  /** Attacker steps into the hit so every connect has weight. */
+  lungeOnHit: 3.2,
+  /** Minimum knock speed that produces a wall slam / breakable smash. */
+  wallSlamMin: 5.2,
+  smashMin: 4.0,
+  /** Fraction of speed transferred when one launched enemy hits another. */
+  chainKb: 0.62,
 } as const;

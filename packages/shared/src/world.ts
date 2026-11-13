@@ -263,7 +263,13 @@ export class World {
         any = this.damageEnemy(e, def.dmg * mult, def.poise * mult, p, { kb: def.kb, heavy, effect: full ? def.charged : undefined }) || any;
       }
     }
-    if (any) removeStatus(p.st, PS.Counter);
+    if (any) {
+      removeStatus(p.st, PS.Counter);
+      // Step into the hit: heavier heroes plant harder, lighter ones dart.
+      const plant = TUNING.lungeOnHit * (0.65 + HEROES[p.hero].mass * 0.4) * (heavy ? 1.25 : 1);
+      p.kx += fx * plant;
+      p.kz += fz * plant;
+    }
   }
 
   private aimPoint(p: PlayerState, ahead: number): Point {
@@ -367,7 +373,18 @@ export class World {
       if (hasStatus(p.st, PS.Wolf)) this.heal(p, amount * 0.12, false);
     }
     const kill = e.hp <= 0;
-    this.events.push({ e: 'hit', id: e.id, dmg: amount, by: p ? p.id : '', x: e.x, z: e.z, crit, kill });
+    this.events.push({
+      e: 'hit',
+      id: e.id,
+      dmg: amount,
+      by: p ? p.id : '',
+      x: e.x,
+      z: e.z,
+      crit,
+      kill,
+      heavy: !!opts.heavy,
+      kb: opts.kb ?? 0,
+    });
     if (kill) {
       this.kill(e, p);
       return true;
@@ -402,7 +419,9 @@ export class World {
       const dx = e.x - p.x;
       const dz = e.z - p.z;
       const d = Math.hypot(dx, dz) || 1;
-      const k = opts.kb * (def.boss ? 0.15 : def.steady ? 0.5 : 1) * 2.2;
+      const mass = HEROES[p.hero].mass;
+      const resist = def.boss ? 0.15 : def.steady ? 0.5 : 1;
+      const k = opts.kb * resist * TUNING.knockMul * (0.75 + mass * 0.35);
       e.kx += (dx / d) * k;
       e.kz += (dz / d) * k;
     }
@@ -812,16 +831,93 @@ export class World {
     this.knock(p, spec, 0.35);
   }
 
+  /**
+   * Applies knock velocity with wall slams, breakable props and pinball chains.
+   * Collision is solved after the free move so slamming into stone reads as a real impact.
+   */
+  private slideEnemy(e: EnemyState, def: EnemyDef, dt: number): void {
+    const speed = Math.hypot(e.kx, e.kz);
+    e.x += e.kx * dt;
+    e.z += e.kz * dt;
+
+    // Breakables are resolved on the free position so collide() cannot push the body out first.
+    if (speed > TUNING.smashMin) {
+      for (const prop of this.layout.props) {
+        if (prop.r <= 0) continue;
+        if (prop.kind !== 'barrels' && prop.kind !== 'crates' && prop.kind !== 'keg') continue;
+        if (Math.hypot(e.x - prop.x, e.z - prop.z) > prop.r + def.radius + 0.2) continue;
+        prop.r = 0;
+        e.kx *= 0.72;
+        e.kz *= 0.72;
+        e.poise = Math.min(e.maxPoise, e.poise + 14);
+        this.events.push({ e: 'smash', x: prop.x, z: prop.z, kind: prop.kind });
+        if (e.poise >= e.maxPoise && e.state !== EState.Broken) this.breakEnemy(e);
+        break;
+      }
+    }
+
+    const out = { x: e.x, z: e.z };
+    collide(this.layout, e.x, e.z, def.radius, out);
+    const pushX = out.x - e.x;
+    const pushZ = out.z - e.z;
+    const pushed = Math.hypot(pushX, pushZ);
+    e.x = out.x;
+    e.z = out.z;
+
+    if (speed > TUNING.wallSlamMin && pushed > 0.02) {
+      // Bounce off the wall and spend some of the remaining stagger budget.
+      const nx = pushX / pushed;
+      const nz = pushZ / pushed;
+      const along = e.kx * nx + e.kz * nz;
+      e.kx -= nx * along * 1.7;
+      e.kz -= nz * along * 1.7;
+      e.poise = Math.min(e.maxPoise, e.poise + speed * 1.8);
+      this.events.push({ e: 'slam', x: e.x, z: e.z, power: speed });
+      if (e.poise >= e.maxPoise && e.state !== EState.Broken) this.breakEnemy(e);
+    }
+
+    if (speed > 3.2) {
+      for (const o of this.enemies) {
+        if (o === e || !this.hittable(o)) continue;
+        const dx = o.x - e.x;
+        const dz = o.z - e.z;
+        const d = Math.hypot(dx, dz);
+        const min = def.radius + ENEMIES[o.type].radius;
+        if (d >= min || d < 1e-3) continue;
+        const nx = dx / d;
+        const nz = dz / d;
+        const transfer = speed * TUNING.chainKb;
+        o.kx += nx * transfer;
+        o.kz += nz * transfer;
+        e.kx *= 0.62;
+        e.kz *= 0.62;
+        e.x = o.x - nx * min;
+        e.z = o.z - nz * min;
+        this.events.push({ e: 'fx', what: 'clash', x: (e.x + o.x) * 0.5, z: (e.z + o.z) * 0.5, r: 1.6 });
+        break;
+      }
+    }
+
+    e.kx *= TUNING.knockDecayEnemy;
+    e.kz *= TUNING.knockDecayEnemy;
+    if (Math.abs(e.kx) + Math.abs(e.kz) < 0.1) {
+      e.kx = 0;
+      e.kz = 0;
+    }
+  }
+
   private knock(p: PlayerState, spec: HitSpec, scale: number): void {
     const dx = p.x - spec.ox;
     const dz = p.z - spec.oz;
     const d = Math.hypot(dx, dz) || 1;
-    p.kx = (dx / d) * spec.kb * 2.2 * scale;
-    p.kz = (dz / d) * spec.kb * 2.2 * scale;
+    const mass = HEROES[p.hero].mass;
+    const impulse = (spec.kb * TUNING.knockMul * scale) / Math.max(0.55, mass);
+    p.kx = (dx / d) * impulse;
+    p.kz = (dz / d) * impulse;
   }
 
   private applyHit(p: PlayerState, spec: HitSpec): void {
-    let dmg = spec.dmg;
+    let dmg = spec.dmg * TUNING.threatMul;
     const guard = getStatus(p.st, PS.Guard);
     if (guard) dmg *= 1 - guard.p;
     if (hasStatus(p.st, PS.Bubble)) dmg *= 0.5;
@@ -1160,14 +1256,7 @@ export class World {
     e.retarget -= dt;
 
     if (e.kx !== 0 || e.kz !== 0) {
-      e.x += e.kx * dt;
-      e.z += e.kz * dt;
-      e.kx *= 0.6;
-      e.kz *= 0.6;
-      if (Math.abs(e.kx) + Math.abs(e.kz) < 0.1) {
-        e.kx = 0;
-        e.kz = 0;
-      }
+      this.slideEnemy(e, def, dt);
     }
 
     if (e.state === EState.Dead) {

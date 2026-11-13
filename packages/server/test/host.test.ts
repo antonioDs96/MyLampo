@@ -127,7 +127,8 @@ describe('missions played by bots', () => {
   it('every mission ends for a full party of eight, and allies get revived along the way', () => {
     let revives = 0;
     for (const mission of MISSIONS) {
-      const party = new Party(99);
+      // Slightly imperfect bots so someone goes down and gets picked back up.
+      const party = new Party(99, 0.7);
       for (const hero of HERO_IDS) party.add(hero);
       const result = party.playMission(mission.id, 1500);
       expect(['victory', 'defeat'], mission.id).toContain(result.phase);

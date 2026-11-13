@@ -353,8 +353,8 @@ const ALL_ACTIONS = Btn.Dodge | Btn.Ult | Btn.Ability | Btn.Heavy | Btn.Light | 
 function move(p: PlayerState, ctx: StepCtx, dx: number, dz: number, pushEnemies: boolean): void {
   let x = p.x + dx + p.kx * DT;
   let z = p.z + dz + p.kz * DT;
-  p.kx *= 0.86;
-  p.kz *= 0.86;
+  p.kx *= TUNING.knockDecayPlayer;
+  p.kz *= TUNING.knockDecayPlayer;
   if (Math.abs(p.kx) + Math.abs(p.kz) < 0.05) {
     p.kx = 0;
     p.kz = 0;

@@ -39,7 +39,7 @@ function passiveEnemy(world: World, type: EnemyState['type'], x: number, z: numb
 }
 
 function damageOf(type: EnemyState['type'], attackId: string): number {
-  return ENEMIES[type].attacks.find((a) => a.id === attackId)!.dmg;
+  return Math.round(ENEMIES[type].attacks.find((a) => a.id === attackId)!.dmg * TUNING.threatMul);
 }
 
 function events(world: World, kind: GameEvent['e']): GameEvent[] {
@@ -562,7 +562,7 @@ describe('enemies', () => {
     world.damageEnemy(e, 999, 0, p);
     expect(e.state).toBe(EState.Dead);
     for (let i = 0; i < 24; i++) world.step(0.05);
-    expect(p.hp).toBe(HEROES.jusef.hp - ENEMIES.creatura.burst!);
+    expect(p.hp).toBe(HEROES.jusef.hp - Math.round(ENEMIES.creatura.burst! * TUNING.threatMul));
   });
 
   it("Klaus' drum ring must be dodged through and his silence domes mute abilities", () => {
@@ -664,5 +664,48 @@ describe('prediction', () => {
       }
     }
     expect(local).toEqual(p);
+  });
+});
+
+describe('impact physics', () => {
+  it('heavy hits launch enemies and smash barrels they slam into', () => {
+    const layout = parseLayout({
+      id: 'phys',
+      name: 'Phys',
+      theme: 'alley',
+      rows: [
+        '#######',
+        '#.....#',
+        '#.P...#',
+        '#..b..#',
+        '#.....#',
+        '#....E#',
+        '#######',
+      ],
+    });
+    const world = new World({ layout, seed: 3, introDelay: 0 });
+    const p = world.addPlayer('a', 'alexios', 0);
+    p.x = 2 * 4 + 2;
+    p.z = 2 * 4 + 2;
+    const barrel = world.layout.props.find((pr) => pr.kind === 'barrels');
+    expect(barrel?.r).toBeGreaterThan(0);
+    // Player south of the barrel, cultist between them: the launch drives the body into the wood.
+    p.x = barrel!.x;
+    p.z = barrel!.z - 3.2;
+    const e = passiveEnemy(world, 'cultista', barrel!.x, barrel!.z - 1.35);
+    world.damageEnemy(e, 20, 10, p, { kb: 10, heavy: true });
+    for (let i = 0; i < 16; i++) world.step(0.05);
+    expect(events(world, 'smash').length).toBeGreaterThan(0);
+    expect(barrel!.r).toBe(0);
+  });
+
+  it('a launched enemy can pinball into another', () => {
+    const { world, p } = setup('fabyorn');
+    const a = passiveEnemy(world, 'cultista', p.x, p.z + 2.2);
+    const b = passiveEnemy(world, 'cultista', p.x, p.z + 3.6);
+    world.damageEnemy(a, 12, 8, p, { kb: 8, heavy: true });
+    for (let i = 0; i < 8; i++) world.step(0.05);
+    expect(Math.hypot(b.kx, b.kz)).toBeGreaterThan(1);
+    expect(events(world, 'fx').some((ev) => ev.e === 'fx' && ev.what === 'clash')).toBe(true);
   });
 });

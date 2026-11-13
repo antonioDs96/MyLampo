@@ -91,6 +91,8 @@ export interface HeroDef {
   hp: number;
   stamina: number;
   speed: number;
+  /** Relative body mass: heavier heroes knock harder and slide less. */
+  mass: number;
   ranged: boolean;
   /** Never flinches from parryable hits. */
   stoic: boolean;
@@ -170,6 +172,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 95,
     stamina: 110,
     speed: 7.8,
+    mass: 0.78,
     ranged: false,
     stoic: false,
     light: [
@@ -216,6 +219,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 105,
     stamina: 100,
     speed: 7.3,
+    mass: 0.9,
     ranged: false,
     stoic: false,
     light: [
@@ -261,6 +265,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 125,
     stamina: 100,
     speed: 7.6,
+    mass: 1.15,
     ranged: false,
     stoic: false,
     light: [
@@ -308,6 +313,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 170,
     stamina: 120,
     speed: 6.2,
+    mass: 1.85,
     ranged: false,
     stoic: true,
     light: [
@@ -353,6 +359,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 90,
     stamina: 110,
     speed: 7.4,
+    mass: 0.88,
     ranged: true,
     stoic: false,
     light: [
@@ -398,6 +405,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 140,
     stamina: 100,
     speed: 6.9,
+    mass: 1.35,
     ranged: false,
     stoic: false,
     light: [
@@ -443,6 +451,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 90,
     stamina: 100,
     speed: 7,
+    mass: 0.92,
     ranged: true,
     stoic: false,
     light: [
@@ -488,6 +497,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     hp: 95,
     stamina: 110,
     speed: 7,
+    mass: 0.86,
     ranged: true,
     stoic: false,
     light: [
