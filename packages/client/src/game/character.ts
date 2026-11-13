@@ -269,6 +269,52 @@ export class CharacterView {
         }
         break;
       }
+      case 'longHair':
+      case 'wildHair': {
+        // Barbarian base head is bald — build shoulder-length hair to match the portraits.
+        const wild = kind === 'wildHair';
+        const mat = this.extraMaterial(
+          wild ? [0.12, 0.09, 0.08] : [0.32, 0.18, 0.1],
+          wild ? [0.03, 0.02, 0.02] : [0.05, 0.025, 0.015],
+        );
+        const scalp = add(MeshBuilder.CreateSphere('scalp', { diameter: 0.72, segments: 10 }, this.scene), head, mat);
+        scalp.position.set(0, 0.78, -0.02);
+        scalp.scaling.set(1.05, 0.72, 1.1);
+        // Crown volume so the bald pate disappears from every angle.
+        const crown = add(MeshBuilder.CreateSphere('crown', { diameter: 0.55, segments: 8 }, this.scene), head, mat);
+        crown.position.set(0, 1.02, -0.04);
+        crown.scaling.set(1.05, 0.55, 1);
+        const locks: [number, number, number, number, number, number][] = wild
+          ? [
+              [0, 0.55, -0.28, 0.95, 0.22, 0.35],
+              [-0.28, 0.5, -0.18, 0.85, 0.18, 0.45],
+              [0.28, 0.5, -0.18, 0.85, 0.18, -0.45],
+              [-0.38, 0.48, 0.02, 0.72, 0.16, 0.2],
+              [0.38, 0.48, 0.02, 0.72, 0.16, -0.2],
+              [-0.18, 0.42, -0.32, 1.05, 0.17, 0.15],
+              [0.18, 0.42, -0.32, 1.05, 0.17, -0.15],
+            ]
+          : [
+              [0, 0.52, -0.3, 1.15, 0.24, 0.2],
+              [-0.26, 0.55, -0.22, 1.05, 0.2, 0.35],
+              [0.26, 0.55, -0.22, 1.05, 0.2, -0.35],
+              [-0.4, 0.5, -0.02, 0.95, 0.18, 0.15],
+              [0.4, 0.5, -0.02, 0.95, 0.18, -0.15],
+              [-0.16, 0.45, -0.34, 1.2, 0.18, 0.1],
+              [0.16, 0.45, -0.34, 1.2, 0.18, -0.1],
+              [0, 0.4, -0.36, 1.25, 0.2, 0],
+            ];
+        for (const [x, y, z, h, d, twist] of locks) {
+          const lock = add(
+            MeshBuilder.CreateCylinder('lock', { height: h, diameterTop: d * 0.45, diameterBottom: d, tessellation: 6 }, this.scene),
+            head,
+            mat,
+          );
+          lock.position.set(x, y - h * 0.35, z);
+          lock.rotation.set(0.55 + Math.abs(twist) * 0.15, twist * 0.4, twist);
+        }
+        break;
+      }
       case 'orb': {
         const mat = this.extraMaterial([0.5, 0.15, 0.9], [0.62, 0.2, 1]);
         this.orb = add(MeshBuilder.CreateSphere('orb', { diameter: 0.42, segments: 10 }, this.scene), this.root, mat);

@@ -25,7 +25,7 @@ export interface Look {
   attach?: Attachment[];
   emissive?: RGB;
   alpha?: number;
-  extras?: ('horns' | 'ears' | 'orb' | 'drum' | 'halo' | 'runes' | 'claws')[];
+  extras?: ('horns' | 'ears' | 'orb' | 'drum' | 'halo' | 'runes' | 'claws' | 'longHair' | 'wildHair')[];
   idle: string;
   run: string;
   /** Colour of the eye glow (skeleton models). */
@@ -55,14 +55,14 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
     idle: 'Idle',
     run: 'Running_A',
   },
-  // Lycanthrope mid-change: pale shredded shirt, no hat, claws.
+  // Lycanthrope mid-change: pale shredded shirt, dark wild hair, claws.
   vyncent: {
     model: 'Barbarian',
     scale: 1.1,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 30, sat: 0.12, val: 1.35 },
     show: [],
-    extras: ['claws'],
+    extras: ['claws', 'wildHair'],
     idle: 'Unarmed_Idle',
     run: 'Running_B',
   },
@@ -90,13 +90,14 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
     idle: '2H_Ranged_Aiming',
     run: 'Running_A',
   },
-  // Northern warrior: leather + fur cape, axe and round shield.
+  // Northern warrior: leather + fur cape, long brown hair, axe and round shield.
   fabyorn: {
     model: 'Barbarian',
     scale: 1.16,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 28, sat: 0.55, val: 0.68 },
     show: ['1H_Axe', 'Barbarian_Round_Shield', 'Barbarian_Cape'],
+    extras: ['longHair'],
     idle: 'Idle',
     run: 'Running_A',
   },
