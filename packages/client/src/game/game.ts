@@ -377,6 +377,7 @@ export class Game {
     }
     if (this.menus.open) {
       if (code === 'KeyH' && this.menus.panel === 'help') this.menus.escape();
+      else if (code === 'KeyB' && this.menus.panel === 'bestiary') this.menus.escape();
       return;
     }
     if (code === 'KeyH') this.openHelp();
