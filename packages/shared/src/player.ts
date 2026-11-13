@@ -212,6 +212,10 @@ function startAttack(p: PlayerState, hero: HeroDef, heavy: boolean, cmd: InputCm
   let combo = 0;
   if (!heavy && p.act === Act.Attack) combo = (p.combo + 1) % hero.light.length;
   const def = heavy ? hero.heavy : hero.light[combo]!;
+  if (!heavy && def.cost > 0 && p.stamina < def.cost) {
+    ev.push({ type: 'fail', why: 'stamina' });
+    return false;
+  }
   p.combo = combo;
   setAct(p, heavy ? Act.Heavy : Act.Attack);
   p.tgt = pickTarget(p, hero, def, cmd, ctx, def.proj ? def.proj.range : def.range + def.lunge + 3);
@@ -586,7 +590,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       for (let i = 0; i < def.hits.length; i++) {
         const h = T(def.hits[i]!);
         if (prevT < h && p.t >= h) {
-          if (i === 0 && heavy) spend(p, def.cost);
+          if (i === 0 && def.cost > 0) spend(p, def.cost);
           ev.push({ type: def.proj || (hero.ranged && def.charged === 'pull') ? 'shoot' : 'melee', heavy, idx: p.combo, hit: i });
         }
       }

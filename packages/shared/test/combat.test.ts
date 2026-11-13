@@ -104,6 +104,22 @@ describe('player actions', () => {
     expect(back.hp).toBe(back.maxHp);
   });
 
+  it('light attacks spend vigour and refuse when the bar is empty', () => {
+    const { world, p } = setup();
+    const cost = HEROES.jusef.light[0]!.cost;
+    expect(cost).toBeGreaterThan(0);
+    p.stamDelay = T(2);
+    tap(world, 'a', Btn.Light);
+    run(world, 'a', T(HEROES.jusef.light[0]!.hits[0]!) + 1);
+    expect(p.stamina).toBeCloseTo(HEROES.jusef.stamina - cost, 5);
+    run(world, 'a', T(HEROES.jusef.light[0]!.dur) + 2);
+    expect(p.act).toBe(Act.Idle);
+    p.stamina = cost - 1;
+    p.stamDelay = T(2);
+    tap(world, 'a', Btn.Light);
+    expect(p.act).toBe(Act.Idle);
+  });
+
   it('charged heavy hits harder than a tapped one and costs stamina', () => {
     const quick = setup();
     const e1 = passiveEnemy(quick.world, 'inquisitore', quick.p.x, quick.p.z + 2.5);

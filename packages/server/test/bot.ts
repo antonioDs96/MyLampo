@@ -120,9 +120,10 @@ export class BotBrain {
       cmd.mz = -dz / d;
     }
     if (d <= reach + 1) {
+      const lightCost = hero.light[me.combo % hero.light.length]!.cost;
       if (me.ult >= 100) cmd.buttons = Btn.Ult;
       else if (me.cd <= 0 && this.step % 7 === 0) cmd.buttons = Btn.Ability;
-      else cmd.buttons = Btn.Light;
+      else if (me.stamina >= lightCost) cmd.buttons = Btn.Light;
     }
     return this.finish(cmd);
   }

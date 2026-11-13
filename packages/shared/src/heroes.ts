@@ -159,7 +159,9 @@ function atk(s: AtkSpec): AttackDef {
     aoeAhead: s.aoeAhead,
     proj: s.proj,
     charged: s.charged,
-    cost: s.cost ?? 0,
+    // Lights default to a small vigour cost so combos drain the bar over time;
+    // heavies always pass an explicit (higher) cost.
+    cost: s.cost ?? 5,
     armor: s.armor,
   };
 }
