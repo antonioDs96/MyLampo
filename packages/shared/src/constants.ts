@@ -90,6 +90,25 @@ export const TUNING = {
   /** Global enemy damage pressure (co-op feel: slightly meaner telegraphs). */
   threatMul: 1.12,
 
+  /**
+   * Extra difficulty per hero beyond the first.
+   * Wave tables are solo baselines; counts, HP, threat and attacker slots grow from here.
+   */
+  party: {
+    /** Grunt max-HP bonus per extra hero. */
+    hpGrunt: 0.2,
+    /** Elite max-HP bonus per extra hero. */
+    hpElite: 0.65,
+    /** Boss (bar) max-HP bonus per extra hero. */
+    hpBoss: 1.0,
+    /** Elite/boss stagger-bar bonus per extra hero. */
+    poiseElite: 0.5,
+    /** Extra enemy damage fraction per extra hero (on top of threatMul). */
+    threatPer: 0.06,
+    /** +1 simultaneous attacker on a hero every N extra heroes. */
+    attackerEvery: 3,
+  },
+
   /** Knockback feel: impulse scale and per-tick decay (closer to 1 = slides longer). */
   knockMul: 3.15,
   knockDecayPlayer: 0.9,

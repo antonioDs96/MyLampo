@@ -33,6 +33,15 @@ import {
 } from './lootSystem';
 import { scaledHeroVitals, levelFromXp } from './progress';
 import {
+  enemyHpMul,
+  enemyPoiseMul,
+  enemyScaleKind,
+  partyAttackSlots,
+  partySize,
+  partyThreatMul,
+  waveEnemyCount,
+} from './partyScale';
+import {
   buildFlow,
   collide,
   flowDirection,
@@ -1219,7 +1228,7 @@ export class World {
   }
 
   private applyHit(p: PlayerState, spec: HitSpec): void {
-    let dmg = spec.dmg * TUNING.threatMul;
+    let dmg = spec.dmg * partyThreatMul(this.players.size);
     const live = this.liveOf(p.id);
     if (live) dmg *= live.physDamageTakenMul;
     const weaken = this.fiaccare.get(spec.src);
@@ -1299,10 +1308,11 @@ export class World {
 
   spawnEnemy(type: EnemyTypeId, x: number, z: number): EnemyState {
     const def = ENEMIES[type];
-    const n = Math.max(1, this.players.size);
-    const scale = def.dummy ? 1 : def.bar ? 1 + 1.0 * (n - 1) : def.elite ? 1 + 0.6 * (n - 1) : 1 + 0.15 * (n - 1);
+    const n = partySize(this.players.size);
+    const kind = enemyScaleKind(def);
+    const scale = enemyHpMul(n, kind);
     // More heroes fill a stagger bar faster: the big ones get a longer bar to compensate.
-    const maxPoise = Math.round(def.poise * (def.dummy || !def.elite ? 1 : 1 + 0.5 * (n - 1)));
+    const maxPoise = Math.round(def.poise * enemyPoiseMul(n, !!def.elite && !def.dummy));
     const hp = Math.round(def.hp * scale);
     const c = this.layout.center;
     const e: EnemyState = {
@@ -1697,7 +1707,7 @@ export class World {
       return;
     }
 
-    const slots = def.ranged ? TUNING.maxRangedAttackers : TUNING.maxMeleeAttackers;
+    const slots = partyAttackSlots(!!def.ranged, this.players.size);
     const free = def.elite || this.attackersOn(target.id, def.ranged) < slots;
     if (e.cool <= 0 && free && los) {
       const idx = this.chooseAttack(e, def, dist);
@@ -2151,12 +2161,15 @@ export class World {
   private startWave(idx: number): void {
     this.waveIdx = idx;
     const wave = this.waves[idx]!;
-    const n = Math.max(1, this.players.size);
+    const n = partySize(this.players.size);
     this.spawnQueue = [];
     let at = this.time + 0.4;
+    let total = 0;
     for (const [type, base] of wave.spawns) {
       const def = ENEMIES[type];
-      const count = def.bar ? base : def.elite ? base + Math.floor((n - 1) / 3) : Math.max(1, Math.round(base * (0.4 + 0.6 * n)));
+      const kind = enemyScaleKind(def);
+      const count = waveEnemyCount(base, n, kind === 'dummy' ? 'grunt' : kind);
+      total += count;
       for (let i = 0; i < count; i++) {
         this.spawnQueue.push({ type, at });
         at += def.bar ? 0 : 0.45;
@@ -2164,6 +2177,12 @@ export class World {
     }
     this.waveState = 'spawning';
     this.events.push({ e: 'wave', n: idx + 1, of: this.waves.length });
+    if (n > 1) {
+      this.events.push({
+        e: 'hint',
+        text: `Compagnia di ${n}: ${total} nemici in campo · minaccia +${Math.round((partyThreatMul(n) / TUNING.threatMul - 1) * 100)}%.`,
+      });
+    }
     if (wave.hint) this.events.push({ e: 'hint', text: wave.hint });
     for (const line of wave.say ?? []) this.events.push({ e: 'say', who: line.who, text: line.text });
   }

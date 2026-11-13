@@ -7,6 +7,7 @@ export * from './layout';
 export * from './missions';
 export * from './lore';
 export * from './player';
+export * from './partyScale';
 export * from './world';
 export * from './protocol';
 export * from './progress';

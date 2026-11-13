@@ -7,7 +7,10 @@ export interface Line {
 }
 
 export interface WaveDef {
-  /** Enemy type and base count (for one player). */
+  /**
+   * Enemy type and base count for a solo player.
+   * Party size scales copies (and HP / threat) via partyScale — more heroes → more enemies and a harder fight.
+   */
   spawns: [EnemyTypeId, number][];
   /** Shown as a tutorial hint when the wave begins. */
   hint?: string;
