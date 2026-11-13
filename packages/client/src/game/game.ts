@@ -18,6 +18,7 @@ import {
   losClear,
   MAX_PLAYERS,
   EXTRA_PLAYS,
+  MEGABONK_TOMES,
   MISSIONS,
   parseLayout,
   packCmds,
@@ -37,6 +38,7 @@ import {
   type EnemySnap,
   type GameEvent,
   type HeroId,
+  type HeroInventory,
   type InputCmd,
   type Layout,
   type LayoutDef,
@@ -47,6 +49,7 @@ import {
   type Snapshot,
   type WorldInfo,
 } from '@malampu/shared';
+import { CharacterSheet } from '../ui/characterSheet';
 import { Hud, type PartyEntry } from '../ui/hud';
 import { Menus } from '../ui/menus';
 import { LocalConnection, RemoteConnection, type Connection } from '../net/connection';
@@ -173,6 +176,8 @@ export class Game {
   private lastPhase = '';
   private fps = 60;
   private progress: ProgressBook = loadProgress();
+  private inventory: HeroInventory | null = null;
+  private readonly sheet: CharacterSheet;
 
   constructor(
     private readonly scene: Scene,
@@ -186,6 +191,22 @@ export class Game {
     this.vfx = new Vfx(scene);
     this.shadow = makeShadowSource(scene);
     this.hud = new Hud(ui);
+    this.sheet = new CharacterSheet(ui);
+    this.hud.onOpenSheet = () => this.toggleSheet();
+    this.hud.onUseBelt = (slot) => this.send({ t: 'useBelt', slot });
+    this.hud.onPickCard = (index) => this.send({ t: 'pickCard', index });
+    this.sheet.onAction = (a) => {
+      if (a.t === 'close') {
+        this.sheet.setVisible(false);
+        this.syncInput();
+        return;
+      }
+      if (a.t === 'useBelt') this.send({ t: 'useBelt', slot: a.slot });
+      else if (a.t === 'asi') this.send({ t: 'asi', ability: a.ability });
+      else if (a.t === 'equip') this.send({ t: 'inv', op: 'equip', uid: a.uid });
+      else if (a.t === 'salvage') this.send({ t: 'inv', op: 'salvage', uid: a.uid });
+      else if (a.t === 'belt') this.send({ t: 'inv', op: 'belt', uid: a.uid, slot: a.slot });
+    };
     this.menus = new Menus(ui, {
       create: (name) => void this.connect(name, null, false),
       join: (name, code) => void this.connect(name, code, false),
@@ -271,11 +292,47 @@ export class Game {
   }
 
   private syncInput(): void {
-    const on = !!this.info && !this.menus.open;
+    const on = !!this.info && !this.menus.open && !this.sheet.isOpen;
     const was = this.input.enabled;
     this.input.setEnabled(on);
     if (!on) this.input.releaseLock();
     else if (!was) this.input.requestLock();
+  }
+
+  private toggleSheet(): void {
+    const hero = this.myHero();
+    if (!hero || !this.inventory) {
+      this.menus.toast('Scegli un eroe per aprire la scheda.');
+      return;
+    }
+    if (!this.sheet.isOpen) {
+      this.sheet.render(hero, this.inventory);
+      this.sheet.setVisible(true);
+    } else {
+      this.sheet.setVisible(false);
+    }
+    this.syncInput();
+  }
+
+  private applyInventory(inv: HeroInventory): void {
+    this.inventory = inv;
+    this.hud.setBelt(inv);
+    this.hud.setXp(inv.pe);
+    const hero = this.myHero();
+    if (hero) {
+      this.progress = mergeProgress(this.progress, hero, inv.pe);
+      if (this.sheet.isOpen) this.sheet.render(hero, inv);
+      if (inv.pendingCards.length) {
+        this.hud.showLevelCards(
+          inv.pendingCards.map((id) => {
+            const t = MEGABONK_TOMES[id];
+            return { name: t?.name ?? id, desc: t?.desc ?? '' };
+          }),
+        );
+      } else {
+        this.hud.showLevelCards([]);
+      }
+    }
   }
 
   private openHelp(): void {
@@ -286,6 +343,11 @@ export class Game {
   private onKey(code: string): void {
     if (!this.info || !this.lobby) return;
     if (code === 'Escape') {
+      if (this.sheet.isOpen) {
+        this.sheet.setVisible(false);
+        this.syncInput();
+        return;
+      }
       if (!this.menus.escape() && this.menus.panel === 'none') this.openHelp();
       return;
     }
@@ -293,12 +355,24 @@ export class Game {
       this.menus.toast(this.audio.toggleMute() ? 'Audio disattivato' : 'Audio attivo');
       return;
     }
+    if (this.sheet.isOpen) {
+      if (code === 'KeyI' || code === 'KeyP') {
+        this.sheet.setVisible(false);
+        this.syncInput();
+      }
+      return;
+    }
     if (this.menus.open) {
       if (code === 'KeyH' && this.menus.panel === 'help') this.menus.escape();
       return;
     }
     if (code === 'KeyH') this.openHelp();
-    else if (code === 'KeyC') {
+    else if (code === 'KeyI' || code === 'KeyP') this.toggleSheet();
+    else if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3' || code === 'Digit4') {
+      const slot = Number(code.slice(-1)) - 1;
+      if (this.inventory?.pendingCards.length && slot < 3) this.send({ t: 'pickCard', index: slot });
+      else this.send({ t: 'useBelt', slot });
+    } else if (code === 'KeyC') {
       if (this.lobby?.phase === 'hub' || this.info?.kind === 'hub') this.menus.openHeroes(!!this.myHero());
       else this.menus.toast('Torna in taverna per cambiare eroe ([C] al bancone).');
     }
@@ -337,6 +411,7 @@ export class Game {
       case 'xp': {
         this.progress = mergeProgress(this.progress, msg.hero, msg.xp);
         this.send({ t: 'progress', xp: this.progress as Record<string, number> });
+        this.hud.setXp(msg.xp, true);
         const hero = HEROES[msg.hero];
         if (msg.level > msg.prevLevel) {
           this.audio.play('victory');
@@ -348,6 +423,9 @@ export class Game {
         }
         break;
       }
+      case 'inv':
+        if (msg.id === this.myId) this.applyInventory(msg.inv as HeroInventory);
+        break;
     }
   }
 
@@ -747,6 +825,57 @@ export class Game {
       case 'phase':
         this.hud.banner('Klaus Kaballor', ev.n >= 2 ? 'Il Tamburo Sacro batte più forte' : 'Il Silenzio si fa furia', 2.6);
         break;
+      case 'loot': {
+        const gemColor: RGB =
+          ev.gem === 'gold' ? GOLD : ev.gem === 'purple' ? VIOLET : ev.gem === 'blue' ? BLUE : GOLD;
+        vfx.burst(ev.x, 0.6, ev.z, ev.kind === 'gem' ? 10 : 6, gemColor, {
+          speed: 4,
+          life: 0.5,
+          up: 3,
+          gravity: 10,
+          flat: 0.4,
+        });
+        break;
+      }
+      case 'pickup': {
+        if (!mine(ev.id)) break;
+        audio.play('ui', 0.7);
+        if (ev.kind === 'gem') {
+          this.hud.setXp(this.inventory?.pe ?? 0, true);
+          this.hud.callout(ev.toast ?? `+${ev.amount} PE`, 'gold small');
+        } else if (ev.kind === 'coin') {
+          this.hud.lootToast(ev.toast ?? `+${ev.amount} mo`);
+        } else {
+          this.hud.lootToast(ev.toast ?? 'Oggetto raccolto');
+        }
+        break;
+      }
+      case 'levelup':
+        if (mine(ev.id)) {
+          audio.play('victory');
+          this.hud.callout(`Livello ${ev.level}!`, 'gold');
+          this.hud.showLevelCards(
+            ev.cards.map((id) => {
+              const t = MEGABONK_TOMES[id as keyof typeof MEGABONK_TOMES];
+              return { name: t?.name ?? id, desc: t?.desc ?? '' };
+            }),
+          );
+        }
+        break;
+      case 'bonk':
+        vfx.shockwave(ev.x, ev.z, ev.r, GOLD, 0.55, 1.4);
+        vfx.burst(ev.x, 0.8, ev.z, 36, GOLD, { speed: 12, life: 0.5, stretch: 0.06, flat: 0.7 });
+        audio.play('slam', 0.9);
+        this.shakeNear(ev.x, ev.z, 0.7);
+        if (this.me && Math.hypot(ev.x - this.me.x, ev.z - this.me.z) < 8) {
+          this.hud.callout('Bonk!', 'gold');
+        }
+        break;
+      case 'poise': {
+        const at = this.project(ev.x, this.enemyHeight(ev.id) * 0.7, ev.z);
+        if (at) this.hud.floater(at.x, at.y, String(ev.dmg), 'poise');
+        break;
+      }
     }
   }
 

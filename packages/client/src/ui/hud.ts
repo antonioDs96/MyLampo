@@ -1,4 +1,15 @@
-import { Act, HEROES, PS, TICK_HZ, type HeroDef, type PlayerState } from '@malampu/shared';
+import {
+  Act,
+  HEROES,
+  PS,
+  RARITY_COLORS,
+  TICK_HZ,
+  getItem,
+  xpProgress,
+  type HeroDef,
+  type HeroInventory,
+  type PlayerState,
+} from '@malampu/shared';
 import { h, portrait } from './dom';
 
 export interface PartyEntry {
@@ -77,6 +88,13 @@ export class Hud {
   private readonly downedBox = h('div', { class: 'downed hidden' });
   private readonly chargeBox = h('div', { class: 'charge hidden' }, h('i'));
   private readonly comboBox = h('div', { class: 'combo hidden' });
+  private readonly xpBar = h('div', { class: 'xp-top' });
+  private readonly xpFill = h('i');
+  private readonly xpLabel = h('span', { class: 'xp-label' });
+  private readonly belt = h('div', { class: 'belt' });
+  private readonly lootToasts = h('div', { class: 'loot-toasts' });
+  private readonly levelCards = h('div', { class: 'level-cards hidden' });
+  private readonly sheetBtn = h('button', { class: 'sheet-btn', text: 'I · Scheda' });
   private readonly bars = new Map<number, Bar>();
   private readonly tags = new Map<string, Tag>();
   private readonly lines: { who: string; text: string }[] = [];
@@ -89,14 +107,20 @@ export class Hud {
   private lastStatusKey = '';
   private lastPartyKey = '';
   private promptText = '';
+  private xpFlash = 0;
+  onOpenSheet: () => void = () => {};
+  onPickCard: (index: number) => void = () => {};
+  onUseBelt: (slot: number) => void = () => {};
 
   constructor(parent: HTMLElement) {
     this.root = h('div', { class: 'hud hidden' });
+    this.xpBar.append(this.xpFill, this.xpLabel);
     this.boss.append(this.bossName, h('div', { class: 'bar boss-hp' }, this.bossHp), h('div', { class: 'bar boss-poise' }, this.bossPoise));
     this.dialog.append(this.dialogWho, this.dialogText);
     this.bannerBox.append(this.bannerTitle, this.bannerSub);
     this.abilityBox.append(h('kbd', { text: 'E' }), this.abilityName, this.abilityCd);
     this.ultBox.append(h('kbd', { text: 'R' }), this.ultName, h('div', { class: 'bar ult-bar' }, this.ultFill));
+    this.sheetBtn.addEventListener('click', () => this.onOpenSheet());
     this.me.append(
       this.mePortrait,
       h(
@@ -105,18 +129,22 @@ export class Hud {
         this.meName,
         h('div', { class: 'bar hp' }, this.hpLag, this.hpFill, this.hpText),
         h('div', { class: 'bar stamina' }, this.stFill),
-        h('div', { class: 'skills' }, this.abilityBox, this.ultBox),
+        h('div', { class: 'skills' }, this.belt, this.abilityBox, this.ultBox),
       ),
     );
     this.root.append(
       this.vignette,
       this.world,
       this.reticleEl,
+      this.xpBar,
       h('div', { class: 'top' }, h('div', { class: 'stage' }, this.stageTitle, this.waveText), this.boss),
       this.party,
       this.me,
       this.statuses,
       this.calloutBox,
+      this.lootToasts,
+      this.levelCards,
+      this.sheetBtn,
       this.comboBox,
       this.chargeBox,
       this.promptBox,
@@ -376,9 +404,83 @@ export class Hud {
     this.world.append(el);
   }
 
+  setXp(pe: number, flash = false): void {
+    const p = xpProgress(pe);
+    const frac = p.need > 0 ? p.into / p.need : 1;
+    this.xpFill.style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
+    this.xpLabel.textContent = `LIV. ${p.level} · ${p.into} / ${p.need || 'MAX'} PE`;
+    if (flash) {
+      this.xpFlash = 0.45;
+      this.xpBar.classList.add('flash');
+    }
+  }
+
+  setBelt(inv: HeroInventory | null): void {
+    if (!inv) {
+      this.belt.replaceChildren();
+      return;
+    }
+    this.belt.replaceChildren(
+      ...inv.belt.map((slot, i) => {
+        const def = slot ? getItem(slot.itemId) : null;
+        const el = h(
+          'div',
+          {
+            class: `belt-slot${slot ? '' : ' empty'}`,
+            title: def?.name ?? `Slot ${i + 1}`,
+            onclick: () => this.onUseBelt(i),
+          },
+          h('kbd', { text: String(i + 1) }),
+          h('span', { text: slot ? `×${slot.qty}` : '' }),
+        );
+        if (def) el.style.setProperty('--r', RARITY_COLORS[def.rarity]);
+        return el;
+      }),
+    );
+  }
+
+  lootToast(text: string, rarity?: string): void {
+    const el = h('div', {
+      class: 'loot-toast',
+      text,
+      style: rarity ? `border-color:${rarity}` : undefined,
+    });
+    el.addEventListener('animationend', () => el.remove());
+    this.lootToasts.append(el);
+    while (this.lootToasts.children.length > 4) this.lootToasts.firstChild?.remove();
+  }
+
+  showLevelCards(cards: { name: string; desc: string }[]): void {
+    if (!cards.length) {
+      this.levelCards.classList.add('hidden');
+      this.levelCards.replaceChildren();
+      return;
+    }
+    this.levelCards.classList.remove('hidden');
+    this.levelCards.replaceChildren(
+      h('div', { class: 'level-cards-title', text: 'Potenziamento Rapido — premi 1 · 2 · 3' }),
+      ...cards.map((c, i) =>
+        h(
+          'button',
+          {
+            class: 'level-card',
+            onclick: () => this.onPickCard(i),
+          },
+          h('kbd', { text: String(i + 1) }),
+          h('b', { text: c.name }),
+          h('span', { text: c.desc }),
+        ),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------- frame
 
   update(dt: number): void {
+    if (this.xpFlash > 0) {
+      this.xpFlash -= dt;
+      if (this.xpFlash <= 0) this.xpBar.classList.remove('flash');
+    }
     if (this.lineTimer > 0) {
       this.lineTimer -= dt;
       if (this.lineTimer <= 0) this.dialog.classList.add('hidden');

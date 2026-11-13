@@ -87,6 +87,19 @@ export interface WaveInfo {
   state: string;
 }
 
+export interface LootSnap {
+  dropId: string;
+  kind: string;
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  amount: number;
+  gem?: string;
+  itemId?: string;
+  rarity?: string;
+}
+
 export interface Snapshot {
   w: number;
   /** Server clock in ms. */
@@ -99,6 +112,8 @@ export interface Snapshot {
   z: ZoneSnap[];
   ev: GameEvent[];
   wave: WaveInfo;
+  /** Ground loot (gems, coins, equipment orbs). */
+  loot?: LootSnap[];
 }
 
 export type ClientMsg =
@@ -111,7 +126,15 @@ export type ClientMsg =
   | { t: 'ping'; at: number }
   | { t: 'rtt'; ms: number }
   /** Sync local hero XP book (heroId → total xp). */
-  | { t: 'progress'; xp: Record<string, number> };
+  | { t: 'progress'; xp: Record<string, number> }
+  /** Use consumable in belt slot 0–3. */
+  | { t: 'useBelt'; slot: number }
+  /** Pick Megabonk level-up card 0–2. */
+  | { t: 'pickCard'; index: number }
+  /** Spend one ASI point into an ability. */
+  | { t: 'asi'; ability: string }
+  /** Inventory actions from the character sheet. */
+  | { t: 'inv'; op: 'equip' | 'salvage' | 'belt'; uid: string; slot?: number };
 
 export type ServerMsg =
   | { t: 'welcome'; id: string }
@@ -128,7 +151,9 @@ export type ServerMsg =
       xp: number;
       level: number;
       prevLevel: number;
-    };
+    }
+  /** Full inventory sync for a player (sheet / belt / PE). */
+  | { t: 'inv'; id: string; inv: unknown };
 
 const CMD_FIELDS = 6;
 
