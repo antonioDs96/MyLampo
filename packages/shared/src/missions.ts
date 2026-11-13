@@ -247,7 +247,7 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [['cultista', 2]],
-            hint: 'Clic sinistro: attacco leggero (ripeti per la combo). Clic destro: attacco pesante, tieni premuto per caricarlo.',
+            hint: 'J o clic sinistro: attacco leggero (ripeti per la combo). K o clic destro: attacco pesante, tieni premuto per caricarlo.',
           },
           {
             spawns: [['cultista', 3]],

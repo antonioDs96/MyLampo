@@ -38,8 +38,8 @@ const ROADS: [string, string][] = [
 const CONTROLS: [string, string, string][] = [
   ['Movimento', 'W A S D', 'Levetta sinistra'],
   ['Visuale', 'Mouse', 'Levetta destra'],
-  ['Attacco leggero (combo) / spell a distanza', 'Clic sinistro (o J)', 'X / Quadrato'],
-  ['Attacco pesante (tieni premuto per caricare)', 'Clic destro (o K)', 'Y / Triangolo, RT'],
+  ['Attacco leggero (combo) / spell a distanza', 'J / Clic sinistro', 'X / Quadrato'],
+  ['Attacco pesante (tieni premuto per caricare)', 'K / Clic destro', 'Y / Triangolo, RT'],
   ['Schivata', 'Spazio', 'B / Cerchio'],
   ['Parata (premi all’ultimo istante per la parata perfetta)', 'Q (o Shift)', 'LB'],
   ['Mira (eroi a distanza: mirino centrale, come uno shooter)', 'Mouse', 'Levetta destra'],
