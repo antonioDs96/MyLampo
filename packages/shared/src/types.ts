@@ -17,7 +17,32 @@ export type EnemyTypeId =
   | 'ombra'
   | 'tessitrice'
   | 'ombra_maggiore'
-  | 'klaus';
+  | 'klaus'
+  // Bestiary 24 (3 biomes × 5 mob + 2 elite + 1 boss)
+  | 'coscritto_sole_nero'
+  | 'balestriere_tetti'
+  | 'mastino_guerra'
+  | 'accolito_silenzio'
+  | 'gargoyle_leccese'
+  | 'scudiero_falange'
+  | 'flagellante_famelico'
+  | 'vaelen'
+  | 'tagliagole_reietti'
+  | 'predone_sahuagin'
+  | 'granchio_scogliera'
+  | 'contrabbandiere_alchemico'
+  | 'sciame_polpi'
+  | 'esecutore_kaza'
+  | 'sirena_abisso'
+  | 'idra_carsica'
+  | 'lupo_ombra'
+  | 'cespuglio_spine'
+  | 'sciamano_menhir'
+  | 'cinghiale_murge'
+  | 'fuoco_fatuo'
+  | 'berserker_jugianel'
+  | 'orsogufo_miner'
+  | 'monolito_vivente';
 
 /** Input buttons (bitmask). */
 export const Btn = {

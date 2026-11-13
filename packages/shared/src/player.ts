@@ -6,6 +6,7 @@ import { DT, TICK_HZ, TUNING } from './constants';
 import { HEROES, type AbilityDef, type AttackDef, type HeroDef } from './heroes';
 import { collide, type Layout, type Point } from './layout';
 import { angleDiff, approachAngle, clamp, yawOf } from './math';
+import { isMonolithSilenceAt, moveSpeedMulAt } from './proceduralBiomes';
 import { Act, Btn, PS, type HeroId, type InputCmd, type PlayerState, type Status } from './types';
 
 export interface EnemyLite {
@@ -430,9 +431,9 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
   const pressed = cmd.buttons & ~p.prev;
   p.prev = cmd.buttons;
 
-  let speedMul = 1;
+  let speedMul = moveSpeedMulAt(ctx.layout, p.x, p.z);
   let rate = 1;
-  let silenced = false;
+  let silenced = isMonolithSilenceAt(ctx.layout, p.x, p.z);
   let bubble = false;
   for (let i = p.st.length - 1; i >= 0; i--) {
     const s = p.st[i]!;

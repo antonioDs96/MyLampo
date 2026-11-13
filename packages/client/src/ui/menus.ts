@@ -1,13 +1,20 @@
 import {
+  ALL_HUBS,
+  BESTIARY,
+  DAMAGE_KIND_LABELS,
   HEROES,
   HERO_IDS,
+  HUB_META,
   MISSIONS,
   REGIONS,
   arenaPlays,
+  biomeTrafficLight,
   bossPlays,
+  hubIdFromRegion,
   missionById,
   xpProgress,
   type HeroId,
+  type HubId,
   type LobbyState,
   type MissionDef,
   type RegionDef,
@@ -21,6 +28,8 @@ export interface MenuActions {
   pickHero(id: HeroId): void;
   releaseHero(): void;
   selectMission(id: string): void;
+  selectHub(hubId: HubId): void;
+  selectContract(id: string): void;
   startMission(): void;
   retry(): void;
   toHub(): void;
@@ -31,9 +40,11 @@ export interface MenuActions {
   changed(): void;
   /** Local XP total for a hero. */
   progressOf(id: HeroId): number;
+  /** Equipped weapon damage types for the traffic light. */
+  weaponDamageTypes(): string[];
 }
 
-export type Panel = 'none' | 'loading' | 'title' | 'heroes' | 'council' | 'results' | 'help';
+export type Panel = 'none' | 'loading' | 'title' | 'heroes' | 'council' | 'results' | 'help' | 'bestiary';
 
 const ROADS: [string, string][] = [
   ['malya', 'mur'], ['mur', 'minervin'], ['minervin', 'jugianel'], ['minervin', 'ujian'], ['ujian', 'otranth'],
@@ -50,7 +61,8 @@ const CONTROLS: [string, string, string][] = [
   ['Aggancia bersaglio / cambia bersaglio', 'Tab o clic centrale / rotellina', 'R3 / croce direzionale'],
   ['Abilità distintiva', 'E', 'RB'],
   ['Suprema (quando la barra è piena)', 'R', 'LT'],
-  ['Esecuzione, rianimare un alleato, tavolo del Consiglio', 'F', 'A / Croce'],
+  ['Esecuzione, rianimare un alleato, tavolo del Consiglio, cattura/estrazione', 'F', 'A / Croce'],
+  ['Tomo del Bestiario', 'B', '—'],
   ['Cambia / rilascia eroe (solo in taverna)', 'C', '—'],
   ['Aiuto / pausa', 'H o Esc', 'Start'],
   ['Audio sì/no', 'M', '—'],
@@ -63,8 +75,8 @@ export class Menus {
   private lobby: LobbyState | null = null;
   private myId = '';
   private region = 'ujian';
-  /** Council view: Salento map or special trials list. */
-  private councilTab: 'map' | 'proves' = 'map';
+  /** Council view: contracts board, legacy map, or special trials. */
+  private councilTab: 'contracts' | 'map' | 'proves' = 'contracts';
   private titleError = '';
   private busyText = '';
   private name = '';
@@ -303,7 +315,7 @@ export class Menus {
     const selected = missionById(lobby.mission);
     if (this.panel !== 'council' && selected) {
       this.region = selected.region;
-      this.councilTab = selected.mode && selected.mode !== 'story' ? 'proves' : 'map';
+      this.councilTab = selected.mode && selected.mode !== 'story' ? 'proves' : 'contracts';
     }
     const ready = lobby.players.every((p) => p.hero);
     const heroesReady = lobby.players.filter((p) => p.hero).length;
@@ -312,8 +324,17 @@ export class Menus {
       'div',
       { class: 'council-tabs' },
       h('button', {
+        class: `tab ${this.councilTab === 'contracts' ? 'active' : ''}`,
+        text: 'Bacheca',
+        onclick: () => {
+          this.councilTab = 'contracts';
+          this.actions.sound('ui');
+          this.openCouncil();
+        },
+      }),
+      h('button', {
         class: `tab ${this.councilTab === 'map' ? 'active' : ''}`,
-        text: 'Spedizioni',
+        text: 'Cronaca',
         onclick: () => {
           this.councilTab = 'map';
           this.actions.sound('ui');
@@ -334,7 +355,9 @@ export class Menus {
     const body =
       this.councilTab === 'proves'
         ? this.provesPanel(host, hostName, ready, heroesReady, selected)
-        : this.mapPanel(host, hostName, ready, selected);
+        : this.councilTab === 'map'
+          ? this.mapPanel(host, hostName, ready, selected)
+          : this.contractsPanel(host, hostName, ready);
 
     this.show(
       'council',
@@ -349,13 +372,125 @@ export class Menus {
             text:
               this.councilTab === 'proves'
                 ? 'Arene boss e fosse dove vince l’ultimo che resta in piedi. Niente processioni: solo spettacolo.'
-                : 'Il Salento sotto l’Eclissi. Le regioni numerate sono pronte per una spedizione.',
+                : this.councilTab === 'map'
+                  ? 'Cronaca dell’Eclissi — le spedizioni leggendarie restano disponibili.'
+                  : 'Contratti procedurali della regione. Scegliete un hub, poi un contratto dalla bacheca.',
           }),
           tabs,
         ),
         body,
         h('footer', {}, h('button', { class: 'btn ghost', text: 'Torna in taverna', onclick: () => this.back() })),
       ),
+    );
+  }
+
+  openBestiary(): void {
+    const hub = (this.lobby?.hubId as HubId | undefined) ?? hubIdFromRegion(this.region);
+    const biome = HUB_META[hub].biome;
+    const light = biomeTrafficLight(biome, this.actions.weaponDamageTypes());
+    const lightLabel = light === 'green' ? 'Verde — vulnerabilità colpite' : light === 'red' ? 'Rosso — resistenze' : 'Giallo — neutro';
+    const entries = BESTIARY.filter((e) => e.biome === biome);
+    const rows = entries.map((e) =>
+      h(
+        'article',
+        { class: `bestiary-card grade-${e.grade}` },
+        h('div', { class: 'bestiary-index', text: String(e.index).padStart(2, '0') }),
+        h('h4', { text: e.name }),
+        h('div', { class: 'bestiary-grade', text: e.grade }),
+        h('p', { text: e.desc }),
+        h('p', { class: 'tip', text: e.tip }),
+        h(
+          'div',
+          { class: 'mods' },
+          e.vulnerability.length
+            ? h('span', { class: 'vuln', text: `Vuln: ${e.vulnerability.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
+            : null,
+          e.resistance.length
+            ? h('span', { class: 'res', text: `Res: ${e.resistance.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
+            : null,
+          e.immunity.length
+            ? h('span', { class: 'imm', text: `Imm: ${e.immunity.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
+            : null,
+        ),
+      ),
+    );
+    this.show(
+      'bestiary',
+      h(
+        'div',
+        { class: 'sheet bestiary' },
+        h(
+          'header',
+          {},
+          h('h2', { text: 'Tomo del Bestiario' }),
+          h('p', { text: `${HUB_META[hub].name} · Semaforo: ${lightLabel}` }),
+        ),
+        h('div', { class: 'bestiary-grid' }, ...rows),
+        h('footer', {}, h('button', { class: 'btn ghost', text: 'Chiudi', onclick: () => this.back() })),
+      ),
+    );
+  }
+
+  private contractsPanel(host: boolean, hostName: string, ready: boolean): HTMLElement {
+    const lobby = this.lobby!;
+    const hub = (lobby.hubId as HubId | undefined) ?? 'badiscar';
+    const hubs = ALL_HUBS.map((id) => {
+      const meta = HUB_META[id];
+      const active = id === hub;
+      return h('button', {
+        class: `btn hub-chip ${active ? 'primary' : 'ghost'}`,
+        text: meta.name.replace(/^La |^Il /, ''),
+        onclick: () => {
+          if (!host) {
+            this.actions.sound('deny');
+            return;
+          }
+          this.actions.sound('ui');
+          this.actions.selectHub(id);
+        },
+      });
+    });
+    const contracts = lobby.contracts ?? [];
+    const cards = contracts.map((c) => {
+      const chosen = lobby.contractId === c.id;
+      const light = biomeTrafficLight(c.biome as 'urban' | 'coastal' | 'wild', this.actions.weaponDamageTypes());
+      return h(
+        'article',
+        { class: `prove-card contract ${chosen ? 'chosen' : ''}` },
+        h('div', { class: 'prove-tag', text: `${c.kind.replace(/_/g, ' ')} · ★${c.danger}` }),
+        h('h4', { text: c.name }),
+        h('div', { class: `semaforo ${light}`, text: light === 'green' ? 'Semaforo verde' : light === 'red' ? 'Semaforo rosso' : 'Semaforo giallo' }),
+        h('p', { text: c.brief }),
+        h('div', { class: 'mission-place', text: c.rewardHint }),
+        host
+          ? h('button', {
+              class: `btn ${chosen ? 'primary' : 'ghost'}`,
+              text: !chosen ? 'Seleziona' : ready ? 'Partite dal varco / Avvia' : 'Tutti devono scegliere un eroe',
+              onclick: () => {
+                if (!chosen) {
+                  this.actions.sound('ui');
+                  this.actions.selectContract(c.id);
+                  return;
+                }
+                if (!ready) {
+                  this.actions.sound('deny');
+                  return;
+                }
+                this.actions.sound('ui');
+                this.actions.startMission();
+              },
+            })
+          : h('div', {
+              class: 'locked-note',
+              text: chosen ? `${hostName} ha scelto questo contratto.` : `Solo ${hostName} sceglie il contratto.`,
+            }),
+      );
+    });
+    return h(
+      'div',
+      { class: 'council-body proves' },
+      h('div', { class: 'hub-row' }, ...hubs),
+      h('div', { class: 'prove-list' }, ...cards),
     );
   }
 
@@ -399,8 +534,12 @@ export class Menus {
       g.addEventListener('click', () => {
         this.actions.sound('ui');
         this.region = r.id;
-        if (host && r.mission && lobby.mission !== r.mission) this.actions.selectMission(r.mission);
-        else this.openCouncil();
+        if (host) {
+          const hub = hubIdFromRegion(r.id);
+          if (lobby.hubId !== hub) this.actions.selectHub(hub);
+          if (r.mission && lobby.mission !== r.mission) this.actions.selectMission(r.mission);
+          else this.openCouncil();
+        } else this.openCouncil();
       });
       map.append(g);
     }
@@ -571,6 +710,7 @@ export class Menus {
     }
     const win = lobby.phase === 'victory';
     const mission = missionById(lobby.mission);
+    const contract = lobby.contracts?.find((c) => c.id === lobby.contractId) ?? lobby.contracts?.find((c) => c.id === lobby.mission);
     const host = lobby.host === this.myId;
     const hostName = lobby.players.find((p) => p.id === lobby.host)?.name ?? '';
     const cols: [string, keyof LobbyState['stats'][string]][] = [
@@ -615,10 +755,10 @@ export class Menus {
                 ? `${mission.name} — uno solo resta. Gli altri pagano il vino.`
                 : mission?.mode === 'boss'
                   ? `${mission.name} — il cerchio ha scelto i suoi campioni.`
-                  : `${mission?.name ?? ''} — l'Eclissi arretra di un passo.`
+                  : `${mission?.name ?? contract?.name ?? 'Contratto'} — l'Eclissi arretra di un passo.`
               : mission?.mode === 'arena'
                 ? `${mission.name} — tutti a terra. La Fossa non premia nessuno.`
-                : `${mission?.name ?? ''} — il Sole Nero non concede tregua, ma la taverna sì.`,
+                : `${mission?.name ?? contract?.name ?? 'Contratto'} — il Sole Nero non concede tregua, ma la taverna sì.`,
           }),
         ),
         h('table', { class: 'stats' }, h('thead', {}, h('tr', {}, h('th', { text: 'Eroe' }), ...cols.map(([label]) => h('th', { text: label })))), h('tbody', {}, ...rows)),
@@ -707,7 +847,7 @@ export class Menus {
 
   /** Esc: closes whatever can be closed. Returns true when it did something. */
   escape(): boolean {
-    if (this.panel === 'help' || this.panel === 'council' || (this.panel === 'heroes' && this.canClose)) {
+    if (this.panel === 'help' || this.panel === 'council' || this.panel === 'bestiary' || (this.panel === 'heroes' && this.canClose)) {
       this.back();
       return true;
     }

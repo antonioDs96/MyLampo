@@ -98,7 +98,9 @@ export interface ItemOpcode {
     | 'magnet_all'
     | 'fill_ult'
     | 'fill_poise_near'
-    | 'status';
+    | 'status'
+    | 'laceration'
+    | 'heal_on_hit';
   /** Dice string e.g. "2d4+2" or flat number as string. */
   param?: string;
   duration?: number;
@@ -594,6 +596,19 @@ export const ITEMS: Record<string, ItemDef> = {
     postureMul: 0.15,
   },
 };
+
+/** Boss relic weapons (24) — merged lazily to avoid circular imports at module init. */
+let bossWeaponsMerged = false;
+export function ensureBossWeapons(): void {
+  if (bossWeaponsMerged) return;
+  bossWeaponsMerged = true;
+  // Dynamic import pattern avoided: caller registers via registerBossWeapons().
+}
+
+export function registerBossWeapons(defs: Record<string, ItemDef>): void {
+  for (const [id, def] of Object.entries(defs)) ITEMS[id] = def;
+  bossWeaponsMerged = true;
+}
 
 export const ITEM_IDS = Object.keys(ITEMS);
 

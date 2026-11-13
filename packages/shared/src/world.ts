@@ -53,6 +53,10 @@ import {
 } from './layout';
 import { angleDiff, approachAngle, clamp, Rng, yawOf } from './math';
 import type { WaveDef } from './missions';
+import { BESTIARY_BY_ID, damageMultiplier } from './bestiaryCatalog';
+import { spawnBossRelicChest } from './bossLootSystem';
+import type { BiomeId } from './proceduralBiomes';
+import { getZone } from './proceduralBiomes';
 import {
   addStatus,
   getStatus,
@@ -610,6 +614,37 @@ export class World {
       if (e.state === EState.Broken) mul *= TUNING.brokenDamageMul;
     }
     if (p) mul *= p.dmgMul || 1;
+    // SRD vuln/res/imm from fixed bestiary (legacy enemies without entries stay ×1).
+    if (!opts.raw) {
+      const entry = BESTIARY_BY_ID[e.type];
+      const inv = p ? this.inventories.get(p.id) : undefined;
+      const weapon = inv?.mainHand ? getItem(inv.mainHand.itemId) : undefined;
+      const dmgType = weapon?.weapon?.damageType ?? 'contundente';
+      let fromFront = false;
+      let backstab = crit >= 1 && p?.hero === 'albereth';
+      if (p) {
+        const toPlayer = yawOf(p.x - e.x, p.z - e.z);
+        fromFront = Math.abs(angleDiff(toPlayer, e.yaw)) <= 90 * RAD;
+        if (p.hero === 'albereth' && Math.abs(angleDiff(toPlayer, e.yaw)) > TUNING.backstabArc * RAD) backstab = true;
+      }
+      const srd = damageMultiplier(entry, dmgType, { fromFront, backstab });
+      if (srd === 0) {
+        this.events.push({
+          e: 'hit',
+          id: e.id,
+          dmg: 0,
+          by: p ? p.id : '',
+          x: e.x,
+          z: e.z,
+          crit: 0,
+          kill: false,
+          heavy: !!opts.heavy,
+          kb: 0,
+        });
+        return false;
+      }
+      mul *= srd;
+    }
     const amount = Math.max(1, Math.round(dmg * mul));
     e.hp -= amount;
     e.sinceHit = 0;
@@ -743,6 +778,23 @@ export class World {
           rarity: d.rarity,
           gem: d.gem,
         });
+      }
+      // Boss relic chest: 1/8 roll across 8 hero archetypes (biome fixes the bonus).
+      if (def.boss) {
+        const biome = (getZone(this.layout)?.biome ?? BESTIARY_BY_ID[e.type]?.biome ?? 'coastal') as BiomeId;
+        const relic = spawnBossRelicChest(biome, e.x, e.z, this.rng);
+        this.loot.push(relic.drop);
+        this.events.push({
+          e: 'loot',
+          dropId: relic.drop.dropId,
+          kind: relic.drop.kind,
+          x: relic.drop.x,
+          z: relic.drop.z,
+          amount: 1,
+          itemId: relic.itemId,
+          rarity: 'rare',
+        });
+        this.events.push({ e: 'say', who: 'Carlos', text: relic.banner });
       }
     }
   }
