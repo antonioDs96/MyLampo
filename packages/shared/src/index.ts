@@ -16,3 +16,12 @@ export * from './itemsCatalog';
 export * from './dndMegabonkRules';
 export * from './lootSystem';
 export * from './effectQueue';
+export * from './proceduralBiomes';
+export * from './bestiaryCatalog';
+export * from './missionSystem';
+export * from './bossLootSystem';
+
+import { buildBossWeaponDefs } from './bossLootSystem';
+import { registerBossWeapons } from './itemsCatalog';
+
+registerBossWeapons(buildBossWeaponDefs());

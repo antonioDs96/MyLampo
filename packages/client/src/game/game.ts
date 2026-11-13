@@ -30,6 +30,13 @@ import {
   unpackEnemy,
   xpProgress,
   yawOf,
+  buildHub,
+  createProceduralRuntime,
+  currentLayout,
+  getItem,
+  zoneMapToLayout,
+  type HubId,
+  type MissionKind,
   type AllyLite,
   type AttackDef,
   type ClientMsg,
@@ -214,6 +221,8 @@ export class Game {
       pickHero: (id) => this.send({ t: 'hero', hero: id }),
       releaseHero: () => this.send({ t: 'hero', hero: '' }),
       selectMission: (id) => this.send({ t: 'mission', id }),
+      selectHub: (hubId) => this.send({ t: 'hubSelect', hubId }),
+      selectContract: (id) => this.send({ t: 'contract', id }),
       startMission: () => this.send({ t: 'start' }),
       retry: () => this.send({ t: 'retry' }),
       toHub: () => this.send({ t: 'hub' }),
@@ -226,6 +235,10 @@ export class Game {
       sound: (id) => this.audio.play(id),
       changed: () => this.syncInput(),
       progressOf: (id) => this.progress[id] ?? 0,
+      weaponDamageTypes: () => {
+        const w = this.inventory?.mainHand ? getItem(this.inventory.mainHand.itemId) : undefined;
+        return w?.weapon?.damageType ? [w.weapon.damageType] : [];
+      },
     });
     this.input.onKey = (code) => this.onKey(code);
     document.addEventListener('pointerlockchange', () => {
@@ -367,6 +380,7 @@ export class Game {
       return;
     }
     if (code === 'KeyH') this.openHelp();
+    else if (code === 'KeyB') this.menus.openBestiary();
     else if (code === 'KeyI' || code === 'KeyP') this.toggleSheet();
     else if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3' || code === 'Digit4') {
       const slot = Number(code.slice(-1)) - 1;
@@ -471,12 +485,36 @@ export class Game {
     }
   }
 
-  private onWorld(info: WorldInfo): void {
+  private resolveLayout(info: WorldInfo): Layout | null {
+    if (info.kind === 'hub' && info.hubId) {
+      return zoneMapToLayout(buildHub(info.hubId as HubId));
+    }
+    if (info.missionSeed && info.contractKind && info.hubId && info.biome) {
+      const rt = createProceduralRuntime({
+        id: info.mission || 'proc',
+        kind: info.contractKind as MissionKind,
+        hubId: info.hubId as HubId,
+        biome: info.biome as 'urban' | 'coastal' | 'wild',
+        name: info.title,
+        brief: '',
+        missionSeed: info.missionSeed,
+        danger: 3,
+        rewardHint: '',
+      });
+      rt.zoneIndex = info.zoneIndex ?? 0;
+      return currentLayout(rt);
+    }
     const def = LAYOUTS.get(info.layoutId);
-    if (!def) return;
+    if (!def) return null;
+    return parseLayout(def);
+  }
+
+  private onWorld(info: WorldInfo): void {
     const first = !this.info;
     this.info = info;
-    this.layout = parseLayout(def);
+    const layout = this.resolveLayout(info);
+    if (!layout) return;
+    this.layout = layout;
     this.arena?.dispose();
     this.arena = new Arena(this.scene, this.assets, this.layout, this.cam.cutPlane);
     this.frames = [];
@@ -1115,10 +1153,12 @@ export class Game {
     const mx = sin * input.moveY + cos * input.moveX;
     const mz = cos * input.moveY - sin * input.moveX;
 
-    if (this.info!.kind === 'hub' && this.nearTable(me)) {
-      if (input.buttons & Btn.Interact && !(this.prevButtons & Btn.Interact)) {
+    if (input.buttons & Btn.Interact && !(this.prevButtons & Btn.Interact)) {
+      if (this.info!.kind === 'hub' && this.nearTable(me)) {
         this.audio.play('ui');
         this.menus.openCouncil();
+      } else if (this.info!.kind === 'mission' && this.info!.contractKind) {
+        this.send({ t: 'capture' });
       }
     }
     this.prevButtons = input.buttons;
@@ -1733,13 +1773,16 @@ export class Game {
     }
 
     if (info.kind === 'hub') {
-      hud.setStage(info.title, '');
+      hud.setStage(info.title, lobby?.objective ?? '');
     } else if (latest) {
       const w = latest.s.wave;
+      const objective = lobby?.objective;
       const text =
-        w.state === 'done' ? 'Sala ripulita'
-        : w.state === 'intro' || w.state === 'idle' ? 'In arrivo…'
-        : `Ondata ${Math.min(w.n, w.of)} di ${w.of} · nemici ${w.left}`;
+        objective
+          ? objective
+          : w.state === 'done' ? 'Sala ripulita'
+          : w.state === 'intro' || w.state === 'idle' ? 'In arrivo…'
+          : `Ondata ${Math.min(w.n, w.of)} di ${w.of} · nemici ${w.left}`;
       hud.setStage(`${info.title} · ${info.stage + 1}/${info.stages}`, text);
     }
 
@@ -1773,11 +1816,13 @@ export class Game {
       } else {
         const fallen = this.alliesLite.find((a) => a.downed && a.id !== me.id && Math.hypot(a.x - meX, a.z - meZ) <= TUNING.reviveRange);
         if (fallen) prompt = `Tieni premuto [F] per rialzare ${this.nameOf(fallen.id)}`;
-        else if (info.kind === 'hub' && this.nearTable(me)) prompt = '[F] Tavola del Consiglio — scegli la spedizione';
+        else if (info.kind === 'hub' && this.nearTable(me)) prompt = '[F] Tavola del Consiglio — bacheca contratti';
+        else if (info.kind === 'mission' && lobby?.objective?.includes('[F]')) prompt = lobby.objective;
+        else if (info.kind === 'mission' && info.contractKind === 'GATHERING_RUN') prompt = '[F] Estrai risorsa (se vicino al nodo)';
         else if (info.kind === 'hub') {
           const lvl = this.lobby?.players.find((p) => p.id === this.myId);
           const lv = lvl?.hero ? ` · ${HEROES[lvl.hero as HeroId].short} liv. ${lvl.level}` : '';
-          prompt = `Avvicinati alla tavola del Consiglio · [C] cambia eroe${lv} · [H] comandi`;
+          prompt = `Avvicinati alla tavola del Consiglio · [B] bestiario · [C] cambia eroe${lv}`;
         }
       }
     }

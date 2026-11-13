@@ -292,6 +292,210 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
       ea({ id: 'travolgi', name: 'Travolgere', anim: '2H_Melee_Attack_Stab', impact: 0.4, windup: 1.1, recover: 1.2, kind: 'red', dmg: 38, startRange: 22, minRange: 8, reach: 5, arc: 140, lunge: 15, kb: 12, cd: 4.2, weight: 2, phase: 1 }),
     ],
   },
+
+  // —— Bestiary 24 ——
+  coscritto_sole_nero: {
+    id: 'coscritto_sole_nero', name: 'Coscritto del Sole Nero', desc: 'Fanatico dei vicoli di Mur.',
+    hp: 85, speed: 5.4, radius: 0.6, poise: 90, brokenTime: 3.2, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'fendente', name: 'Fendente', anim: '1H_Melee_Attack_Slice_Diagonal', impact: 0.36, windup: 0.7, dmg: 13, lunge: 1.4, cd: 1.9, weight: 3 }),
+      ea({ id: 'affondo', name: 'Affondo', anim: '1H_Melee_Attack_Stab', impact: 0.4, windup: 0.95, recover: 0.85, kind: 'red', startRange: 5.5, minRange: 2.5, reach: 3.3, arc: 60, lunge: 3.6, dmg: 22, kb: 5, cd: 3.4 }),
+    ],
+  },
+  balestriere_tetti: {
+    id: 'balestriere_tetti', name: 'Balestriere dei Tetti', desc: 'Mira laser dai cornicioni.',
+    hp: 65, speed: 4.4, radius: 0.55, poise: 70, brokenTime: 3, elite: false, boss: false, bar: false, ranged: true, preferred: 14, steady: false,
+    attacks: [
+      ea({ id: 'mira', name: 'Dardo Laser', anim: 'Spellcast_Shoot', impact: 0.2, windup: 1.05, kind: 'red', dmg: 18, startRange: 24, reach: 0, lunge: 0, cd: 2.8, weight: 3, proj: { kind: 'dark', speed: 28, r: 0.4, range: 34 } }),
+      ea({ id: 'raffica', name: 'Raffica', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.8, dmg: 10, startRange: 22, reach: 0, lunge: 0, cd: 3.2, weight: 2, proj: { kind: 'dark', speed: 20, r: 0.4, range: 30, count: 3 } }),
+    ],
+  },
+  mastino_guerra: {
+    id: 'mastino_guerra', name: 'Mastino da Guerra Corazzato', desc: 'Balzo che rallenta.',
+    hp: 110, speed: 6.4, radius: 0.7, poise: 110, brokenTime: 3, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'morso', name: 'Morso', anim: 'Unarmed_Melee_Attack_Punch_A', impact: 0.43, windup: 0.5, recover: 0.5, dmg: 14, reach: 2.8, cd: 1.5, weight: 3, slow: 2 }),
+      ea({ id: 'balzo', name: 'Balzo', anim: '1H_Melee_Attack_Jump_Chop', impact: 0.6, windup: 0.85, kind: 'red', dmg: 22, startRange: 9.5, minRange: 4, reach: 0, lunge: 8, aoe: 2.6, aoeRange: 9, kb: 5, cd: 3.6, weight: 2, slow: 2.5 }),
+    ],
+  },
+  accolito_silenzio: {
+    id: 'accolito_silenzio', name: 'Accolito del Silenzio', desc: 'Aura che rallenta [E]/[R].',
+    hp: 70, speed: 4.3, radius: 0.6, poise: 80, brokenTime: 3.2, elite: false, boss: false, bar: false, ranged: true, preferred: 12, steady: false,
+    attacks: [
+      ea({ id: 'dardo', name: 'Dardo Nero', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.85, dmg: 14, startRange: 20, reach: 0, lunge: 0, cd: 2.6, weight: 3, proj: { kind: 'dark', speed: 16, r: 0.5, range: 30 } }),
+      ea({ id: 'silenzio', name: 'Aura del Silenzio', anim: 'Cheer', impact: 0.9, windup: 1.1, dmg: 0, startRange: 16, reach: 0, lunge: 0, cd: 7, special: 'silence', weight: 1.5 }),
+    ],
+  },
+  gargoyle_leccese: {
+    id: 'gargoyle_leccese', name: 'Gargoyle di Pietra Leccese', desc: 'Pietrificato finché non subisce K.',
+    hp: 140, speed: 3.8, radius: 0.85, poise: 140, brokenTime: 3.5, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'artiglio', name: 'Artiglio di Pietra', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 0.75, dmg: 18, reach: 3.1, kb: 4, cd: 2.2, weight: 3 }),
+      ea({ id: 'schianto', name: 'Schianto', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.1, kind: 'red', dmg: 28, startRange: 5, aoe: 3, aoeRange: 3.5, lunge: 1, kb: 7, cd: 4, weight: 2 }),
+    ],
+  },
+  scudiero_falange: {
+    id: 'scudiero_falange', name: 'Scudiero Falange', desc: 'Immune ai proiettili frontali.',
+    hp: 320, speed: 3.9, radius: 0.9, poise: 180, brokenTime: 3.8, elite: true, boss: false, bar: false, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'falciata', name: 'Falciata', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.8, dmg: 24, startRange: 3.8, reach: 4, arc: 140, lunge: 1.5, kb: 5, cd: 2, weight: 3 }),
+      ea({ id: 'spinta', name: 'Spinta di Scudo', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.0, kind: 'red', dmg: 30, startRange: 4, aoe: 2.8, aoeRange: 2.5, kb: 9, cd: 4, weight: 2 }),
+    ],
+  },
+  flagellante_famelico: {
+    id: 'flagellante_famelico', name: 'Flagellante Famelico', desc: 'Combo Azzurro+Rosso.',
+    hp: 300, speed: 5.0, radius: 0.75, poise: 160, brokenTime: 3.5, elite: true, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'frusta', name: 'Frusta', anim: '1H_Melee_Attack_Slice_Horizontal', impact: 0.25, windup: 0.55, dmg: 16, lunge: 1.8, cd: 1.6, weight: 3 }),
+      ea({ id: 'combo', name: 'Combo Famelica', anim: '2H_Melee_Attack_Spin', animStart: 0.3, impact: 0.74, windup: 0.7, dmg: 14, reach: 3.8, arc: 200, extraHits: 1, hitGap: 0.28, cd: 2.4, weight: 2 }),
+      ea({ id: 'condanna', name: 'Condanna', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.1, kind: 'red', dmg: 36, aoe: 3.2, aoeRange: 3, kb: 8, cd: 4.5, weight: 2 }),
+    ],
+  },
+  vaelen: {
+    id: 'vaelen', name: 'Alto Inquisitore Vaelen', desc: 'Pilastri solari e catene di giudizio.',
+    hp: 2200, speed: 3.7, radius: 1.2, poise: 380, brokenTime: 4.5, elite: true, boss: true, bar: true, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'catena', name: 'Catena di Giudizio', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.85, dmg: 32, startRange: 5, reach: 5.5, arc: 150, kb: 7, cd: 1.8, weight: 3 }),
+      ea({ id: 'pilastro', name: 'Pilastro Solare', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.2, kind: 'red', dmg: 48, startRange: 12, aoe: 4, aoeRange: 10, kb: 10, cd: 3.2, weight: 2 }),
+      ea({ id: 'rullo', name: 'Giudizio', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 1.0, kind: 'red', dmg: 30, startRange: 30, reach: 0, lunge: 0, kb: 6, cd: 4, special: 'rings', weight: 2 }),
+      ea({ id: 'evoca', name: 'Convocazione', anim: 'Taunt', impact: 0.6, windup: 1, dmg: 0, startRange: 30, reach: 0, lunge: 0, cd: 14, special: 'summon', weight: 1, phase: 1 }),
+    ],
+  },
+  tagliagole_reietti: {
+    id: 'tagliagole_reietti', name: 'Tagliagole dei Reietti', desc: 'Aggira alle spalle.',
+    hp: 75, speed: 6.2, radius: 0.55, poise: 70, brokenTime: 3, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'lama', name: 'Lama', anim: '1H_Melee_Attack_Slice_Horizontal', impact: 0.25, windup: 0.5, dmg: 14, lunge: 1.8, cd: 1.5, weight: 3 }),
+      ea({ id: 'passo', name: 'Passo', anim: '1H_Melee_Attack_Stab', impact: 0.4, windup: 0.7, kind: 'red', dmg: 20, startRange: 12, minRange: 4, special: 'teleport', lunge: 1.5, cd: 4.5, weight: 2 }),
+    ],
+  },
+  predone_sahuagin: {
+    id: 'predone_sahuagin', name: 'Predone Sahuagin di Otranth', desc: 'Veloce in acqua.',
+    hp: 95, speed: 5.5, radius: 0.65, poise: 95, brokenTime: 3, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'tridente', name: 'Tridente', anim: '1H_Melee_Attack_Stab', impact: 0.4, windup: 0.65, dmg: 15, reach: 3.2, lunge: 2.5, cd: 1.7, weight: 3 }),
+      ea({ id: 'carica', name: 'Carica', anim: '2H_Melee_Attack_Stab', impact: 0.4, windup: 0.95, kind: 'red', dmg: 26, startRange: 11, minRange: 5, lunge: 9, kb: 7, cd: 3.8, weight: 2 }),
+    ],
+  },
+  granchio_scogliera: {
+    id: 'granchio_scogliera', name: 'Granchio Corazzato di Scogliera', desc: 'Pinzata Azzurra.',
+    hp: 130, speed: 3.5, radius: 0.9, poise: 150, brokenTime: 3.4, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'pinza', name: 'Pinzata', anim: 'Unarmed_Melee_Attack_Punch_A', impact: 0.43, windup: 0.7, dmg: 18, reach: 3.2, kb: 5, cd: 2, weight: 3 }),
+      ea({ id: 'schiaccia', name: 'Schiaccia', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.15, kind: 'red', dmg: 30, aoe: 3, aoeRange: 3, kb: 8, cd: 4.2, weight: 2 }),
+    ],
+  },
+  contrabbandiere_alchemico: {
+    id: 'contrabbandiere_alchemico', name: 'Contrabbandiere Alchemico', desc: 'Fiale esplosive.',
+    hp: 80, speed: 4.8, radius: 0.6, poise: 75, brokenTime: 3, elite: false, boss: false, bar: false, ranged: true, preferred: 11, steady: false,
+    attacks: [
+      ea({ id: 'fiala', name: 'Fiala', anim: 'Throw', impact: 0.72, windup: 0.9, dmg: 16, startRange: 16, reach: 0, lunge: 0, aoe: 2.4, aoeRange: 14, cd: 2.8, weight: 3 }),
+      ea({ id: 'bomba', name: 'Bomba', anim: 'Spellcast_Long', impact: 1.4, windup: 1.3, kind: 'red', dmg: 28, startRange: 18, aoe: 3.5, aoeRange: 16, kb: 5, cd: 5.5, weight: 2 }),
+    ],
+  },
+  sciame_polpi: {
+    id: 'sciame_polpi', name: "Sciame di Polpi d'Ombra", desc: 'Riduce la visuale.',
+    hp: 60, speed: 4.0, radius: 0.8, poise: 60, brokenTime: 2.8, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'afferra', name: 'Tentacoli', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 0.6, dmg: 12, reach: 3.4, arc: 180, slow: 2.5, cd: 1.8, weight: 3 }),
+      ea({ id: 'inchiostro', name: 'Inchiostro', anim: 'Spellcast_Raise', impact: 0.5, windup: 1.0, kind: 'red', dmg: 10, aoe: 4, aoeRange: 1, slow: 3, cd: 5, weight: 2 }),
+    ],
+  },
+  esecutore_kaza: {
+    id: 'esecutore_kaza', name: 'Esecutore dei Sindacati di Kaza-Massel', desc: 'Cortine fumogene.',
+    hp: 340, speed: 5.1, radius: 0.75, poise: 170, brokenTime: 3.6, elite: true, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'lama', name: 'Lama Corta', anim: '1H_Melee_Attack_Slice_Diagonal', impact: 0.36, windup: 0.6, dmg: 20, lunge: 2, cd: 1.7, weight: 3 }),
+      ea({ id: 'fumo', name: 'Cortina', anim: 'Throw', impact: 0.72, windup: 0.9, kind: 'red', dmg: 14, aoe: 4, aoeRange: 2, slow: 2, cd: 5, weight: 2 }),
+      ea({ id: 'passo', name: 'Passo', anim: '1H_Melee_Attack_Stab', impact: 0.4, windup: 0.75, kind: 'red', dmg: 26, startRange: 14, special: 'teleport', cd: 5, weight: 2 }),
+    ],
+  },
+  sirena_abisso: {
+    id: 'sirena_abisso', name: "Sirena dell'Abisso Calcareo", desc: 'Canto ipnotico.',
+    hp: 280, speed: 4.2, radius: 0.7, poise: 140, brokenTime: 3.5, elite: true, boss: false, bar: false, ranged: true, preferred: 10, steady: false,
+    attacks: [
+      ea({ id: 'nota', name: 'Nota Tagliente', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.8, dmg: 16, startRange: 18, proj: { kind: 'dark', speed: 18, r: 0.5, range: 28 }, cd: 2.4, weight: 3 }),
+      ea({ id: 'canto', name: 'Canto Ipnotico', anim: 'Cheer', impact: 0.9, windup: 1.3, kind: 'red', dmg: 22, startRange: 16, aoe: 7, aoeRange: 1, slow: 3, cd: 6, weight: 2 }),
+    ],
+  },
+  idra_carsica: {
+    id: 'idra_carsica', name: "L'Idra Carsica di Badiscar", desc: 'Triplo morso; rigenera senza Fuoco/Radioso.',
+    hp: 2600, speed: 3.5, radius: 1.6, poise: 420, brokenTime: 5, elite: true, boss: true, bar: true, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'morso1', name: 'Morso', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.75, dmg: 28, startRange: 5.5, reach: 5.8, arc: 120, kb: 6, cd: 1.6, weight: 3 }),
+      ea({ id: 'morso2', name: 'Doppio Morso', anim: '2H_Melee_Attack_Spin', animStart: 0.3, impact: 0.74, windup: 0.85, dmg: 20, reach: 5.5, arc: 200, extraHits: 1, hitGap: 0.3, cd: 2.4, weight: 2 }),
+      ea({ id: 'morso3', name: 'Morso Rosso', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.15, kind: 'red', dmg: 45, aoe: 4.5, aoeRange: 5, kb: 11, cd: 3.5, weight: 2 }),
+      ea({ id: 'travolgi', name: 'Travolta', anim: '2H_Melee_Attack_Stab', impact: 0.4, windup: 1.1, kind: 'red', dmg: 40, startRange: 18, minRange: 7, lunge: 14, kb: 12, cd: 4.5, weight: 2, phase: 1 }),
+    ],
+  },
+  lupo_ombra: {
+    id: 'lupo_ombra', name: "Lupo d'Ombra dell'Eclissi", desc: 'Bonus in branco.',
+    hp: 90, speed: 6.5, radius: 0.6, poise: 85, brokenTime: 3, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'morso', name: 'Morso', anim: 'Unarmed_Melee_Attack_Punch_A', impact: 0.5, windup: 0.55, dmg: 13, reach: 2.7, cd: 1.4, weight: 3 }),
+      ea({ id: 'balzo', name: 'Balzo', anim: '1H_Melee_Attack_Jump_Chop', impact: 0.6, windup: 0.8, kind: 'red', dmg: 20, startRange: 9, minRange: 3.5, aoe: 2.4, aoeRange: 8, lunge: 7, cd: 3.5, weight: 2 }),
+    ],
+  },
+  cespuglio_spine: {
+    id: 'cespuglio_spine', name: 'Cespuglio di Spine Corrotto', desc: 'Radici Rosse sotto i fermi.',
+    hp: 100, speed: 2.2, radius: 0.9, poise: 120, brokenTime: 3.2, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'spine', name: 'Spine', anim: '1H_Melee_Attack_Slice_Horizontal', impact: 0.25, windup: 0.7, dmg: 14, reach: 3.5, arc: 200, cd: 2, weight: 3 }),
+      ea({ id: 'radici', name: 'Radici', anim: 'Spellcast_Long', impact: 1.4, windup: 1.25, kind: 'red', dmg: 24, aoe: 3.5, aoeRange: 8, slow: 2.5, cd: 5, weight: 2 }),
+    ],
+  },
+  sciamano_menhir: {
+    id: 'sciamano_menhir', name: 'Sciamano dei Menhir', desc: 'Attiva monoliti di silenzio.',
+    hp: 85, speed: 4.0, radius: 0.6, poise: 90, brokenTime: 3.2, elite: false, boss: false, bar: false, ranged: true, preferred: 12, steady: false,
+    attacks: [
+      ea({ id: 'runa', name: 'Runa', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.85, dmg: 15, startRange: 20, proj: { kind: 'dark', speed: 15, r: 0.55, range: 28 }, cd: 2.5, weight: 3 }),
+      ea({ id: 'silenzio', name: 'Monolito', anim: 'Cheer', impact: 0.9, windup: 1.2, dmg: 0, startRange: 20, special: 'silence', cd: 8, weight: 1.5 }),
+    ],
+  },
+  cinghiale_murge: {
+    id: 'cinghiale_murge', name: 'Cinghiale Corazzato delle Murge', desc: 'Carica Azzurra: Q riempie la Barra Gialla.',
+    hp: 150, speed: 5.8, radius: 0.85, poise: 130, brokenTime: 3.4, elite: false, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'zanna', name: 'Zanna', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 0.55, dmg: 16, reach: 2.9, cd: 1.6, weight: 3 }),
+      ea({ id: 'carica', name: 'Carica', anim: '2H_Melee_Attack_Stab', impact: 0.4, windup: 1.0, dmg: 28, startRange: 14, minRange: 5, lunge: 12, kb: 10, cd: 4, weight: 2 }),
+    ],
+  },
+  fuoco_fatuo: {
+    id: 'fuoco_fatuo', name: 'Fuoco Fatuo dei Dolmen', desc: 'Evade finché non colpito da [E]/Contrattacco.',
+    hp: 55, speed: 5.5, radius: 0.45, poise: 50, brokenTime: 2.5, elite: false, boss: false, bar: false, ranged: true, preferred: 9, steady: false,
+    attacks: [
+      ea({ id: 'scintilla', name: 'Scintilla', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.7, dmg: 12, startRange: 16, proj: { kind: 'light', speed: 22, r: 0.4, range: 24 }, cd: 2.2, weight: 3 }),
+      ea({ id: 'scoppio', name: 'Scoppio', anim: 'Spellcast_Raise', impact: 0.5, windup: 1.0, kind: 'red', dmg: 20, aoe: 2.8, aoeRange: 1, cd: 4.5, weight: 2 }),
+    ],
+  },
+  berserker_jugianel: {
+    id: 'berserker_jugianel', name: 'Berserker Rinnegato di Jugianel', desc: 'Ira: resistenza fisica; Gelo la spegne.',
+    hp: 380, speed: 5.2, radius: 0.85, poise: 190, brokenTime: 3.8, elite: true, boss: false, bar: false, ranged: false, preferred: 0, steady: false,
+    attacks: [
+      ea({ id: 'fendente', name: 'Fendente', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.7, dmg: 26, reach: 4, arc: 150, kb: 5, cd: 1.8, weight: 3 }),
+      ea({ id: 'furia', name: 'Furia', anim: '2H_Melee_Attack_Spin', animStart: 0.3, impact: 0.74, windup: 0.85, dmg: 18, arc: 360, extraHits: 1, hitGap: 0.3, cd: 2.8, weight: 2 }),
+      ea({ id: 'urlo', name: 'Urlo', anim: 'Cheer', impact: 0.6, windup: 1.0, kind: 'red', dmg: 20, aoe: 5, aoeRange: 1, kb: 8, cd: 5, weight: 2 }),
+    ],
+  },
+  orsogufo_miner: {
+    id: 'orsogufo_miner', name: 'Orsogufo delle Cripte di Miner-Vin', desc: 'Urlo respingente.',
+    hp: 420, speed: 4.0, radius: 1.15, poise: 220, brokenTime: 4, elite: true, boss: false, bar: true, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'artiglio', name: 'Artiglio', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.8, dmg: 30, reach: 4.5, arc: 140, kb: 7, cd: 1.9, weight: 3 }),
+      ea({ id: 'urlo', name: 'Urlo', anim: 'Cheer', impact: 0.7, windup: 1.1, kind: 'red', dmg: 34, aoe: 6, aoeRange: 1, kb: 14, cd: 4.5, weight: 2 }),
+      ea({ id: 'schianto', name: 'Schianto', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.15, kind: 'red', dmg: 40, aoe: 4, aoeRange: 4, kb: 10, cd: 3.8, weight: 2 }),
+    ],
+  },
+  monolito_vivente: {
+    id: 'monolito_vivente', name: 'Il Monolito Vivente di Jugianel', desc: 'Frantumazione: Gelo + Contundente → ×4 postura.',
+    hp: 2800, speed: 2.8, radius: 1.8, poise: 480, brokenTime: 5.5, elite: true, boss: true, bar: true, ranged: false, preferred: 0, steady: true,
+    attacks: [
+      ea({ id: 'pugno', name: 'Pugno di Pietra', anim: '2H_Melee_Attack_Chop', impact: 0.77, windup: 1.0, dmg: 36, reach: 5.5, aoe: 3.5, aoeRange: 3, kb: 10, cd: 2.0, weight: 3 }),
+      ea({ id: 'onda', name: 'Onda Runica', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 1.1, kind: 'red', dmg: 32, startRange: 28, special: 'rings', kb: 8, cd: 3.6, weight: 2 }),
+      ea({ id: 'silenzio', name: 'Silenzio del Menhir', anim: 'Cheer', impact: 0.9, windup: 1.2, dmg: 0, startRange: 30, special: 'silence', cd: 5, weight: 1.5 }),
+      ea({ id: 'frantuma', name: 'Frantumazione', anim: '2H_Melee_Attack_Spin', animStart: 0.3, impact: 0.74, windup: 1.0, kind: 'red', dmg: 42, arc: 360, reach: 6, extraHits: 2, hitGap: 0.35, kb: 12, cd: 4.2, weight: 2, phase: 1 }),
+    ],
+  },
 };
 
 export const ENEMY_IDS = Object.keys(ENEMIES) as EnemyTypeId[];

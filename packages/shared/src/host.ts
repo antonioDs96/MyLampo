@@ -5,9 +5,9 @@
  */
 import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
 import { HEROES, isHeroId } from './heroes';
-import { collide, nearestFloor, parseLayout } from './layout';
+import { CELL, collide, nearestFloor, parseLayout } from './layout';
 import { HUB_LINES } from './lore';
-import { HUB_LAYOUT, MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
+import { MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
 import { clonePlayer, neutralCmd } from './player';
 import {
   packEnemy,
@@ -15,6 +15,7 @@ import {
   packZone,
   unpackCmds,
   type ClientMsg,
+  type LobbyContract,
   type LobbyState,
   type Phase,
   type ServerMsg,
@@ -22,8 +23,34 @@ import {
   type WorldInfo,
 } from './protocol';
 import { awardXp, levelFromXp } from './progress';
-import { Act, type HeroId, type InputCmd } from './types';
+import { Act, EState, type HeroId, type InputCmd } from './types';
 import { World, type PlayerStats } from './world';
+import {
+  ALL_HUBS,
+  HUB_META,
+  TileType,
+  buildHub,
+  getZone,
+  tileAt,
+  type HubId,
+  zoneMapToLayout,
+} from './proceduralBiomes';
+import {
+  advanceZone,
+  createProceduralRuntime,
+  currentLayout,
+  currentZone,
+  gatherResource,
+  generateContractBoard,
+  objectiveHudLine,
+  tryCapture,
+  unlockNextGate,
+  updateBossObjective,
+  wavesForZone,
+  type MissionContract,
+  type MissionKind,
+  type ProceduralMissionRuntime,
+} from './missionSystem';
 
 export interface HostIO {
   send(id: string, msg: ServerMsg): void;
@@ -66,6 +93,12 @@ export class GameHost {
   world!: World;
   info!: WorldInfo;
   hostId = '';
+  /** Active regional hub. */
+  hubId: HubId = 'badiscar';
+  /** Contracts currently on the board. */
+  contracts: MissionContract[] = [];
+  /** Selected procedural contract (null = legacy story mission). */
+  contractId: string | null = null;
 
   private readonly io: HostIO;
   private readonly clients = new Map<string, Client>();
@@ -74,15 +107,34 @@ export class GameHost {
   private clock = 0;
   private acc = 0;
   private lastNow = -1;
-  private transition: { at: number; to: 'next' | 'victory' | 'defeat' } | null = null;
+  private transition: { at: number; to: 'next' | 'victory' | 'defeat' | 'zone' } | null = null;
   private finalStats: Record<string, PlayerStats> = {};
   private xpGain: Record<string, number> = {};
+  private proc: ProceduralMissionRuntime | null = null;
+  private gateArmAt = 0;
 
   constructor(io: HostIO, code: string, seed: number) {
     this.io = io;
     this.code = code;
     this.seed = seed >>> 0 || 1;
+    this.refreshContracts();
     this.loadHub();
+  }
+
+  private refreshContracts(): void {
+    this.contracts = generateContractBoard(this.hubId, this.seed ^ (this.wid + 1) * 9973, 4);
+    if (this.contractId && !this.contracts.some((c) => c.id === this.contractId)) {
+      this.contractId = this.contracts[0]?.id ?? null;
+    }
+  }
+
+  private selectedContract(): MissionContract | null {
+    if (!this.contractId) return null;
+    return this.contracts.find((c) => c.id === this.contractId) ?? null;
+  }
+
+  private isProcedural(): boolean {
+    return !!this.proc;
   }
 
   get playerCount(): number {
@@ -135,7 +187,66 @@ export class GameHost {
       case 'mission':
         if (id === this.hostId && this.phase === 'hub' && missionById(String(msg.id))) {
           this.missionId = String(msg.id);
+          this.contractId = null;
+          this.proc = null;
           this.sendLobby();
+        }
+        break;
+      case 'hubSelect': {
+        if (id !== this.hostId || this.phase !== 'hub') break;
+        const hub = String(msg.hubId) as HubId;
+        if (!ALL_HUBS.includes(hub) || hub === this.hubId) break;
+        this.hubId = hub;
+        this.contractId = null;
+        this.refreshContracts();
+        this.loadHub();
+        break;
+      }
+      case 'contract':
+        if (id === this.hostId && this.phase === 'hub') {
+          const c = this.contracts.find((x) => x.id === String(msg.id));
+          if (c) {
+            this.contractId = c.id;
+            this.missionId = `proc:${c.kind}`;
+            this.sendLobby();
+          }
+        }
+        break;
+      case 'capture':
+        if (this.phase === 'mission' && this.proc) {
+          if (tryCapture(this.proc)) {
+            this.world.events.push({ e: 'say', who: 'Carlos', text: 'Cattura riuscita — tramortito, non ucciso. Il Consiglio vi deve un favore.' });
+            unlockNextGate(this.proc);
+            this.transition = { at: this.clock + 3500, to: 'victory' };
+            this.sendLobby();
+            break;
+          }
+          // Gathering: [F] near a resource node.
+          if (this.proc.contract.kind === 'GATHERING_RUN') {
+            const p = this.world.players.get(id);
+            const zone = currentZone(this.proc);
+            if (p && zone.resourceSpawns.length) {
+              let nearest = -1;
+              let best = 3.5;
+              for (let i = 0; i < zone.resourceSpawns.length; i++) {
+                const n = zone.resourceSpawns[i]!;
+                const d = Math.hypot(n.x - p.x, n.z - p.z);
+                if (d < best) {
+                  best = d;
+                  nearest = i;
+                }
+              }
+              if (nearest >= 0 && gatherResource(this.proc)) {
+                zone.resourceSpawns.splice(nearest, 1);
+                this.world.events.push({
+                  e: 'say',
+                  who: 'Carlos',
+                  text: `Nodo estratto · ${this.proc.objectives.resourcesCarried}/${this.proc.objectives.resourcesTotal}`,
+                });
+                this.sendLobby();
+              }
+            }
+          }
         }
         break;
       case 'start':
@@ -144,12 +255,15 @@ export class GameHost {
       case 'retry':
         if (id === this.hostId && this.phase === 'defeat') {
           this.phase = 'mission';
-          this.loadStage(this.stage, false, true);
+          if (this.proc) this.loadProceduralZone(false, true);
+          else this.loadStage(this.stage, false, true);
         }
         break;
       case 'hub':
         if (id === this.hostId && this.phase !== 'hub') {
           this.phase = 'hub';
+          this.proc = null;
+          this.refreshContracts();
           this.loadHub();
         }
         break;
@@ -281,22 +395,29 @@ export class GameHost {
 
   private loadHub(): void {
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    this.world = new World({ layout: parseLayout(HUB_LAYOUT), seed: this.seed, safe: true });
+    this.proc = null;
+    const hubMap = buildHub(this.hubId);
+    const layout = zoneMapToLayout(hubMap);
+    this.world = new World({ layout, seed: this.seed, safe: true });
     this.xpGain = {};
+    this.gateArmAt = 0;
     for (const c of this.clients.values()) {
       if (c.hero) this.spawnHero(c, c.hero);
     }
+    const meta = HUB_META[this.hubId];
     const line = HUB_LINES[this.wid % HUB_LINES.length]!;
     this.world.events.push({ e: 'say', who: 'Carlos', text: line });
     this.announce({
       wid: ++this.wid,
       kind: 'hub',
-      layoutId: HUB_LAYOUT.id,
+      layoutId: hubMap.id,
       mission: '',
       stage: 0,
       stages: 0,
-      title: HUB_LAYOUT.name,
+      title: meta.name,
       mutation: false,
+      hubId: this.hubId,
+      biome: meta.biome,
     });
   }
 
@@ -304,6 +425,13 @@ export class GameHost {
     const missing = [...this.clients.values()].filter((c) => !c.hero);
     if (missing.length > 0) {
       this.io.broadcast({ t: 'error', text: `Manca ancora la scelta dell'eroe: ${missing.map((c) => c.name).join(', ')}.` });
+      return;
+    }
+    const contract = this.selectedContract();
+    if (contract) {
+      this.phase = 'mission';
+      this.proc = createProceduralRuntime(contract);
+      this.loadProceduralZone(false, true);
       return;
     }
     const mission = this.mission();
@@ -319,7 +447,66 @@ export class GameHost {
       }
     }
     this.phase = 'mission';
+    this.proc = null;
     this.loadStage(0, false, true);
+  }
+
+  /** Procedural multi-zone (or raid arena) world build. */
+  private loadProceduralZone(carry: boolean, fresh: boolean): void {
+    const rt = this.proc;
+    if (!rt) return;
+    const old = this.world;
+    const layout = currentLayout(rt);
+    const waves = wavesForZone(rt);
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    const world = new World({
+      layout,
+      seed: this.seed,
+      waves,
+      introDelay: carry ? 3.5 : 4,
+    });
+    for (const c of this.clients.values()) {
+      if (!c.hero) continue;
+      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero), { starterGear: !carry });
+      const prev = carry ? old.players.get(c.id) : undefined;
+      if (prev && !fresh) {
+        const keep = clonePlayer(prev);
+        const max = p.maxHp;
+        p.hp = keep.act === Act.Downed ? max * 0.5 : Math.min(max, keep.hp + max * 0.35);
+        p.ult = keep.ult;
+        p.cd = keep.cd;
+      }
+      if (carry) {
+        const st = old.stats.get(c.id);
+        if (st) world.stats.set(c.id, st);
+        const inv = old.getInventory(c.id);
+        if (inv) {
+          world.inventories.set(c.id, inv);
+          this.sendInv(c.id);
+        }
+      }
+    }
+    const zone = layout;
+    const zMap = getZone(zone);
+    const hint = waves[0]?.hint;
+    if (hint) world.events.push({ e: 'say', who: 'Carlos', text: hint });
+    this.world = world;
+    this.stage = rt.zoneIndex;
+    this.announce({
+      wid: ++this.wid,
+      kind: 'mission',
+      layoutId: zMap?.id ?? `proc_${rt.zoneIndex}`,
+      mission: rt.contract.id,
+      stage: rt.zoneIndex,
+      stages: rt.zones.length,
+      title: zMap?.name ?? rt.contract.name,
+      mutation: false,
+      missionSeed: rt.contract.missionSeed,
+      hubId: rt.contract.hubId,
+      biome: rt.contract.biome,
+      contractKind: rt.contract.kind,
+      zoneIndex: rt.zoneIndex,
+    });
   }
 
   /**
@@ -389,6 +576,17 @@ export class GameHost {
 
   private sendLobby(): void {
     const ended = this.phase === 'victory' || this.phase === 'defeat';
+    const contracts: LobbyContract[] = this.contracts.map((c) => ({
+      id: c.id,
+      kind: c.kind,
+      name: c.name,
+      brief: c.brief,
+      danger: c.danger,
+      rewardHint: c.rewardHint,
+      biome: c.biome,
+      hubId: c.hubId,
+      missionSeed: c.missionSeed,
+    }));
     const s: LobbyState = {
       code: this.code,
       host: this.hostId,
@@ -404,12 +602,17 @@ export class GameHost {
       })),
       stats: ended ? this.finalStats : {},
       xpGain: ended ? this.xpGain : {},
+      hubId: this.hubId,
+      contracts,
+      contractId: this.contractId ?? undefined,
+      objective: this.proc ? objectiveHudLine(this.proc) : undefined,
     };
     this.io.broadcast({ t: 'lobby', s });
   }
 
   private grantRunXp(victory: boolean): void {
-    const mission = this.mission();
+    const mission = missionById(this.missionId);
+    const mode: MissionMode = mission?.mode ?? 'story';
     this.xpGain = {};
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
@@ -419,7 +622,7 @@ export class GameHost {
       // Prefer live PE from gem pickups; fall back to the synced book.
       const prevXp = Math.max(c.xp[c.hero] ?? 0, inv?.pe ?? 0);
       const prevLevel = levelFromXp(prevXp);
-      const { gained } = awardXp(c.hero, st, { victory, mode: mission.mode ?? 'story' });
+      const { gained } = awardXp(c.hero, st, { victory, mode });
       const xp = prevXp + gained;
       c.xp[c.hero] = xp;
       if (inv) inv.pe = xp;
@@ -501,8 +704,19 @@ export class GameHost {
   }
 
   private flow(): void {
+    // Hub: arm the north gate when a contract is selected and a hero steps on GATE_SOCKET.
+    if (this.phase === 'hub') {
+      this.hubGateFlow();
+      return;
+    }
     if (this.phase !== 'mission') return;
     const world = this.world;
+
+    if (this.proc) {
+      this.proceduralFlow();
+      return;
+    }
+
     const mission = this.mission();
     const arena = (mission.mode ?? 'story') === 'arena';
     if (!this.transition) {
@@ -541,10 +755,114 @@ export class GameHost {
     this.transition = null;
     if (to === 'next') {
       this.loadStage(this.stage + 1, true, false);
+    } else if (to === 'zone') {
+      this.loadProceduralZone(true, false);
     } else {
       this.finalStats = this.collectStats();
       this.phase = to;
       this.grantRunXp(to === 'victory');
+      this.sendLobby();
+    }
+  }
+
+  private hubGateFlow(): void {
+    if (!this.contractId) {
+      this.gateArmAt = 0;
+      return;
+    }
+    const onGate = [...this.world.players.values()].some((p) => tileAt(this.world.layout, p.x, p.z) === TileType.GATE_SOCKET);
+    if (!onGate) {
+      this.gateArmAt = 0;
+      return;
+    }
+    if (!this.gateArmAt) {
+      this.gateArmAt = this.clock + 10000;
+      this.world.events.push({
+        e: 'say',
+        who: 'Carlos',
+        text: 'Varco armato — partenza tra 10 secondi. Restate sul sigillo (o lasciate la zona per annullare).',
+      });
+      return;
+    }
+    if (this.clock >= this.gateArmAt) {
+      this.gateArmAt = 0;
+      this.startMission();
+    }
+  }
+
+  private proceduralFlow(): void {
+    const rt = this.proc!;
+    const world = this.world;
+
+    // Track boss for hunt / capture objectives.
+    const boss = world.enemies.find((e) => e.type === rt.objectives.bossId);
+    if (boss) {
+      updateBossObjective(rt, {
+        hp: boss.hp,
+        maxHp: boss.maxHp,
+        broken: boss.state === EState.Broken,
+        dead: boss.hp <= 0 || boss.state === EState.Dead,
+      });
+    }
+
+    if (!this.transition) {
+      if (rt.objectives.failed) {
+        this.transition = { at: this.clock + 2500, to: 'defeat' };
+        return;
+      }
+      if (rt.objectives.complete) {
+        this.transition = { at: this.clock + 3500, to: 'victory' };
+        return;
+      }
+      if (world.players.size > 0 && world.allDown()) {
+        this.transition = { at: this.clock + 2500, to: 'defeat' };
+        return;
+      }
+      if (world.waveState === 'done') {
+        unlockNextGate(rt);
+        const kind = rt.contract.kind as MissionKind;
+        if (kind === 'RAID_DEFENSE') {
+          world.events.push({ e: 'say', who: 'Carlos', text: 'La Reliquia regge. Forziere del Consiglio in arrivo.' });
+          rt.objectives.complete = true;
+          this.transition = { at: this.clock + 4000, to: 'victory' };
+        } else if (kind === 'GATHERING_RUN' && rt.objectives.extractUnlocked) {
+          rt.objectives.complete = true;
+          this.transition = { at: this.clock + 3500, to: 'victory' };
+        } else if (advanceZone(rt)) {
+          world.events.push({ e: 'say', who: 'Carlos', text: 'Varco aperto — avanti, Compagnia.' });
+          this.transition = { at: this.clock + 3000, to: 'zone' };
+        } else {
+          // Final zone cleared
+          if (kind === 'CAPTURE_QUEST' && !rt.objectives.captureSucceeded) {
+            // Killing boss illegally still ends the run (no capture bonus).
+            rt.objectives.complete = true;
+          } else if (kind === 'BOSS_HUNT') {
+            rt.objectives.complete = true;
+          } else if (kind === 'GATHERING_RUN') {
+            // Still need extract — keep gate open, wait for resources
+            if (rt.objectives.resourcesCarried >= rt.objectives.resourcesTotal) {
+              rt.objectives.complete = true;
+            }
+          }
+          if (rt.objectives.complete) this.transition = { at: this.clock + 4000, to: 'victory' };
+        }
+        this.sendLobby();
+      }
+      return;
+    }
+    if (this.clock < this.transition.at) return;
+    const to = this.transition.to;
+    this.transition = null;
+    if (to === 'zone') {
+      this.loadProceduralZone(true, false);
+    } else if (to === 'next') {
+      this.loadProceduralZone(true, false);
+    } else {
+      this.finalStats = this.collectStats();
+      this.phase = to;
+      this.grantRunXp(to === 'victory');
+      this.proc = null;
+      this.refreshContracts();
       this.sendLobby();
     }
   }

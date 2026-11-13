@@ -14,6 +14,18 @@ export interface LobbyPlayer {
   xp: number;
 }
 
+export interface LobbyContract {
+  id: string;
+  kind: string;
+  name: string;
+  brief: string;
+  danger: number;
+  rewardHint: string;
+  biome: string;
+  hubId: string;
+  missionSeed: string;
+}
+
 export interface LobbyState {
   code: string;
   host: string;
@@ -24,6 +36,14 @@ export interface LobbyState {
   stats: Record<string, PlayerStats>;
   /** XP gained this run per player (set on victory/defeat). */
   xpGain: Record<string, number>;
+  /** Active regional hub (mur | badiscar | sanarica). */
+  hubId?: string;
+  /** Procedural contracts on the board [F]. */
+  contracts?: LobbyContract[];
+  /** Selected procedural contract id (if any). */
+  contractId?: string;
+  /** Objective HUD line for procedural runs. */
+  objective?: string;
 }
 
 export interface WorldInfo {
@@ -37,6 +57,13 @@ export interface WorldInfo {
   title: string;
   /** The map changed shape around the players instead of moving them. */
   mutation: boolean;
+  /** Deterministic procedural seed (clients rebuild the same ZoneMap). */
+  missionSeed?: string;
+  hubId?: string;
+  biome?: string;
+  /** Procedural mission kind. */
+  contractKind?: string;
+  zoneIndex?: number;
 }
 
 export interface EnemySnap {
@@ -134,7 +161,13 @@ export type ClientMsg =
   /** Spend one ASI point into an ability. */
   | { t: 'asi'; ability: string }
   /** Inventory actions from the character sheet. */
-  | { t: 'inv'; op: 'equip' | 'salvage' | 'belt'; uid: string; slot?: number };
+  | { t: 'inv'; op: 'equip' | 'salvage' | 'belt'; uid: string; slot?: number }
+  /** Switch regional hub (mur | badiscar | sanarica). */
+  | { t: 'hubSelect'; hubId: string }
+  /** Select a procedural contract from the board. */
+  | { t: 'contract'; id: string }
+  /** Capture/tramortire prompt [F] on a capture quest. */
+  | { t: 'capture' };
 
 export type ServerMsg =
   | { t: 'welcome'; id: string }
