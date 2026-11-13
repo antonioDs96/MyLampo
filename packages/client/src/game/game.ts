@@ -1183,7 +1183,7 @@ export class Game {
 
   private nearTable(me: PlayerState): boolean {
     const t = this.layout?.table;
-    return !!t && Math.hypot(me.x - t.x, me.z - t.z) < 5.2;
+    return !!t && Math.hypot(me.x - t.x, me.z - t.z) < 10;
   }
 
   /** Immediate feedback for things the local hero just did, before the server confirms them. */
