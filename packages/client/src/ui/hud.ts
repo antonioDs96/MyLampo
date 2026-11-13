@@ -160,6 +160,9 @@ export class Hud {
     this.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${Math.ceil(p.maxHp || hero.hp)}`;
     this.stFill.style.transform = `scaleX(${Math.max(0, p.stamina / (p.maxStamina || hero.stamina))})`;
     this.stFill.classList.toggle('low', p.stamina < hero.dodge.cost);
+    const tp = hero.dodge.teleport;
+    const teleportReady = !!tp && p.dodgeCd <= 0 && p.stamina >= tp.cost;
+    this.stFill.classList.toggle('charged', teleportReady || hero.dodge.kind === 'blink');
     this.ultFill.style.transform = `scaleX(${Math.min(1, p.ult / 100)})`;
     this.ultBox.classList.toggle('ready', p.ult >= 100);
     const cd = p.cd / TICK_HZ;

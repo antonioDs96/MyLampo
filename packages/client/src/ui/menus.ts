@@ -45,7 +45,7 @@ const CONTROLS: [string, string, string][] = [
   ['Visuale', 'Mouse', 'Levetta destra'],
   ['Attacco leggero (combo) / spell a distanza', 'J / Clic sinistro', 'X / Quadrato'],
   ['Attacco pesante (tieni premuto per caricare)', 'K / Clic destro', 'Y / Triangolo, RT'],
-  ['Schivata', 'Spazio', 'B / Cerchio'],
+  ['Schivata (vigore alto → teletrasporto; Anthon lo fa più spesso)', 'Spazio', 'B / Cerchio'],
   ['Parata (premi all’ultimo istante per la parata perfetta)', 'Q (o Shift)', 'LB'],
   ['Mira (eroi a distanza: mirino centrale, come uno shooter)', 'Mouse', 'Levetta destra'],
   ['Aggancia bersaglio (opzionale) / cambia', 'Tab o clic centrale / rotellina', 'R3 / croce direzionale'],

@@ -805,8 +805,10 @@ export class World {
     out.z = p.z;
     if (p.act === Act.Dodge && p.t <= T(TUNING.perfectDodge)) {
       const d = HEROES[p.hero].dodge;
-      const u = clamp(p.t / T(d.dur), 0, 1);
-      const travelled = d.kind === 'blink' ? d.dist : d.dist * (1 - (1 - u) * (1 - u));
+      const blinkDist = d.kind === 'blink' ? d.dist : d.teleport?.dist ?? d.dist;
+      const dur = p.blink ? (d.kind === 'blink' ? d.dur : (d.teleport?.dur ?? d.dur)) : d.dur;
+      const u = clamp(p.t / T(dur), 0, 1);
+      const travelled = p.blink ? blinkDist : d.dist * (1 - (1 - u) * (1 - u));
       out.x -= p.dx * travelled;
       out.z -= p.dz * travelled;
     }

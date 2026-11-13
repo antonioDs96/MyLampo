@@ -125,11 +125,15 @@ describe('player actions', () => {
 
   it('dodge moves the hero, grants i-frames and spends stamina', () => {
     const { world, p } = setup();
+    // Keep vigour below the charged-blink threshold so this stays a normal roll.
+    p.stamina = HEROES.jusef.dodge.cost + 5;
+    p.stamDelay = T(2);
     const x0 = p.x;
     tap(world, 'a', Btn.Dodge, { mx: 1 });
     expect(p.act).toBe(Act.Dodge);
+    expect(p.blink).toBe(0);
     expect(p.iframes).toBeGreaterThan(0);
-    expect(p.stamina).toBe(HEROES.jusef.stamina - HEROES.jusef.dodge.cost);
+    expect(p.stamina).toBe(5);
     run(world, 'a', T(HEROES.jusef.dodge.dur) + 1, { mx: 1 });
     expect(p.x - x0).toBeGreaterThan(HEROES.jusef.dodge.dist * 0.9);
     expect(p.act).toBe(Act.Idle);
@@ -149,6 +153,43 @@ describe('player actions', () => {
     p.x = 6;
     tap(world, 'a', Btn.Dodge, { mx: -1 });
     expect(p.x).toBeGreaterThanOrEqual(4 + 0.5 + TUNING.playerRadius - 1e-6);
+  });
+
+  it('charged vigour lets other heroes blink, but costs more and goes on cooldown', () => {
+    const { world, p } = setup('jusef');
+    const tp = HEROES.jusef.dodge.teleport!;
+    p.stamina = tp.cost;
+    p.stamDelay = T(2); // block regen on the dodge tick so the cost is exact
+    const x0 = p.x;
+    tap(world, 'a', Btn.Dodge, { mx: 1 });
+    expect(p.blink).toBe(1);
+    expect(p.x - x0).toBeGreaterThan(tp.dist * 0.85);
+    expect(p.stamina).toBe(0);
+    expect(p.dodgeCd).toBeGreaterThan(0);
+    run(world, 'a', T(tp.dur) + 2);
+    expect(p.act).toBe(Act.Idle);
+    // Still on teleport cooldown: falls back to a normal roll even with full vigour.
+    p.stamina = p.maxStamina;
+    p.stamDelay = T(2);
+    const x1 = p.x;
+    tap(world, 'a', Btn.Dodge, { mx: 1 });
+    expect(p.blink).toBe(0);
+    expect(p.stamina).toBe(p.maxStamina - HEROES.jusef.dodge.cost);
+    run(world, 'a', T(HEROES.jusef.dodge.dur) + 1);
+    expect(p.x - x1).toBeGreaterThan(HEROES.jusef.dodge.dist * 0.9);
+  });
+
+  it('rolls instead of teleporting when vigour is only enough for a normal dodge', () => {
+    const { world, p } = setup('jusef');
+    const tp = HEROES.jusef.dodge.teleport!;
+    p.stamina = HEROES.jusef.dodge.cost;
+    expect(p.stamina).toBeLessThan(tp.cost);
+    const x0 = p.x;
+    tap(world, 'a', Btn.Dodge, { mx: 1 });
+    expect(p.blink).toBe(0);
+    expect(p.dodgeCd).toBe(0);
+    run(world, 'a', T(HEROES.jusef.dodge.dur) + 1);
+    expect(p.x - x0).toBeGreaterThan(HEROES.jusef.dodge.dist * 0.9);
   });
 
   it('walking is blocked by walls and enemies', () => {

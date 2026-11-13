@@ -53,6 +53,11 @@ export interface DodgeDef {
   iStart: number;
   iEnd: number;
   cost: number;
+  /**
+   * Charged blink for non-blink heroes: only when vigour covers this higher cost
+   * (and the teleport cooldown is clear). Anthon keeps a native blink instead.
+   */
+  teleport?: { cost: number; dist: number; dur: number; cd: number };
 }
 
 export interface BlockDef {
@@ -159,7 +164,9 @@ function atk(s: AtkSpec): AttackDef {
   };
 }
 
-const ROLL: DodgeDef = { kind: 'roll', dist: 4.4, dur: 0.4, iStart: 0, iEnd: 0.3, cost: 22 };
+/** Shared charged blink: rarer and hungrier than Anthon's native teleport. */
+const CHARGED_BLINK = { cost: 50, dist: 6.2, dur: 0.32, cd: 4 } as const;
+const ROLL: DodgeDef = { kind: 'roll', dist: 4.4, dur: 0.4, iStart: 0, iEnd: 0.3, cost: 22, teleport: { ...CHARGED_BLINK } };
 const GUARD: BlockDef = { reduction: 0.8, stamPerDmg: 0.9, blocksRed: false, moveMul: 0.4 };
 
 export const HEROES: Record<HeroId, HeroDef> = {
@@ -331,7 +338,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       atk({ anim: '2H_Melee_Attack_Chop', impact: [0.76], start: 0.3, speed: 1.25, dmg: 26, poise: 34, range: 3.4, aoe: 3.3, aoeAhead: 2.2, recover: 0.45, cancelAfter: 0.25, kb: 6, armor: true }),
     ],
     heavy: atk({ anim: '2H_Melee_Attack_Chop', impact: [0.76], start: 0.1, speed: 1.05, dmg: 34, poise: 42, range: 3.4, aoe: 4.2, aoeAhead: 2.4, lunge: 3, recover: 0.5, cancelAfter: 0.3, kb: 8, charged: 'slam', cost: 16, armor: true }),
-    dodge: { kind: 'step', dist: 2.9, dur: 0.44, iStart: 0.05, iEnd: 0.26, cost: 18 },
+    dodge: { kind: 'step', dist: 2.9, dur: 0.44, iStart: 0.05, iEnd: 0.26, cost: 18, teleport: { ...CHARGED_BLINK, dist: 5.4 } },
     block: { reduction: 0.92, stamPerDmg: 0.5, blocksRed: true, moveMul: 0.45 },
     ability: {
       id: 'provocazione',

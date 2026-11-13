@@ -330,6 +330,10 @@ kbd {
   background: #c9452e;
 }
 
+.me .bar.stamina > i.charged {
+  background: linear-gradient(#f5e7ff, #c084fc 55%, #7c3aed);
+}
+
 .skills {
   display: flex;
   gap: 8px;

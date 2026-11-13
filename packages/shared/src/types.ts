@@ -147,6 +147,10 @@ export interface PlayerState {
   ref: string;
   /** Set once the current dodge has already been rewarded as perfect. */
   rewarded: number;
+  /** 1 while the current dodge is a blink/teleport (native or charged). */
+  blink: number;
+  /** Ticks until a charged (non-Anthon) teleport may be used again. */
+  dodgeCd: number;
   st: Status[];
 }
 

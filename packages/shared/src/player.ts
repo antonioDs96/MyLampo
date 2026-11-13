@@ -90,6 +90,8 @@ export function newPlayer(
     tgt: 0,
     ref: '',
     rewarded: 0,
+    blink: 0,
+    dodgeCd: 0,
     st: [],
   };
 }
@@ -195,6 +197,7 @@ function faceTarget(p: PlayerState, ctx: StepCtx, fallback: number, maxStep: num
 }
 
 function setAct(p: PlayerState, act: PlayerState['act']): void {
+  if (p.act === Act.Dodge && act !== Act.Dodge) p.blink = 0;
   p.act = act;
   p.t = 0;
 }
@@ -250,9 +253,43 @@ function startCharge(p: PlayerState, hero: HeroDef, cmd: InputCmd, ctx: StepCtx,
   return true;
 }
 
-function startDodge(p: PlayerState, hero: HeroDef, cmd: InputCmd, ctx: StepCtx, ev: PlayerEvent[]): boolean {
+/** Resolve whether this dodge is a blink and which cost / distance / duration apply. */
+export function dodgePlan(p: PlayerState, hero: HeroDef): {
+  blink: boolean;
+  cost: number;
+  dist: number;
+  dur: number;
+  iEnd: number;
+  charged: boolean;
+} {
   const d = hero.dodge;
-  if (p.stamina < d.cost) {
+  const tp = d.teleport;
+  const charged = !!tp && d.kind !== 'blink' && p.dodgeCd <= 0 && p.stamina >= tp.cost;
+  if (d.kind === 'blink') {
+    return { blink: true, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd, charged: false };
+  }
+  if (charged && tp) {
+    return { blink: true, cost: tp.cost, dist: tp.dist, dur: tp.dur, iEnd: tp.dur, charged: true };
+  }
+  return { blink: false, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd, charged: false };
+}
+
+function blinkAlong(p: PlayerState, ctx: StepCtx, dist: number): void {
+  const steps = 10;
+  let x = p.x;
+  let z = p.z;
+  for (let i = 0; i < steps; i++) {
+    collide(ctx.layout, x + (p.dx * dist) / steps, z + (p.dz * dist) / steps, TUNING.playerRadius, tmp);
+    x = tmp.x;
+    z = tmp.z;
+  }
+  p.x = x;
+  p.z = z;
+}
+
+function startDodge(p: PlayerState, hero: HeroDef, cmd: InputCmd, ctx: StepCtx, ev: PlayerEvent[]): boolean {
+  const plan = dodgePlan(p, hero);
+  if (p.stamina < plan.cost) {
     ev.push({ type: 'fail', why: 'stamina' });
     return false;
   }
@@ -269,20 +306,13 @@ function startDodge(p: PlayerState, hero: HeroDef, cmd: InputCmd, ctx: StepCtx, 
   setAct(p, Act.Dodge);
   p.combo = 0;
   p.rewarded = 0;
-  p.iframes = Math.max(p.iframes, T(d.iEnd));
-  spend(p, d.cost);
-  if (d.kind === 'blink') {
+  p.blink = plan.blink ? 1 : 0;
+  p.iframes = Math.max(p.iframes, T(plan.iEnd));
+  spend(p, plan.cost);
+  if (plan.blink) {
     // Teleport: march along the path so walls stop it.
-    const steps = 10;
-    let x = p.x;
-    let z = p.z;
-    for (let i = 0; i < steps; i++) {
-      collide(ctx.layout, x + (p.dx * d.dist) / steps, z + (p.dz * d.dist) / steps, TUNING.playerRadius, tmp);
-      x = tmp.x;
-      z = tmp.z;
-    }
-    p.x = x;
-    p.z = z;
+    blinkAlong(p, ctx, plan.dist);
+    if (plan.charged && hero.dodge.teleport) p.dodgeCd = T(hero.dodge.teleport.cd);
   }
   ev.push({ type: 'dodge' });
   return true;
@@ -446,6 +476,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
   if (bubble) silenced = false;
 
   if (p.cd > 0) p.cd -= 1;
+  if (p.dodgeCd > 0) p.dodgeCd -= 1;
   if (p.iframes > 0) p.iframes -= 1;
 
   if (p.act === Act.Downed) {
@@ -609,11 +640,11 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
 
     case Act.Dodge: {
       const d = hero.dodge;
-      const dur = T(d.dur);
+      const dur = T(p.blink ? (d.kind === 'blink' ? d.dur : (d.teleport?.dur ?? d.dur)) : d.dur);
       const prevT = p.t;
       p.t += 1;
       pushEnemies = false;
-      if (d.kind !== 'blink') {
+      if (!p.blink) {
         const ease = (u: number) => 1 - (1 - u) * (1 - u);
         const u0 = clamp(prevT / dur, 0, 1);
         const u1 = clamp(p.t / dur, 0, 1);
@@ -629,7 +660,10 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
           p.act = Act.Dodge;
         }
       }
-      if (p.act === Act.Dodge && p.t >= dur) setAct(p, Act.Idle);
+      if (p.act === Act.Dodge && p.t >= dur) {
+        p.blink = 0;
+        setAct(p, Act.Idle);
+      }
       break;
     }
 
