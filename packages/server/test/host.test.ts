@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Act, HERO_IDS, MAX_PLAYERS, MISSIONS, type HeroId } from '@malampu/shared';
+import { Act, HEROES, HERO_IDS, MAX_PLAYERS, MISSIONS, type HeroId } from '@malampu/shared';
 import { Party } from './party';
 
 const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
@@ -174,5 +174,27 @@ describe('missions played by bots', () => {
     expect(party.host.world.pvp).toBe(false);
     party.run(5);
     expect(party.host.world.enemies.some((e) => e.type === 'klaus')).toBe(true);
+  });
+
+  it('lets a player release and change hero in the hub', () => {
+    const party = new Party(3);
+    party.add('alexios');
+    party.add('jusef');
+    party.host.onMessage('bot1', { t: 'progress', xp: { alexios: 0 } });
+    expect(party.lobby.players[0]!.level).toBe(1);
+
+    party.host.onMessage('bot1', { t: 'hero', hero: '' });
+    expect(party.lobby.players[0]!.hero).toBe('');
+    party.host.onMessage('bot1', { t: 'hero', hero: 'anthon' });
+    expect(party.lobby.players[0]!.hero).toBe('anthon');
+    expect(party.host.world.players.get('bot1')!.hero).toBe('anthon');
+    expect(party.host.world.players.get('bot1')!.maxHp).toBeGreaterThanOrEqual(HEROES.anthon.hp);
+
+    // Mid-mission swaps stay blocked.
+    party.host.onMessage('bot1', { t: 'start' });
+    expect(party.host.phase).toBe('mission');
+    party.host.onMessage('bot1', { t: 'hero', hero: 'rycard' });
+    expect(party.errors.at(-1)).toMatch(/taverna/);
+    expect(party.lobby.players[0]!.hero).toBe('anthon');
   });
 });

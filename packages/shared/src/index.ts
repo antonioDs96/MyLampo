@@ -9,4 +9,5 @@ export * from './lore';
 export * from './player';
 export * from './world';
 export * from './protocol';
+export * from './progress';
 export * from './host';

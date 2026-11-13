@@ -6,6 +6,7 @@ import {
   arenaPlays,
   bossPlays,
   missionById,
+  xpProgress,
   type HeroId,
   type LobbyState,
   type MissionDef,
@@ -18,14 +19,18 @@ export interface MenuActions {
   join(name: string, code: string): void;
   solo(name: string): void;
   pickHero(id: HeroId): void;
+  releaseHero(): void;
   selectMission(id: string): void;
   startMission(): void;
   retry(): void;
   toHub(): void;
+  changeHero(): void;
   leave(): void;
   sound(id: 'ui' | 'uiBack' | 'deny'): void;
   /** Called whenever a panel opens or closes. */
   changed(): void;
+  /** Local XP total for a hero. */
+  progressOf(id: HeroId): number;
 }
 
 export type Panel = 'none' | 'loading' | 'title' | 'heroes' | 'council' | 'results' | 'help';
@@ -47,7 +52,7 @@ const CONTROLS: [string, string, string][] = [
   ['Abilità distintiva', 'E', 'RB'],
   ['Suprema (quando la barra è piena)', 'R', 'LT'],
   ['Esecuzione, rianimare un alleato, tavolo del Consiglio', 'F', 'A / Croce'],
-  ['Cambia eroe (solo in taverna)', 'C', '—'],
+  ['Cambia / rilascia eroe (solo in taverna)', 'C', '—'],
   ['Aiuto / pausa', 'H o Esc', 'Start'],
   ['Audio sì/no', 'M', '—'],
 ];
@@ -206,11 +211,13 @@ export class Menus {
     if (!lobby) return;
     this.canClose = canClose;
     const mine = lobby.players.find((p) => p.id === this.myId)?.hero ?? '';
+    const inHub = lobby.phase === 'hub';
     const cards = HERO_IDS.map((id) => {
       const hero = HEROES[id];
       const owner = lobby.players.find((p) => p.hero === id);
       const taken = !!owner && owner.id !== this.myId;
       const region = REGIONS.find((r) => r.id === hero.home);
+      const prog = xpProgress(this.actions.progressOf(id));
       return h(
         'button',
         {
@@ -222,11 +229,23 @@ export class Menus {
               return;
             }
             this.actions.sound('ui');
-            this.actions.pickHero(id);
+            // Clicking your current hero in the tavern releases them so someone else can take over.
+            if (mine === id && inHub) this.actions.releaseHero();
+            else this.actions.pickHero(id);
           },
         },
-        h('div', { class: 'hero-head' }, portrait(id, hero.color, hero.code), h('div', {}, h('h3', { text: hero.name }), h('div', { class: 'hero-role', text: hero.role }))),
+        h(
+          'div',
+          { class: 'hero-head' },
+          portrait(id, hero.color, hero.code),
+          h('div', {}, h('h3', { text: hero.name }), h('div', { class: 'hero-role', text: hero.role })),
+          h('div', { class: 'hero-level', text: `Liv. ${prog.level}` }),
+        ),
         h('p', { class: 'hero-style', text: hero.style }),
+        h('div', {
+          class: 'hero-xp',
+          text: prog.level >= 20 ? 'Livello massimo' : `PE ${prog.into} / ${prog.need}`,
+        }),
         h('ul', {},
           h('li', {}, h('b', { text: 'Passiva ' }), hero.passive),
           h('li', {}, h('b', { text: `${hero.ability.name} [E] ` }), hero.ability.desc),
@@ -237,7 +256,11 @@ export class Menus {
           h('span', { text: `Vigore ${hero.stamina}` }),
           h('span', { text: region ? region.name : '' }),
         ),
-        taken ? h('div', { class: 'hero-owner', text: `Scelto da ${owner.name}` }) : mine === id ? h('div', { class: 'hero-owner mine', text: 'Il tuo eroe' }) : null,
+        taken
+          ? h('div', { class: 'hero-owner', text: `Scelto da ${owner!.name}` })
+          : mine === id
+            ? h('div', { class: 'hero-owner mine', text: inHub ? 'Il tuo eroe · clic per rilasciarlo' : 'Il tuo eroe' })
+            : null,
       );
     });
     this.show(
@@ -245,7 +268,14 @@ export class Menus {
       h(
         'div',
         { class: 'sheet' },
-        h('header', {}, h('h2', { text: 'La Compagnia' }), h('p', { text: 'Ognuno sceglie il proprio eroe: ogni eroe può appartenere a un solo giocatore.' })),
+        h(
+          'header',
+          {},
+          h('h2', { text: 'La Compagnia' }),
+          h('p', {
+            text: 'Scegli o cambia eroe in taverna ([C]). Ogni eroe può appartenere a un solo giocatore; i PE salgono giocando nel tuo stile.',
+          }),
+        ),
         h('div', { class: 'hero-grid' }, ...cards),
         h(
           'footer',
@@ -545,19 +575,22 @@ export class Menus {
     const host = lobby.host === this.myId;
     const hostName = lobby.players.find((p) => p.id === lobby.host)?.name ?? '';
     const cols: [string, keyof LobbyState['stats'][string]][] = [
-      ['Danni', 'dmg'], ['Uccisioni', 'kills'], ['Esecuzioni', 'execs'], ['Parate perfette', 'parries'],
-      ['Schivate perfette', 'dodges'], ['Rianimazioni', 'revives'], ['Cadute', 'downs'],
+      ['Danni', 'dmg'], ['Uccisioni', 'kills'], ['Esecuzioni', 'execs'], ['Parate', 'parries'],
+      ['Schivate', 'dodges'], ['Cure', 'heals'], ['Abilità', 'casts'], ['Supreme', 'ults'],
+      ['Rianimazioni', 'revives'], ['Cadute', 'downs'],
     ];
     const rows = lobby.players
       .filter((p) => p.hero)
       .map((p) => {
         const hero = HEROES[p.hero as HeroId];
         const st = lobby.stats[p.id];
+        const gain = lobby.xpGain[p.id] ?? 0;
+        const label = `${hero.short} · ${p.name} · liv. ${p.level}${gain ? ` · +${gain} PE` : ''}`;
         return h(
           'tr',
           { class: p.id === this.myId ? 'me-row' : '' },
-          h('td', {}, h('div', { class: 'who', style: `--c:${hero.color}` }, portrait(hero.id, hero.color, hero.code, 'small'), h('span', { text: `${hero.short} · ${p.name}` }))),
-          ...cols.map(([, k]) => h('td', { text: st ? String(Math.round(st[k])) : '—' })),
+          h('td', {}, h('div', { class: 'who', style: `--c:${hero.color}` }, portrait(hero.id, hero.color, hero.code, 'small'), h('span', { text: label }))),
+          ...cols.map(([, k]) => h('td', { text: st ? String(Math.round(st[k] ?? 0)) : '—' })),
         );
       });
     this.show(
@@ -594,7 +627,21 @@ export class Menus {
           'footer',
           {},
           host && !win ? h('button', { class: 'btn primary', text: 'Riprova da questa sala', onclick: () => this.actions.retry() }) : null,
-          host ? h('button', { class: `btn ${win ? 'primary' : ''}`, text: 'Torna alla taverna', onclick: () => this.actions.toHub() }) : null,
+          host
+            ? h('button', {
+                class: `btn ${win ? 'primary' : ''}`,
+                text: 'Torna alla taverna',
+                onclick: () => this.actions.toHub(),
+              })
+            : null,
+          h('button', {
+            class: 'btn ghost',
+            text: 'Cambia eroe',
+            onclick: () => {
+              this.actions.sound('ui');
+              this.actions.changeHero();
+            },
+          }),
           host ? null : h('div', { class: 'locked-note', text: `In attesa di ${hostName}…` }),
         ),
       ),

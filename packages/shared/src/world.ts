@@ -5,6 +5,7 @@
 import { INTERP_DELAY_MS, TICK_HZ, TUNING } from './constants';
 import { ENEMIES, type EnemyAttackDef, type EnemyDef } from './enemies';
 import { HEROES, type AttackDef } from './heroes';
+import { scaledHeroVitals } from './progress';
 import {
   buildFlow,
   collide,
@@ -61,6 +62,12 @@ export interface PlayerStats {
   revives: number;
   downs: number;
   execs: number;
+  /** Distinctive ability uses. */
+  casts: number;
+  /** Ultimate uses. */
+  ults: number;
+  /** Healing done to allies (and self when credited). */
+  heals: number;
 }
 
 interface HitSpec {
@@ -153,13 +160,26 @@ export class World {
 
   // ---------------------------------------------------------------- players
 
-  addPlayer(id: string, hero: HeroId, slot: number): PlayerState {
+  addPlayer(id: string, hero: HeroId, slot: number, level = 1): PlayerState {
     const spawns = this.layout.playerSpawns;
     const s = spawns[slot % spawns.length]!;
-    const p = newPlayer(id, hero, s.x, s.z, yawOf(this.layout.center.x - s.x, this.layout.center.z - s.z));
+    const vitals = scaledHeroVitals(HEROES[hero], level);
+    const p = newPlayer(id, hero, s.x, s.z, yawOf(this.layout.center.x - s.x, this.layout.center.z - s.z), vitals);
     this.players.set(id, p);
     if (!this.stats.has(id)) {
-      this.stats.set(id, { dmg: 0, kills: 0, taken: 0, parries: 0, dodges: 0, revives: 0, downs: 0, execs: 0 });
+      this.stats.set(id, {
+        dmg: 0,
+        kills: 0,
+        taken: 0,
+        parries: 0,
+        dodges: 0,
+        revives: 0,
+        downs: 0,
+        execs: 0,
+        casts: 0,
+        ults: 0,
+        heals: 0,
+      });
     }
     return p;
   }
@@ -408,6 +428,7 @@ export class World {
       if (hasStatus(e.st, ES.Confused)) mul *= TUNING.confusedDamageMul;
       if (e.state === EState.Broken) mul *= TUNING.brokenDamageMul;
     }
+    if (p) mul *= p.dmgMul || 1;
     const amount = Math.max(1, Math.round(dmg * mul));
     e.hp -= amount;
     e.sinceHit = 0;
@@ -417,7 +438,7 @@ export class World {
       const st = this.stats.get(p.id);
       if (st) st.dmg += amount;
       p.ult = Math.min(100, p.ult + amount * TUNING.ultPerDamage * (p.hero === 'vyncent' ? 1.4 : 1));
-      if (hasStatus(p.st, PS.Wolf)) this.heal(p, amount * 0.12, false);
+      if (hasStatus(p.st, PS.Wolf)) this.heal(p, amount * 0.12, false, p.id);
     }
     const kill = e.hp <= 0;
     this.events.push({
@@ -529,7 +550,7 @@ export class World {
     const st = this.stats.get(p.id);
     if (st) st.execs++;
     p.ult = Math.min(100, p.ult + TUNING.ultExecute);
-    this.heal(p, HEROES[p.hero].hp * TUNING.executeHeal, false);
+    this.heal(p, (p.maxHp || HEROES[p.hero].hp) * TUNING.executeHeal, false, p.id);
     this.events.push({ e: 'exec', id: e.id, by: p.id });
     this.damageEnemy(e, amount, 0, p, { raw: true, crit: 3 });
     if (e.state === EState.Broken) {
@@ -540,12 +561,17 @@ export class World {
     }
   }
 
-  heal(p: PlayerState, amount: number, announce = true): void {
+  heal(p: PlayerState, amount: number, announce = true, byId?: string): void {
     if (p.act === Act.Downed || amount <= 0) return;
-    const max = HEROES[p.hero].hp;
+    const max = p.maxHp || HEROES[p.hero].hp;
     const before = p.hp;
     p.hp = Math.min(max, p.hp + amount);
-    if (announce && p.hp - before >= 1) this.events.push({ e: 'heal', id: p.id, amt: Math.round(p.hp - before) });
+    const gained = p.hp - before;
+    if (gained >= 1 && byId) {
+      const st = this.stats.get(byId);
+      if (st) st.heals += gained;
+    }
+    if (announce && gained >= 1) this.events.push({ e: 'heal', id: p.id, amt: Math.round(gained) });
   }
 
   revive(targetId: string, by: PlayerState | null): void {
@@ -554,8 +580,8 @@ export class World {
     if (!t || t.act !== Act.Downed) return;
     t.act = Act.Idle;
     t.t = 0;
-    t.hp = HEROES[t.hero].hp * TUNING.reviveHp;
-    t.stamina = HEROES[t.hero].stamina;
+    t.hp = (t.maxHp || HEROES[t.hero].hp) * TUNING.reviveHp;
+    t.stamina = t.maxStamina || HEROES[t.hero].stamina;
     t.iframes = T(TUNING.reviveInvuln);
     if (by) {
       const st = this.stats.get(by.id);
@@ -580,6 +606,8 @@ export class World {
   }
 
   private castAbility(p: PlayerState): void {
+    const st = this.stats.get(p.id);
+    if (st) st.casts++;
     const id = HEROES[p.hero].ability.id;
     const cast = (what: string, r: number, x = p.x, z = p.z) =>
       this.events.push({ e: 'cast', id: p.id, what, x, z, yaw: p.yaw, r });
@@ -657,7 +685,7 @@ export class World {
         } else if (roll === 2) {
           for (const e of this.enemiesNear(p.x, p.z, 7)) this.freeze(e, 2.5);
         } else if (roll === 3) {
-          for (const a of this.alliesNear(p.x, p.z, 10)) this.heal(a, HEROES[a.hero].hp * 0.2);
+          for (const a of this.alliesNear(p.x, p.z, 10)) this.heal(a, (a.maxHp || HEROES[a.hero].hp) * 0.2, true, p.id);
         } else {
           for (const e of this.enemiesNear(p.x, p.z, 8)) {
             this.damageEnemy(e, 16, 10, p, { kb: 3 });
@@ -673,6 +701,8 @@ export class World {
   }
 
   private castUlt(p: PlayerState): void {
+    const st = this.stats.get(p.id);
+    if (st) st.ults++;
     const id = HEROES[p.hero].ult.id;
     const cast = (r: number, x = p.x, z = p.z) =>
       this.events.push({ e: 'cast', id: p.id, what: id, x, z, yaw: p.yaw, r });
@@ -692,7 +722,7 @@ export class World {
         for (const a of this.alliesNear(p.x, p.z, 14, true)) {
           if (this.pvp && a.id !== p.id) continue;
           if (a.act === Act.Downed) this.revive(a.id, p);
-          this.heal(a, HEROES[a.hero].hp * 0.25);
+          this.heal(a, (a.maxHp || HEROES[a.hero].hp) * 0.25, true, p.id);
           addStatus(a.st, PS.DmgUp, T(10), 0.3);
           addStatus(a.st, PS.Haste, T(10), 0.15);
         }
@@ -701,7 +731,7 @@ export class World {
       }
       case 'licantropo': {
         addStatus(p.st, PS.Wolf, T(12), 0);
-        this.heal(p, HEROES[p.hero].hp * 0.15);
+        this.heal(p, (p.maxHp || HEROES[p.hero].hp) * 0.15, true, p.id);
         cast(4);
         break;
       }
@@ -732,7 +762,7 @@ export class World {
         for (const a of this.players.values()) {
           if (a.act === Act.Downed) continue;
           if (this.pvp && a.id !== p.id) continue;
-          this.heal(a, HEROES[a.hero].hp * 0.4);
+          this.heal(a, (a.maxHp || HEROES[a.hero].hp) * 0.4, true, p.id);
           removeStatus(a.st, PS.Silence);
           removeStatus(a.st, PS.Slow);
         }
@@ -847,7 +877,7 @@ export class World {
 
   private parry(p: PlayerState, spec: HitSpec): void {
     const hero = HEROES[p.hero];
-    p.stamina = Math.min(hero.stamina, p.stamina + 18);
+    p.stamina = Math.min(p.maxStamina || hero.stamina, p.stamina + 18);
     p.ult = Math.min(100, p.ult + TUNING.ultPerfectParry);
     p.iframes = Math.max(p.iframes, T(0.3));
     addStatus(p.st, PS.Counter, T(TUNING.counterDuration), 0);
@@ -855,7 +885,7 @@ export class World {
     if (st) st.parries++;
     this.events.push({ e: 'parry', id: p.id, x: p.x, z: p.z, enemy: spec.src });
     if (p.hero === 'jusef') {
-      for (const a of this.alliesNear(p.x, p.z, 9)) this.heal(a, 6);
+      for (const a of this.alliesNear(p.x, p.z, 9)) this.heal(a, 6, true, p.id);
     }
     const e = this.enemies.find((x) => x.id === spec.src);
     if (e && this.hittable(e) && e.state !== EState.Broken) {

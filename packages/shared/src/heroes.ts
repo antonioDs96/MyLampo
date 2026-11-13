@@ -1,5 +1,8 @@
 import type { HeroId } from './types';
 
+/** Playstyle bucket used by the XP system. */
+export type Archetype = 'striker' | 'guardian' | 'skirmisher' | 'support' | 'arcane' | 'marksman';
+
 export interface ProjectileDef {
   kind: string;
   speed: number;
@@ -82,6 +85,8 @@ export interface HeroDef {
   name: string;
   short: string;
   role: string;
+  /** How this hero earns XP — so supports/mages level without matching a berserker's kills. */
+  archetype: Archetype;
   /** Home region id in the lore atlas. */
   home: string;
   color: string;
@@ -164,6 +169,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: "Albereth, l'Ombra Cornuta",
     short: 'Albereth',
     role: 'Satiro • Bardo dei Sussurri / Ladro',
+    archetype: 'skirmisher',
     home: 'mur',
     color: '#a855f7',
     desc: "Nobile decaduto di Mur, infiltrato e manipolatore. Suona un'ocarina d'osso e tratta i suoi affari alla Locanda di Calem.",
@@ -211,6 +217,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: "Jusef Corde-d'Argento",
     short: 'Jusef',
     role: 'Mezzelfo • Bardo Cantastorie',
+    archetype: 'support',
     home: 'ujian',
     color: '#3f8f5a',
     desc: "Custode orale della storia e dell'armonia perduta. Nemico giurato di Klaus Kaballor.",
@@ -257,6 +264,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: 'Vyncent il Feroce',
     short: 'Vyncent',
     role: 'Umano di Kaza-Massel • Licantropo',
+    archetype: 'striker',
     home: 'ujian',
     color: '#dc2626',
     desc: 'Assaltatore implacabile, maledetto da un esperimento del Sole Nero. Trova sfogo nel Giardino del Fiolar.',
@@ -305,6 +313,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: 'Alexios, il Monolito',
     short: 'Alexios',
     role: 'Golem di Pietra Vivente • Baluardo',
+    archetype: 'guardian',
     home: 'badiscar',
     color: '#7a8178',
     desc: 'Plasmato nelle viscere di Badiscar e risvegliato a Ujian. Legato ai monoliti, immune ai morsi di Vyncent.',
@@ -351,6 +360,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: "Rycard, l'Etereo",
     short: 'Rycard',
     role: 'Nobile Reietto di Ujian • Stratega Arciere',
+    archetype: 'marksman',
     home: 'ujian',
     color: '#9cb89a',
     desc: 'Esiliato dalla sua casata per aver studiato i testi proibiti sulla Madre Originale. Vista letale, mente tattica.',
@@ -397,6 +407,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: 'Fabyorn Mannaia-di-Ghiaccio',
     short: 'Fabyorn',
     role: 'Berserker di Jugianel • Guerriero',
+    archetype: 'striker',
     home: 'jugianel',
     color: '#a67c52',
     desc: 'Anima guerriera e cavalleresca delle Terre del Nord. Cerca chi ha distrutto il tempio sacro del suo clan.',
@@ -443,6 +454,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: 'Gabryel, il Tessitore di Luce',
     short: 'Gabryel',
     role: 'Stregone Studioso di Ujian',
+    archetype: 'arcane',
     home: 'ujian',
     color: '#c4a574',
     desc: "Bussola morale del gruppo. Crea bolle di realtà che annullano l'Eclissi. Porta, senza saperlo, il Chiavistello.",
@@ -489,6 +501,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: "Anthon dell'Etere Viola",
     short: 'Anthon',
     role: 'Stregone della Magia Selvaggia di Kaza-Massel',
+    archetype: 'arcane',
     home: 'ujian',
     color: '#9333ea',
     desc: "Mina vagante nata dalle radiazioni dell'Eclissi. Controlla un orbo viola oscuro che distorce lo spazio.",

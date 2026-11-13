@@ -21,6 +21,7 @@ import {
   type Snapshot,
   type WorldInfo,
 } from './protocol';
+import { awardXp, levelFromXp } from './progress';
 import { Act, type HeroId, type InputCmd } from './types';
 import { World, type PlayerStats } from './world';
 
@@ -33,6 +34,8 @@ interface Client {
   id: string;
   name: string;
   hero: HeroId | '';
+  /** Total XP per hero id for this player (synced from the client). */
+  xp: Record<string, number>;
   queue: InputCmd[];
   last: InputCmd | undefined;
   ack: number;
@@ -73,6 +76,7 @@ export class GameHost {
   private lastNow = -1;
   private transition: { at: number; to: 'next' | 'victory' | 'defeat' } | null = null;
   private finalStats: Record<string, PlayerStats> = {};
+  private xpGain: Record<string, number> = {};
 
   constructor(io: HostIO, code: string, seed: number) {
     this.io = io;
@@ -93,6 +97,7 @@ export class GameHost {
       id,
       name: sanitizeName(name),
       hero: '',
+      xp: {},
       queue: [],
       last: undefined,
       ack: 0,
@@ -159,17 +164,60 @@ export class GameHost {
         }
         break;
       }
+      case 'progress':
+        this.mergeProgress(c, msg.xp);
+        break;
     }
   }
 
+  private mergeProgress(c: Client, raw: unknown): void {
+    if (!raw || typeof raw !== 'object') return;
+    const next = { ...c.xp };
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!isHeroId(k)) continue;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) continue;
+      // Take the higher total so offline gains and server awards never regress.
+      next[k] = Math.max(next[k] ?? 0, Math.floor(n));
+    }
+    c.xp = next;
+    this.sendLobby();
+  }
+
+  private levelOf(c: Client, hero: HeroId | ''): number {
+    if (!hero) return 1;
+    return levelFromXp(c.xp[hero] ?? 0);
+  }
+
+  private spawnHero(c: Client, hero: HeroId): void {
+    this.world.removePlayer(c.id);
+    this.world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero));
+  }
+
   private pickHero(c: Client, raw: unknown): void {
-    if (!isHeroId(raw)) return;
-    if (c.hero === raw) return;
-    if (this.phase !== 'hub' && c.hero) {
-      this.io.send(c.id, { t: 'error', text: "Non puoi cambiare eroe durante una missione." });
+    // Empty string releases the current hero in the tavern so friends can swap.
+    if (raw === '' || raw === null || raw === undefined) {
+      if (this.phase !== 'hub') {
+        this.io.send(c.id, { t: 'error', text: 'Puoi lasciare un eroe solo in taverna.' });
+        return;
+      }
+      if (!c.hero) return;
+      c.hero = '';
+      this.world.removePlayer(c.id);
+      this.sendLobby();
       return;
     }
-    if (this.phase === 'victory' || this.phase === 'defeat') return;
+    if (!isHeroId(raw)) return;
+    if (c.hero === raw) return;
+    if (this.phase === 'mission' && c.hero) {
+      this.io.send(c.id, { t: 'error', text: 'Non puoi cambiare eroe durante una missione — torna in taverna.' });
+      return;
+    }
+    // Hub, victory and defeat all allow a new pick for the next sortie.
+    if (this.phase !== 'hub' && this.phase !== 'victory' && this.phase !== 'defeat' && c.hero) {
+      this.io.send(c.id, { t: 'error', text: 'Non puoi cambiare eroe adesso.' });
+      return;
+    }
     for (const o of this.clients.values()) {
       if (o !== c && o.hero === raw) {
         this.io.send(c.id, { t: 'error', text: `${HEROES[raw].short} è già stato scelto da ${o.name}.` });
@@ -177,8 +225,7 @@ export class GameHost {
       }
     }
     c.hero = raw;
-    this.world.removePlayer(c.id);
-    this.world.addPlayer(c.id, raw, this.slotOf(c.id));
+    if (this.phase === 'hub') this.spawnHero(c, raw);
     this.sendLobby();
   }
 
@@ -211,8 +258,9 @@ export class GameHost {
   private loadHub(): void {
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     this.world = new World({ layout: parseLayout(HUB_LAYOUT), seed: this.seed, safe: true });
+    this.xpGain = {};
     for (const c of this.clients.values()) {
-      if (c.hero) this.world.addPlayer(c.id, c.hero, this.slotOf(c.id));
+      if (c.hero) this.spawnHero(c, c.hero);
     }
     const line = HUB_LINES[this.wid % HUB_LINES.length]!;
     this.world.events.push({ e: 'say', who: 'Carlos', text: line });
@@ -274,12 +322,12 @@ export class GameHost {
     });
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
-      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id));
+      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero));
       const prev = carry ? old.players.get(c.id) : undefined;
       if (prev && !fresh) {
-        const hero = HEROES[c.hero];
         const keep = clonePlayer(prev);
-        p.hp = keep.act === Act.Downed ? hero.hp * 0.5 : Math.min(hero.hp, keep.hp + hero.hp * 0.35);
+        const max = p.maxHp;
+        p.hp = keep.act === Act.Downed ? max * 0.5 : Math.min(max, keep.hp + max * 0.35);
         p.ult = keep.ult;
         p.cd = keep.cd;
         if (mutation) {
@@ -316,16 +364,49 @@ export class GameHost {
   }
 
   private sendLobby(): void {
+    const ended = this.phase === 'victory' || this.phase === 'defeat';
     const s: LobbyState = {
       code: this.code,
       host: this.hostId,
       phase: this.phase,
       mission: this.missionId,
       stage: this.stage,
-      players: [...this.clients.values()].map((c) => ({ id: c.id, name: c.name, hero: c.hero })),
-      stats: this.phase === 'victory' || this.phase === 'defeat' ? this.finalStats : {},
+      players: [...this.clients.values()].map((c) => ({
+        id: c.id,
+        name: c.name,
+        hero: c.hero,
+        level: this.levelOf(c, c.hero),
+        xp: c.hero ? c.xp[c.hero] ?? 0 : 0,
+      })),
+      stats: ended ? this.finalStats : {},
+      xpGain: ended ? this.xpGain : {},
     };
     this.io.broadcast({ t: 'lobby', s });
+  }
+
+  private grantRunXp(victory: boolean): void {
+    const mission = this.mission();
+    this.xpGain = {};
+    for (const c of this.clients.values()) {
+      if (!c.hero) continue;
+      const st = this.finalStats[c.id];
+      if (!st) continue;
+      const prevXp = c.xp[c.hero] ?? 0;
+      const prevLevel = levelFromXp(prevXp);
+      const { gained } = awardXp(c.hero, st, { victory, mode: mission.mode ?? 'story' });
+      const xp = prevXp + gained;
+      c.xp[c.hero] = xp;
+      this.xpGain[c.id] = gained;
+      this.io.send(c.id, {
+        t: 'xp',
+        id: c.id,
+        hero: c.hero,
+        gained,
+        xp,
+        level: levelFromXp(xp),
+        prevLevel,
+      });
+    }
   }
 
   // ---------------------------------------------------------------- loop
@@ -418,6 +499,7 @@ export class GameHost {
     } else {
       this.finalStats = this.collectStats();
       this.phase = to;
+      this.grantRunXp(to === 'victory');
       this.sendLobby();
     }
   }

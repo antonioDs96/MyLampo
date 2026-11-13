@@ -50,8 +50,17 @@ export type PlayerEvent =
 const T = (s: number): number => s * TICK_HZ;
 const tmp: Point = { x: 0, z: 0 };
 
-export function newPlayer(id: string, hero: HeroId, x: number, z: number, yaw = 0): PlayerState {
+export function newPlayer(
+  id: string,
+  hero: HeroId,
+  x: number,
+  z: number,
+  yaw = 0,
+  vitals?: { hp: number; stamina: number; dmgMul: number },
+): PlayerState {
   const def = HEROES[hero];
+  const hp = vitals?.hp ?? def.hp;
+  const stamina = vitals?.stamina ?? def.stamina;
   return {
     id,
     hero,
@@ -60,8 +69,11 @@ export function newPlayer(id: string, hero: HeroId, x: number, z: number, yaw = 
     yaw,
     kx: 0,
     kz: 0,
-    hp: def.hp,
-    stamina: def.stamina,
+    hp,
+    maxHp: hp,
+    stamina,
+    maxStamina: stamina,
+    dmgMul: vitals?.dmgMul ?? 1,
     ult: 0,
     act: Act.Idle,
     t: 0,
@@ -403,7 +415,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
     }
     switch (s.k) {
       case PS.Regen:
-        if (p.act !== Act.Downed) p.hp = Math.min(hero.hp, p.hp + s.p * DT);
+        if (p.act !== Act.Downed) p.hp = Math.min(p.maxHp || hero.hp, p.hp + s.p * DT);
         break;
       case PS.Haste:
         rate *= 1 + s.p;
@@ -447,7 +459,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
   if (p.stamDelay > 0) p.stamDelay -= 1;
   else {
     const regen = p.act === Act.Block ? TUNING.staminaRegenBlocking : TUNING.staminaRegen;
-    p.stamina = Math.min(hero.stamina, p.stamina + regen * DT);
+    p.stamina = Math.min(p.maxStamina || hero.stamina, p.stamina + regen * DT);
   }
 
   if (pressed) {

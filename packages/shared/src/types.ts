@@ -116,7 +116,13 @@ export interface PlayerState {
   kx: number;
   kz: number;
   hp: number;
+  /** Max HP including level bonuses (for UI bars). */
+  maxHp: number;
   stamina: number;
+  /** Max stamina including level bonuses. */
+  maxStamina: number;
+  /** Outgoing damage multiplier from hero level. */
+  dmgMul: number;
   ult: number;
   act: ActId;
   /** Ticks elapsed in the current action (fractional when hasted). */

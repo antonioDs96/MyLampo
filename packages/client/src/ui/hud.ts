@@ -6,6 +6,7 @@ export interface PartyEntry {
   name: string;
   hero: HeroDef;
   hp: number;
+  maxHp: number;
   downed: boolean;
 }
 
@@ -151,13 +152,13 @@ export class Hud {
 
   updateMe(p: PlayerState, dt: number): void {
     const hero = HEROES[p.hero];
-    const hp = Math.max(0, p.hp / hero.hp);
+    const hp = Math.max(0, p.hp / (p.maxHp || hero.hp));
     if (hp >= this.lagHp) this.lagHp = hp;
     else this.lagHp = Math.max(hp, this.lagHp - dt * 0.35);
     this.hpFill.style.transform = `scaleX(${hp})`;
     this.hpLag.style.transform = `scaleX(${this.lagHp})`;
-    this.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${hero.hp}`;
-    this.stFill.style.transform = `scaleX(${Math.max(0, p.stamina / hero.stamina)})`;
+    this.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${Math.ceil(p.maxHp || hero.hp)}`;
+    this.stFill.style.transform = `scaleX(${Math.max(0, p.stamina / (p.maxStamina || hero.stamina))})`;
     this.stFill.classList.toggle('low', p.stamina < hero.dodge.cost);
     this.ultFill.style.transform = `scaleX(${Math.min(1, p.ult / 100)})`;
     this.ultBox.classList.toggle('ready', p.ult >= 100);
@@ -209,7 +210,7 @@ export class Hud {
       if (!el) return;
       el.classList.toggle('is-down', e.downed);
       const fill = el.querySelector('i') as HTMLElement;
-      fill.style.transform = `scaleX(${Math.max(0, Math.min(1, e.hp / e.hero.hp))})`;
+      fill.style.transform = `scaleX(${Math.max(0, Math.min(1, e.hp / (e.maxHp || e.hero.hp)))})`;
     });
   }
 

@@ -8,6 +8,10 @@ export interface LobbyPlayer {
   id: string;
   name: string;
   hero: HeroId | '';
+  /** Level of the currently selected hero (1 if none). */
+  level: number;
+  /** Total XP on the selected hero. */
+  xp: number;
 }
 
 export interface LobbyState {
@@ -18,6 +22,8 @@ export interface LobbyState {
   stage: number;
   players: LobbyPlayer[];
   stats: Record<string, PlayerStats>;
+  /** XP gained this run per player (set on victory/defeat). */
+  xpGain: Record<string, number>;
 }
 
 export interface WorldInfo {
@@ -103,7 +109,9 @@ export type ClientMsg =
   | { t: 'retry' }
   | { t: 'hub' }
   | { t: 'ping'; at: number }
-  | { t: 'rtt'; ms: number };
+  | { t: 'rtt'; ms: number }
+  /** Sync local hero XP book (heroId → total xp). */
+  | { t: 'progress'; xp: Record<string, number> };
 
 export type ServerMsg =
   | { t: 'welcome'; id: string }
@@ -111,7 +119,16 @@ export type ServerMsg =
   | { t: 'world'; w: WorldInfo }
   | { t: 'snap'; s: Snapshot }
   | { t: 'pong'; at: number }
-  | { t: 'error'; text: string };
+  | { t: 'error'; text: string }
+  | {
+      t: 'xp';
+      id: string;
+      hero: HeroId;
+      gained: number;
+      xp: number;
+      level: number;
+      prevLevel: number;
+    };
 
 const CMD_FIELDS = 6;
 

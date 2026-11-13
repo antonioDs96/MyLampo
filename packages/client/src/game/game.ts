@@ -27,6 +27,7 @@ import {
   TICK_HZ,
   TUNING,
   unpackEnemy,
+  xpProgress,
   yawOf,
   type AllyLite,
   type AttackDef,
@@ -56,6 +57,7 @@ import { ChaseCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
 import { Input, type InputFrame } from './input';
 import { ENEMY_LOOKS, HERO_LOOKS, type RGB } from './looks';
+import { loadProgress, mergeProgress, type ProgressBook } from './progress';
 import { Vfx } from './vfx';
 
 const BLUE: RGB = [0.25, 0.65, 1];
@@ -170,6 +172,7 @@ export class Game {
   private heroShown: HeroId | '' = '';
   private lastPhase = '';
   private fps = 60;
+  private progress: ProgressBook = loadProgress();
 
   constructor(
     private readonly scene: Scene,
@@ -188,13 +191,20 @@ export class Game {
       join: (name, code) => void this.connect(name, code, false),
       solo: (name) => void this.connect(name, null, true),
       pickHero: (id) => this.send({ t: 'hero', hero: id }),
+      releaseHero: () => this.send({ t: 'hero', hero: '' }),
       selectMission: (id) => this.send({ t: 'mission', id }),
       startMission: () => this.send({ t: 'start' }),
       retry: () => this.send({ t: 'retry' }),
       toHub: () => this.send({ t: 'hub' }),
+      changeHero: () => {
+        this.send({ t: 'hub' });
+        // Hub world arrives async; open the roster as soon as we're back.
+        window.setTimeout(() => this.menus.openHeroes(true), 80);
+      },
       leave: () => this.leave(''),
       sound: (id) => this.audio.play(id),
       changed: () => this.syncInput(),
+      progressOf: (id) => this.progress[id] ?? 0,
     });
     this.input.onKey = (code) => this.onKey(code);
     document.addEventListener('pointerlockchange', () => {
@@ -230,6 +240,8 @@ export class Game {
     conn.onClose = (reason) => this.leave(reason);
     this.lastPing = 0;
     this.rtt = 0;
+    this.progress = loadProgress();
+    this.send({ t: 'progress', xp: this.progress as Record<string, number> });
   }
 
   private leave(reason: string): void {
@@ -286,7 +298,10 @@ export class Game {
       return;
     }
     if (code === 'KeyH') this.openHelp();
-    else if (code === 'KeyC' && this.info.kind === 'hub') this.menus.openHeroes(!!this.myHero());
+    else if (code === 'KeyC') {
+      if (this.lobby?.phase === 'hub' || this.info?.kind === 'hub') this.menus.openHeroes(!!this.myHero());
+      else this.menus.toast('Torna in taverna per cambiare eroe ([C] al bancone).');
+    }
   }
 
   private myHero(): HeroId | '' {
@@ -319,6 +334,20 @@ export class Game {
         this.audio.play('deny');
         this.menus.toast(msg.text);
         break;
+      case 'xp': {
+        this.progress = mergeProgress(this.progress, msg.hero, msg.xp);
+        this.send({ t: 'progress', xp: this.progress as Record<string, number> });
+        const hero = HEROES[msg.hero];
+        if (msg.level > msg.prevLevel) {
+          this.audio.play('victory');
+          this.hud.callout(`${hero.short} · livello ${msg.level}!`, 'gold');
+          this.menus.toast(`${hero.short} sale al livello ${msg.level} (+${msg.gained} PE)`);
+        } else {
+          const prog = xpProgress(msg.xp);
+          this.menus.toast(`${hero.short}: +${msg.gained} PE · liv. ${prog.level} (${prog.into}/${prog.need})`);
+        }
+        break;
+      }
     }
   }
 
@@ -1562,7 +1591,14 @@ export class Game {
       for (const p of lobby.players) {
         if (p.id === this.myId || !p.hero) continue;
         const st = latest.players.get(p.id);
-        party.push({ id: p.id, name: p.name, hero: HEROES[p.hero], hp: st ? st.hp : 0, downed: st ? st.act === Act.Downed : false });
+        party.push({
+          id: p.id,
+          name: p.name,
+          hero: HEROES[p.hero],
+          hp: st ? st.hp : 0,
+          maxHp: st ? st.maxHp || HEROES[p.hero].hp : HEROES[p.hero].hp,
+          downed: st ? st.act === Act.Downed : false,
+        });
       }
       hud.setParty(party);
     }
@@ -1611,7 +1647,11 @@ export class Game {
         const fallen = this.alliesLite.find((a) => a.downed && a.id !== me.id && Math.hypot(a.x - meX, a.z - meZ) <= TUNING.reviveRange);
         if (fallen) prompt = `Tieni premuto [F] per rialzare ${this.nameOf(fallen.id)}`;
         else if (info.kind === 'hub' && this.nearTable(me)) prompt = '[F] Tavola del Consiglio — scegli la spedizione';
-        else if (info.kind === 'hub') prompt = 'Avvicinati alla tavola del Consiglio · [C] cambia eroe · [H] comandi';
+        else if (info.kind === 'hub') {
+          const lvl = this.lobby?.players.find((p) => p.id === this.myId);
+          const lv = lvl?.hero ? ` · ${HEROES[lvl.hero as HeroId].short} liv. ${lvl.level}` : '';
+          prompt = `Avvicinati alla tavola del Consiglio · [C] cambia eroe${lv} · [H] comandi`;
+        }
       }
     }
     hud.prompt(this.menus.open ? null : prompt);
