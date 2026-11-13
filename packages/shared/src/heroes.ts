@@ -166,8 +166,10 @@ function atk(s: AtkSpec): AttackDef {
   };
 }
 
-/** Shared charged blink: rarer and hungrier than Anthon's native teleport. */
+/** Shared charged blink: rarer and hungrier than a native caster teleport. */
 const CHARGED_BLINK = { cost: 50, dist: 6.2, dur: 0.32, cd: 4 } as const;
+/** Native blink used by Anthon, Gabryel and Rycard. */
+const BLINK: DodgeDef = { kind: 'blink', dist: 7.5, dur: 0.3, iStart: 0, iEnd: 0.3, cost: 24 };
 const ROLL: DodgeDef = { kind: 'roll', dist: 4.4, dur: 0.4, iStart: 0, iEnd: 0.3, cost: 22, teleport: { ...CHARGED_BLINK } };
 const GUARD: BlockDef = { reduction: 0.8, stamPerDmg: 0.9, blocksRed: false, moveMul: 0.4 };
 
@@ -373,7 +375,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     home: 'ujian',
     color: '#9cb89a',
     desc: 'Esiliato dalla sua casata per aver studiato i testi proibiti sulla Madre Originale. Vista letale, mente tattica.',
-    passive: 'Occhio dello stratega: i bersagli marchiati subiscono il 30% di danni in più da tutta la Compagnia.',
+    passive: "Passo etereo: la schivata è un teletrasporto come quello di Anthon; i bersagli marchiati subiscono il 30% di danni in più da tutta la Compagnia.",
     style: 'Tiratore — colpisce da lontano e marchia le prede per il gruppo.',
     hp: 90,
     stamina: 110,
@@ -387,7 +389,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       atk({ anim: '2H_Ranged_Shoot', impact: [0.2], start: 0.04, speed: 1.3, dmg: 10, poise: 8, lunge: 0, recover: 0.42, cancelAfter: 0.24, proj: { kind: 'bolt', speed: 42, r: 0.5, range: 36, count: 3 } }),
     ],
     heavy: atk({ anim: '2H_Ranged_Shoot', impact: [0.2], start: 0.04, speed: 1.2, dmg: 28, poise: 24, lunge: 0, recover: 0.4, cancelAfter: 0.22, kb: 5, charged: 'pierce', cost: 12, proj: { kind: 'bolt_heavy', speed: 55, r: 0.65, range: 44, pierce: 2 } }),
-    dodge: { ...ROLL, dist: 5.2, cost: 20 },
+    dodge: BLINK,
     block: GUARD,
     ability: {
       id: 'marchio',
@@ -467,7 +469,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     home: 'ujian',
     color: '#c4a574',
     desc: "Bussola morale del gruppo. Crea bolle di realtà che annullano l'Eclissi. Porta, senza saperlo, il Chiavistello.",
-    passive: "Tessitura: dentro la sua bolla l'Eclissi non ha potere — niente silenzio, danni dimezzati.",
+    passive: "Tessitura e passo di luce: dentro la sua bolla l'Eclissi non ha potere; la schivata è un teletrasporto come quello di Anthon.",
     style: 'Dardi di luce — danno a distanza e protezione della Compagnia.',
     hp: 90,
     stamina: 100,
@@ -481,7 +483,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       atk({ anim: 'Spellcast_Shoot', impact: [0.2], speed: 1.25, dmg: 17, poise: 14, lunge: 0, recover: 0.42, cancelAfter: 0.24, proj: { kind: 'light_big', speed: 30, r: 0.8, range: 32, aoe: 2.2 } }),
     ],
     heavy: atk({ anim: 'Spellcast_Shoot', impact: [0.2], speed: 1.1, dmg: 26, poise: 26, lunge: 0, recover: 0.42, cancelAfter: 0.24, kb: 5, charged: 'big', cost: 14, proj: { kind: 'light_orb', speed: 24, r: 0.9, range: 30, aoe: 3.6 } }),
-    dodge: ROLL,
+    dodge: BLINK,
     block: GUARD,
     ability: {
       id: 'bolla',
@@ -528,7 +530,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       atk({ anim: 'Throw', impact: [0.72], start: 0.4, speed: 1.5, dmg: 18, poise: 16, lunge: 0, recover: 0.4, cancelAfter: 0.22, proj: { kind: 'orb_big', speed: 24, r: 0.85, range: 22, aoe: 2.6 } }),
     ],
     heavy: atk({ anim: 'Spellcast_Shoot', impact: [0.2], speed: 1.1, dmg: 24, poise: 24, lunge: 0, recover: 0.42, cancelAfter: 0.24, charged: 'pull', cost: 14 }),
-    dodge: { kind: 'blink', dist: 7.5, dur: 0.3, iStart: 0, iEnd: 0.3, cost: 24 },
+    dodge: BLINK,
     block: GUARD,
     ability: {
       id: 'ondata',

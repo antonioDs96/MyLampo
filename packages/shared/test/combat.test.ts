@@ -169,6 +169,20 @@ describe('player actions', () => {
     expect(p.x).toBeGreaterThanOrEqual(4 + 0.5 + TUNING.playerRadius - 1e-6);
   });
 
+  it('Gabryel and Rycard blink like Anthon on every dodge', () => {
+    for (const hero of ['gabryel', 'rycard'] as const) {
+      const { world, p } = setup(hero);
+      expect(HEROES[hero].dodge.kind).toBe('blink');
+      const x0 = p.x;
+      p.stamDelay = T(2);
+      tap(world, 'a', Btn.Dodge, { mx: 1 });
+      expect(p.blink).toBe(1);
+      expect(p.x - x0).toBeGreaterThan(HEROES[hero].dodge.dist * 0.85);
+      expect(p.stamina).toBe(HEROES[hero].stamina - HEROES[hero].dodge.cost);
+      expect(p.dodgeCd).toBe(0);
+    }
+  });
+
   it('charged vigour lets other heroes blink, but costs more and goes on cooldown', () => {
     const { world, p } = setup('jusef');
     const tp = HEROES.jusef.dodge.teleport!;
