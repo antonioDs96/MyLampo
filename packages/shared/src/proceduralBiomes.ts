@@ -308,194 +308,98 @@ function addProp(zone: ZoneMap, kind: string, cx: number, cz: number, r: number)
 }
 
 // ---------------------------------------------------------------------------
-// Fixed hubs (40 × 30)
+// Fixed hubs (compact — Arena merges one mesh per floor cell)
 // ---------------------------------------------------------------------------
 
-const HUB_W = 40;
-const HUB_H = 30;
+const HUB_W = 22;
+const HUB_H = 16;
 
-export function buildHubMur(): ZoneMap {
-  const zone = emptyZone('hub_mur', HUB_META.mur.name, 'urban', 'inn', HUB_W, HUB_H, 'mur', 0, true);
+/** Shared cozy tavern floor with north gate + council at centre. */
+function buildTavernLikeHub(
+  id: string,
+  name: string,
+  biome: BiomeId,
+  theme: Theme,
+  hubId: HubId,
+  extras: (zone: ZoneMap) => void,
+): ZoneMap {
+  const zone = emptyZone(id, name, biome, theme, HUB_W, HUB_H, hubId, 0, true);
   const { tiles, w, h } = zone;
-  // Courtyard floor
-  fillRect(tiles, w, h, 2, 2, w - 3, h - 3, TileType.FLOOR_NORMAL);
+  fillRect(tiles, w, h, 1, 1, w - 2, h - 2, TileType.FLOOR_NORMAL);
   paintBorder(tiles, w, h);
-  // Perimeter colonnade (COVER_LOW pillars)
-  for (let x = 4; x < w - 4; x += 3) {
-    setTile(tiles, w, h, x, 3, TileType.COVER_LOW);
-    setTile(tiles, w, h, x, h - 4, TileType.COVER_LOW);
-    addProp(zone, 'pillar', x, 3, 0.95);
-    addProp(zone, 'pillar', x, h - 4, 0.95);
-  }
-  for (let z = 5; z < h - 5; z += 3) {
-    setTile(tiles, w, h, 3, z, TileType.COVER_LOW);
-    setTile(tiles, w, h, w - 4, z, TileType.COVER_LOW);
-    addProp(zone, 'pillar', 3, z, 0.95);
-    addProp(zone, 'pillar', w - 4, z, 0.95);
-  }
-  // Braziers
-  for (const [bx, bz] of [
-    [6, 6],
-    [33, 6],
-    [6, 23],
-    [33, 23],
-  ] as const) {
-    addProp(zone, 'brazier', bx, bz, 0.45);
-  }
-  // Stations
+
+  const cx = Math.floor(w / 2);
+  const cz = Math.floor(h / 2);
+  // Council: low collision so heroes can stand next to it and press [F].
   zone.stations.push(
-    { kind: 'council', x: 20.5 * CELL, z: 15.5 * CELL, keys: ['F'] },
-    { kind: 'heroes', x: 8.5 * CELL, z: 15.5 * CELL, keys: ['C'] },
-    { kind: 'inventory', x: 8.5 * CELL, z: 13.5 * CELL, keys: ['I'] },
-    { kind: 'bestiary', x: 32.5 * CELL, z: 15.5 * CELL, keys: ['B'] },
-    { kind: 'merchant', x: 32.5 * CELL, z: 17.5 * CELL, keys: ['F'] },
+    { kind: 'council', x: (cx + 0.5) * CELL, z: (cz + 0.5) * CELL, keys: ['F'] },
+    { kind: 'heroes', x: 3.5 * CELL, z: (cz + 0.5) * CELL, keys: ['C'] },
+    { kind: 'inventory', x: 3.5 * CELL, z: (cz - 1.5) * CELL, keys: ['I'] },
+    { kind: 'bestiary', x: (w - 3.5) * CELL, z: (cz + 0.5) * CELL, keys: ['B'] },
   );
-  addProp(zone, 'council', 20, 15, 2.1);
-  addProp(zone, 'table', 8, 15, 1.35);
-  addProp(zone, 'crates', 8, 13, 1.25);
-  addProp(zone, 'table', 32, 15, 1.35);
-  // North gate (x 18..21, y 1)
-  const gate: GateDef = { cx: 18, cz: 1, width: 4, facing: 'n', unlocked: false, link: 'z1' };
+  addProp(zone, 'council', cx, cz, 0.75);
+  addProp(zone, 'table', 3, cz, 1.1);
+  addProp(zone, 'crates', 3, cz - 2, 1.0);
+  addProp(zone, 'table', w - 4, cz, 1.1);
+  addProp(zone, 'brazier', 2, 2, 0.45);
+  addProp(zone, 'brazier', w - 3, 2, 0.45);
+  addProp(zone, 'keg', 2, h - 3, 0.9);
+  addProp(zone, 'barrels', w - 3, h - 3, 0.9);
+
+  const gate: GateDef = { cx: cx - 1, cz: 1, width: 4, facing: 'n', unlocked: false, link: 'z1' };
   zone.gates.push(gate);
   carveGate(tiles, w, h, gate);
-  // Player spawns around courtyard
-  for (const [px, pz] of [
-    [16, 18],
-    [18, 18],
-    [20, 18],
-    [22, 18],
-    [16, 20],
-    [18, 20],
-    [20, 20],
-    [22, 20],
+
+  // Spawn immediately south of the council so [F] works without walking.
+  for (const [dx, dz] of [
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+    [2, 1],
+    [-1, 2],
+    [0, 2],
+    [1, 2],
+    [2, 2],
   ] as const) {
-    zone.playerSpawns.push(cellPoint(px, pz));
+    zone.playerSpawns.push(cellPoint(cx + dx, cz + dz));
   }
-  zone.center = cellPoint(20, 15);
+  zone.center = cellPoint(cx, cz);
+  extras(zone);
   ensureConnectivity(zone);
   return zone;
+}
+
+export function buildHubMur(): ZoneMap {
+  return buildTavernLikeHub('hub_mur', HUB_META.mur.name, 'urban', 'inn', 'mur', (zone) => {
+    addProp(zone, 'pillar', 5, 3, 0.9);
+    addProp(zone, 'pillar', zone.w - 6, 3, 0.9);
+    zone.stations.push({ kind: 'merchant', x: (zone.w - 3.5) * CELL, z: 4.5 * CELL, keys: ['F'] });
+  });
 }
 
 export function buildHubBadiscar(): ZoneMap {
-  const zone = emptyZone('hub_badiscar', HUB_META.badiscar.name, 'coastal', 'tavern', HUB_W, HUB_H, 'badiscar', 0, true);
-  const { tiles, w, h } = zone;
-  // Cave floor (open south to dark sea / chasm)
-  fillRect(tiles, w, h, 2, 2, w - 3, h - 8, TileType.FLOOR_NORMAL);
-  paintBorder(tiles, w, h);
-  // South sea / chasm
-  fillRect(tiles, w, h, 1, h - 6, w - 2, h - 2, TileType.HAZARD_CHASM);
-  // Stone pier rising north
-  fillRect(tiles, w, h, 16, 2, 23, 10, TileType.FLOOR_NORMAL);
-  // Shallow water patches
-  for (const [wx, wz] of [
-    [5, 20],
-    [6, 21],
-    [12, 22],
-    [28, 21],
-    [30, 20],
-  ] as const) {
-    setTile(tiles, w, h, wx, wz, TileType.DIFFICULT_TERRAIN);
-  }
-  // Furniture
-  for (const [tx, tz] of [
-    [10, 10],
-    [14, 10],
-    [24, 10],
-    [28, 10],
-  ] as const) {
-    addProp(zone, 'table', tx, tz, 1.35);
-  }
-  addProp(zone, 'brazier', 8, 14, 0.45);
-  addProp(zone, 'keg', 6, 12, 1.05);
-  addProp(zone, 'barrels', 32, 12, 1.05);
-
-  zone.stations.push(
-    { kind: 'council', x: 20.5 * CELL, z: 12.5 * CELL, keys: ['F'] },
-    { kind: 'heroes', x: 7.5 * CELL, z: 16.5 * CELL, keys: ['C'] },
-    { kind: 'inventory', x: 9.5 * CELL, z: 16.5 * CELL, keys: ['I'] },
-    { kind: 'bestiary', x: 11.5 * CELL, z: 16.5 * CELL, keys: ['B'] },
-  );
-  addProp(zone, 'council', 20, 12, 2.1);
-
-  const gate: GateDef = { cx: 30, cz: 2, width: 4, facing: 'n', unlocked: false, link: 'z1' };
-  zone.gates.push(gate);
-  carveGate(tiles, w, h, gate);
-
-  for (const [px, pz] of [
-    [16, 14],
-    [18, 14],
-    [20, 14],
-    [22, 14],
-    [16, 16],
-    [18, 16],
-    [20, 16],
-    [22, 16],
-  ] as const) {
-    zone.playerSpawns.push(cellPoint(px, pz));
-  }
-  // Training dummy corner (legacy feel)
-  zone.enemySpawns.push(cellPoint(34, 18));
-  zone.center = cellPoint(20, 12);
-  ensureConnectivity(zone);
-  return zone;
+  return buildTavernLikeHub('hub_badiscar', HUB_META.badiscar.name, 'coastal', 'tavern', 'badiscar', (zone) => {
+    // Dummy corner for the old training feel
+    zone.enemySpawns.push(cellPoint(zone.w - 4, zone.h - 4));
+    addProp(zone, 'table', 6, 3, 1.1);
+    addProp(zone, 'table', zone.w - 7, 3, 1.1);
+  });
 }
 
 export function buildHubSanarica(): ZoneMap {
-  const zone = emptyZone('hub_sanarica', HUB_META.sanarica.name, 'wild', 'crypt', HUB_W, HUB_H, 'sanarica', 0, true);
-  const { tiles, w, h } = zone;
-  fillRect(tiles, w, h, 2, 2, w - 3, h - 3, TileType.FLOOR_NORMAL);
-  paintBorder(tiles, w, h);
-  // Circular clearing — mark outer ring as difficult undergrowth
-  const cx0 = 20;
-  const cz0 = 15;
-  for (let cz = 2; cz < h - 2; cz++) {
-    for (let cx = 2; cx < w - 2; cx++) {
-      const d = Math.hypot(cx - cx0, cz - cz0);
-      if (d > 11 && d < 13) setTile(tiles, w, h, cx, cz, TileType.DIFFICULT_TERRAIN);
-      if (d > 13) setTile(tiles, w, h, cx, cz, TileType.WALL_HIGH);
+  return buildTavernLikeHub('hub_sanarica', HUB_META.sanarica.name, 'wild', 'crypt', 'sanarica', (zone) => {
+    const cx = Math.floor(zone.w / 2);
+    const cz = Math.floor(zone.h / 2);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const mx = Math.round(cx + Math.cos(a) * 5);
+      const mz = Math.round(cz + Math.sin(a) * 4);
+      if (mx > 1 && mz > 1 && mx < zone.w - 2 && mz < zone.h - 2) {
+        setTile(zone.tiles, zone.w, zone.h, mx, mz, TileType.COVER_LOW);
+        addProp(zone, 'pillar', mx, mz, 1.0);
+      }
     }
-  }
-  // 8 menhirs
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    const mx = Math.round(cx0 + Math.cos(a) * 9);
-    const mz = Math.round(cz0 + Math.sin(a) * 9);
-    setTile(tiles, w, h, mx, mz, TileType.COVER_LOW);
-    addProp(zone, 'pillar', mx, mz, 1.1);
-  }
-  addProp(zone, 'brazier', cx0, cz0, 0.45);
-  addProp(zone, 'council', cx0, cz0, 2.1);
-
-  zone.stations.push(
-    { kind: 'council', x: (cx0 + 0.5) * CELL, z: (cz0 + 0.5) * CELL, keys: ['F'] },
-    { kind: 'bestiary', x: (cx0 + 2.5) * CELL, z: (cz0 + 0.5) * CELL, keys: ['B'] },
-    { kind: 'heroes', x: 10.5 * CELL, z: 15.5 * CELL, keys: ['C'] },
-    { kind: 'inventory', x: 10.5 * CELL, z: 17.5 * CELL, keys: ['I'] },
-  );
-  addProp(zone, 'table', 10, 15, 1.35);
-  addProp(zone, 'crates', 10, 17, 1.25);
-
-  const gate: GateDef = { cx: 18, cz: 1, width: 4, facing: 'n', unlocked: false, link: 'z1' };
-  zone.gates.push(gate);
-  // Open path to gate through the thicket
-  fillRect(tiles, w, h, 18, 1, 21, 6, TileType.FLOOR_NORMAL);
-  carveGate(tiles, w, h, gate);
-
-  for (const [px, pz] of [
-    [17, 18],
-    [19, 18],
-    [21, 18],
-    [23, 18],
-    [17, 20],
-    [19, 20],
-    [21, 20],
-    [23, 20],
-  ] as const) {
-    zone.playerSpawns.push(cellPoint(px, pz));
-  }
-  zone.center = cellPoint(cx0, cz0);
-  ensureConnectivity(zone);
-  return zone;
+  });
 }
 
 export function buildHub(hubId: HubId): ZoneMap {
@@ -549,8 +453,8 @@ function placeSymmetricCover(zone: ZoneMap, rng: Rng, rooms: { x0: number; z0: n
 
 /** Urban: BSP courtyards + orthogonal alleys 4–5 tiles wide. */
 export function generateUrbanZone(rng: Rng, hubId: HubId, zoneIndex: number, seedTag: string): ZoneMap {
-  const w = 56;
-  const h = 56;
+  const w = 28;
+  const h = 24;
   const zone = emptyZone(`urb_${zoneIndex}_${seedTag}`, `Cortili di Mur · Zona ${zoneIndex}`, 'urban', 'alley', w, h, hubId, zoneIndex, false);
   const { tiles } = zone;
   fillRect(tiles, w, h, 1, 1, w - 2, h - 2, TileType.WALL_HIGH);
@@ -558,14 +462,15 @@ export function generateUrbanZone(rng: Rng, hubId: HubId, zoneIndex: number, see
   type Room = { x0: number; z0: number; x1: number; z1: number };
   const rooms: Room[] = [];
   const leaves: Room[] = [{ x0: 2, z0: 2, x1: w - 3, z1: h - 3 }];
-  const minSize = 10;
+  const minSize = 5;
+  const gateX = Math.floor(w / 2) - 1;
 
-  while (leaves.length > 0 && rooms.length + leaves.length < 14) {
+  while (leaves.length > 0 && rooms.length + leaves.length < 8) {
     const leaf = leaves.pop()!;
     const bw = leaf.x1 - leaf.x0;
     const bh = leaf.z1 - leaf.z0;
     const splitH = bw >= bh;
-    if ((splitH ? bw : bh) < minSize * 2 + 4) {
+    if ((splitH ? bw : bh) < minSize * 2 + 3) {
       rooms.push(leaf);
       continue;
     }
@@ -584,25 +489,28 @@ export function generateUrbanZone(rng: Rng, hubId: HubId, zoneIndex: number, see
   for (const r of rooms) {
     fillRect(tiles, w, h, r.x0, r.z0, r.x1, r.z1, TileType.FLOOR_NORMAL);
   }
-  // Alleys 4–5 wide between room centers
   for (let i = 0; i < rooms.length - 1; i++) {
     const a = rooms[i]!;
     const b = rooms[i + 1]!;
-    const ax = Math.floor((a.x0 + a.x1) / 2);
-    const az = Math.floor((a.z0 + a.z1) / 2);
-    const bx = Math.floor((b.x0 + b.x1) / 2);
-    const bz = Math.floor((b.z0 + b.z1) / 2);
-    carveCorridor(tiles, w, h, ax, az, bx, bz, 4 + rng.int(2));
+    carveCorridor(
+      tiles,
+      w,
+      h,
+      Math.floor((a.x0 + a.x1) / 2),
+      Math.floor((a.z0 + a.z1) / 2),
+      Math.floor((b.x0 + b.x1) / 2),
+      Math.floor((b.z0 + b.z1) / 2),
+      3 + rng.int(2),
+    );
   }
   placeSymmetricCover(zone, rng, rooms);
 
-  // Ingress south (from hub), egress north
-  const inGate: GateDef = { cx: 26, cz: h - 2, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
-  const outGate: GateDef = { cx: 26, cz: 1, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
+  const inGate: GateDef = { cx: gateX, cz: h - 2, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
+  const outGate: GateDef = { cx: gateX, cz: 1, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
   zone.gates.push(inGate, outGate);
   carveGate(tiles, w, h, inGate);
   carveGate(tiles, w, h, outGate);
-  fillRect(tiles, w, h, 26, h - 6, 29, h - 2, TileType.FLOOR_NORMAL);
+  fillRect(tiles, w, h, gateX, h - 5, gateX + 3, h - 2, TileType.FLOOR_NORMAL);
 
   for (const r of rooms) {
     zone.enemySpawns.push(cellPoint(Math.floor((r.x0 + r.x1) / 2), Math.floor((r.z0 + r.z1) / 2)));
@@ -611,21 +519,21 @@ export function generateUrbanZone(rng: Rng, hubId: HubId, zoneIndex: number, see
     const last = rooms[rooms.length - 1] ?? rooms[0]!;
     zone.bossSpawn = cellPoint(Math.floor((last.x0 + last.x1) / 2), Math.floor((last.z0 + last.z1) / 2));
   }
-  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(26 + (i % 4), h - 5 - Math.floor(i / 4)));
-  zone.center = cellPoint(28, 28);
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(gateX + (i % 4), h - 4 - Math.floor(i / 4)));
+  zone.center = cellPoint(Math.floor(w / 2), Math.floor(h / 2));
   ensureConnectivity(zone);
   return zone;
 }
 
 /** Coastal: Drunkard's Walk caverns + southern/eastern chasm cliffs. */
 export function generateCoastalZone(rng: Rng, hubId: HubId, zoneIndex: number, seedTag: string): ZoneMap {
-  const w = 60;
-  const h = 50;
+  const w = 30;
+  const h = 24;
   const zone = emptyZone(`cst_${zoneIndex}_${seedTag}`, `Scogliere di Badiscar · Zona ${zoneIndex}`, 'coastal', 'crypt', w, h, hubId, zoneIndex, false);
   const { tiles } = zone;
   tiles.fill(TileType.WALL_HIGH);
+  const gateX = Math.floor(w / 2) - 1;
 
-  // Drunkard carve
   let x = Math.floor(w / 2);
   let z = Math.floor(h / 2);
   const steps = w * h * 2;
@@ -637,94 +545,87 @@ export function generateCoastalZone(rng: Rng, hubId: HubId, zoneIndex: number, s
     if (dir === 0) x = Math.max(2, x - 1);
     else if (dir === 1) x = Math.min(w - 3, x + 1);
     else if (dir === 2) z = Math.max(2, z - 1);
-    else z = Math.min(h - 8, z + 1);
+    else z = Math.min(h - 5, z + 1);
   }
 
-  // South/East cliff = chasm
   for (let cx = 0; cx < w; cx++) {
-    for (let cz = h - 5; cz < h; cz++) setTile(tiles, w, h, cx, cz, TileType.HAZARD_CHASM);
+    for (let cz = h - 3; cz < h; cz++) setTile(tiles, w, h, cx, cz, TileType.HAZARD_CHASM);
   }
   for (let cz = 0; cz < h; cz++) {
-    for (let cx = w - 5; cx < w; cx++) setTile(tiles, w, h, cx, cz, TileType.HAZARD_CHASM);
+    for (let cx = w - 3; cx < w; cx++) setTile(tiles, w, h, cx, cz, TileType.HAZARD_CHASM);
   }
   paintBorder(tiles, w, h);
 
-  // Wooden piers (4-wide floors across chasm pockets)
-  for (let i = 0; i < 4; i++) {
-    const px = 8 + i * 12;
-    const pz = h - 10;
-    fillRect(tiles, w, h, px, pz, px + 3, pz + 4, TileType.FLOOR_NORMAL);
+  for (let i = 0; i < 3; i++) {
+    const px = 4 + i * 8;
+    fillRect(tiles, w, h, px, h - 6, px + 3, h - 4, TileType.FLOOR_NORMAL);
   }
-  // Shallow water
-  for (let i = 0; i < 18; i++) {
-    const wx = 3 + rng.int(w - 10);
-    const wz = 3 + rng.int(h - 12);
+  for (let i = 0; i < 10; i++) {
+    const wx = 3 + rng.int(w - 8);
+    const wz = 3 + rng.int(h - 8);
     if (tiles[idx(w, wx, wz)] === TileType.FLOOR_NORMAL) setTile(tiles, w, h, wx, wz, TileType.DIFFICULT_TERRAIN);
   }
-  // Cover rocks
-  for (let i = 0; i < 20; i++) {
-    const cx = 3 + rng.int(w - 10);
-    const cz = 3 + rng.int(h - 12);
+  for (let i = 0; i < 10; i++) {
+    const cx = 3 + rng.int(w - 8);
+    const cz = 3 + rng.int(h - 8);
     if (tiles[idx(w, cx, cz)] === TileType.FLOOR_NORMAL) {
       setTile(tiles, w, h, cx, cz, TileType.COVER_LOW);
       addProp(zone, 'rubble', cx, cz, 1.2);
     }
   }
-  for (let i = 0; i < 8; i++) {
-    const cx = 4 + rng.int(w - 12);
-    const cz = 4 + rng.int(h - 14);
+  for (let i = 0; i < 5; i++) {
+    const cx = 4 + rng.int(w - 10);
+    const cz = 4 + rng.int(h - 10);
     if (tiles[idx(w, cx, cz)] === TileType.FLOOR_NORMAL) {
       setTile(tiles, w, h, cx, cz, TileType.DESTRUCTIBLE_PROP);
       addProp(zone, 'barrels', cx, cz, 1.05);
     }
   }
 
-  const inGate: GateDef = { cx: 28, cz: h - 7, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
-  // Place ingress on floor above chasm
-  fillRect(tiles, w, h, 28, h - 12, 31, h - 7, TileType.FLOOR_NORMAL);
-  const outGate: GateDef = { cx: 28, cz: 2, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
-  fillRect(tiles, w, h, 28, 2, 31, 8, TileType.FLOOR_NORMAL);
+  const inGate: GateDef = { cx: gateX, cz: h - 4, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
+  fillRect(tiles, w, h, gateX, h - 7, gateX + 3, h - 4, TileType.FLOOR_NORMAL);
+  const outGate: GateDef = { cx: gateX, cz: 2, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
+  fillRect(tiles, w, h, gateX, 2, gateX + 3, 6, TileType.FLOOR_NORMAL);
   zone.gates.push(inGate, outGate);
   carveGate(tiles, w, h, inGate);
   carveGate(tiles, w, h, outGate);
 
-  for (let i = 0; i < 10; i++) {
-    const cx = 5 + rng.int(w - 15);
-    const cz = 5 + rng.int(h - 15);
+  for (let i = 0; i < 8; i++) {
+    const cx = 4 + rng.int(w - 10);
+    const cz = 4 + rng.int(h - 10);
     if (walkableTile(tiles[idx(w, cx, cz)]!)) zone.enemySpawns.push(cellPoint(cx, cz));
   }
-  if (zoneIndex === 3) zone.bossSpawn = cellPoint(30, 12);
-  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(28 + (i % 4), h - 10 - Math.floor(i / 4)));
-  zone.center = cellPoint(30, 22);
+  if (zoneIndex === 3) zone.bossSpawn = cellPoint(gateX + 1, 8);
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(gateX + (i % 4), h - 6 - Math.floor(i / 4)));
+  zone.center = cellPoint(Math.floor(w / 2), Math.floor(h / 2));
   ensureConnectivity(zone);
   return zone;
 }
 
 /** Wild: Cellular Automata 4-5 + Voronoi clearings + monoliths. */
 export function generateWildZone(rng: Rng, hubId: HubId, zoneIndex: number, seedTag: string): ZoneMap {
-  const w = 56;
-  const h = 56;
+  const w = 28;
+  const h = 24;
   const zone = emptyZone(`wld_${zoneIndex}_${seedTag}`, `Macchia di Jugianel · Zona ${zoneIndex}`, 'wild', 'cathedral', w, h, hubId, zoneIndex, false);
   const { tiles } = zone;
+  const gateX = Math.floor(w / 2) - 1;
 
-  // Random noise
   for (let cz = 0; cz < h; cz++) {
     for (let cx = 0; cx < w; cx++) {
       if (cx === 0 || cz === 0 || cx === w - 1 || cz === h - 1) tiles[idx(w, cx, cz)] = TileType.WALL_HIGH;
       else tiles[idx(w, cx, cz)] = rng.chance(0.45) ? TileType.WALL_HIGH : TileType.FLOOR_NORMAL;
     }
   }
-  // CA 4-5 rule iterations
-  for (let iter = 0; iter < 5; iter++) {
+  for (let iter = 0; iter < 4; iter++) {
     const next = new Uint8Array(tiles);
     for (let cz = 1; cz < h - 1; cz++) {
       for (let cx = 1; cx < w - 1; cx++) {
         let walls = 0;
-        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-          if (dx === 0 && dz === 0) continue;
-          if (tiles[idx(w, cx + dx, cz + dz)] === TileType.WALL_HIGH) walls++;
-        }
-        // B4578/S45678-ish simplified: birth if >=5, survive if >=4
+        for (let dz = -1; dz <= 1; dz++)
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dz === 0) continue;
+            if (tiles[idx(w, cx + dx, cz + dz)] === TileType.WALL_HIGH) walls++;
+          }
         const alive = tiles[idx(w, cx, cz)] === TileType.WALL_HIGH;
         next[idx(w, cx, cz)] = (alive ? walls >= 4 : walls >= 5) ? TileType.WALL_HIGH : TileType.FLOOR_NORMAL;
       }
@@ -733,112 +634,102 @@ export function generateWildZone(rng: Rng, hubId: HubId, zoneIndex: number, seed
   }
   paintBorder(tiles, w, h);
 
-  // Voronoi clearings
   const seeds: { x: number; z: number }[] = [];
-  for (let i = 0; i < 5; i++) seeds.push({ x: 8 + rng.int(w - 16), z: 8 + rng.int(h - 16) });
+  for (let i = 0; i < 4; i++) seeds.push({ x: 5 + rng.int(w - 10), z: 5 + rng.int(h - 10) });
   for (const s of seeds) {
-    for (let cz = s.z - 5; cz <= s.z + 5; cz++) {
-      for (let cx = s.x - 5; cx <= s.x + 5; cx++) {
-        if (Math.hypot(cx - s.x, cz - s.z) <= 5) setTile(tiles, w, h, cx, cz, TileType.FLOOR_NORMAL);
+    for (let cz = s.z - 3; cz <= s.z + 3; cz++) {
+      for (let cx = s.x - 3; cx <= s.x + 3; cx++) {
+        if (Math.hypot(cx - s.x, cz - s.z) <= 3.5) setTile(tiles, w, h, cx, cz, TileType.FLOOR_NORMAL);
       }
     }
     zone.enemySpawns.push(cellPoint(s.x, s.z));
-    // Cover rocks in clearing
-    for (let k = 0; k < 3; k++) {
-      const rx = s.x + rng.int(5) - 2;
-      const rz = s.z + rng.int(5) - 2;
+    for (let k = 0; k < 2; k++) {
+      const rx = s.x + rng.int(3) - 1;
+      const rz = s.z + rng.int(3) - 1;
       if (tiles[idx(w, rx, rz)] === TileType.FLOOR_NORMAL) {
         setTile(tiles, w, h, rx, rz, TileType.COVER_LOW);
         addProp(zone, 'rubble', rx, rz, 1.2);
       }
     }
-    // Brambles
-    for (let k = 0; k < 4; k++) {
-      const rx = s.x + rng.int(7) - 3;
-      const rz = s.z + rng.int(7) - 3;
+    for (let k = 0; k < 3; k++) {
+      const rx = s.x + rng.int(5) - 2;
+      const rz = s.z + rng.int(5) - 2;
       if (tiles[idx(w, rx, rz)] === TileType.FLOOR_NORMAL) setTile(tiles, w, h, rx, rz, TileType.DIFFICULT_TERRAIN);
     }
   }
 
-  // 2–3 Eclipse monoliths in zone 2–3
-  const monoCount = zoneIndex >= 2 ? 2 + rng.int(2) : 1;
+  const monoCount = zoneIndex >= 2 ? 2 : 1;
   for (let i = 0; i < monoCount; i++) {
     const s = seeds[i % seeds.length]!;
-    const mx = s.x;
-    const mz = s.z;
-    addProp(zone, 'pillar', mx, mz, 1.2);
-    for (let cz = mz - 3; cz <= mz + 3; cz++) {
-      for (let cx = mx - 3; cx <= mx + 3; cx++) {
+    addProp(zone, 'pillar', s.x, s.z, 1.2);
+    for (let cz = s.z - 2; cz <= s.z + 2; cz++) {
+      for (let cx = s.x - 2; cx <= s.x + 2; cx++) {
         if (!inBounds(w, h, cx, cz)) continue;
-        if (walkableTile(tiles[idx(w, cx, cz)]!) && Math.hypot(cx - mx, cz - mz) <= 3) {
+        if (walkableTile(tiles[idx(w, cx, cz)]!) && Math.hypot(cx - s.x, cz - s.z) <= 2) {
           setTile(tiles, w, h, cx, cz, TileType.ECLIPSE_MONOLITH_ZONE);
         }
       }
     }
   }
 
-  const inGate: GateDef = { cx: 26, cz: h - 2, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
-  const outGate: GateDef = { cx: 26, cz: 1, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
-  fillRect(tiles, w, h, 26, h - 8, 29, h - 2, TileType.FLOOR_NORMAL);
-  fillRect(tiles, w, h, 26, 1, 29, 8, TileType.FLOOR_NORMAL);
+  const inGate: GateDef = { cx: gateX, cz: h - 2, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` };
+  const outGate: GateDef = { cx: gateX, cz: 1, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` };
+  fillRect(tiles, w, h, gateX, h - 6, gateX + 3, h - 2, TileType.FLOOR_NORMAL);
+  fillRect(tiles, w, h, gateX, 1, gateX + 3, 5, TileType.FLOOR_NORMAL);
   zone.gates.push(inGate, outGate);
   carveGate(tiles, w, h, inGate);
   carveGate(tiles, w, h, outGate);
 
   if (zoneIndex === 3) zone.bossSpawn = cellPoint(seeds[0]!.x, seeds[0]!.z);
-  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(26 + (i % 4), h - 5 - Math.floor(i / 4)));
-  zone.center = cellPoint(28, 28);
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(gateX + (i % 4), h - 4 - Math.floor(i / 4)));
+  zone.center = cellPoint(Math.floor(w / 2), Math.floor(h / 2));
   ensureConnectivity(zone);
   return zone;
 }
 
-/** Raid bastion arena 50×50 at hub gates. */
+/** Compact raid bastion at hub gates. */
 export function generateRaidArena(rng: Rng, hubId: HubId, seedTag: string): ZoneMap {
-  const w = 50;
-  const h = 50;
+  const w = 26;
+  const h = 26;
   const biome = biomeOfHub(hubId);
   const theme: Theme = biome === 'urban' ? 'alley' : biome === 'coastal' ? 'crypt' : 'cathedral';
   const zone = emptyZone(`raid_${seedTag}`, 'Arena Bastione', biome, theme, w, h, hubId, 1, false);
   const { tiles } = zone;
+  const mid = Math.floor(w / 2);
   fillRect(tiles, w, h, 1, 1, w - 2, h - 2, TileType.FLOOR_NORMAL);
   paintBorder(tiles, w, h);
-  // Central relic
-  fillRect(tiles, w, h, 22, 22, 27, 27, TileType.FLOOR_NORMAL);
-  addProp(zone, 'council', 24, 24, 2.1);
-  zone.resourceSpawns.push(cellPoint(24, 24)); // relic point
-  // Cover rings
+  addProp(zone, 'council', mid, mid, 0.9);
+  zone.resourceSpawns.push(cellPoint(mid, mid));
   for (const [cx, cz] of [
-    [12, 12],
-    [37, 12],
-    [12, 37],
-    [37, 37],
-    [24, 12],
-    [24, 37],
-    [12, 24],
-    [37, 24],
+    [6, 6],
+    [w - 7, 6],
+    [6, h - 7],
+    [w - 7, h - 7],
+    [mid, 6],
+    [mid, h - 7],
+    [6, mid],
+    [w - 7, mid],
   ] as const) {
     setTile(tiles, w, h, cx, cz, TileType.COVER_LOW);
     addProp(zone, 'pillar', cx, cz, 0.95);
   }
-  // Three invasion gates N/E/W
   const gates: GateDef[] = [
-    { cx: 23, cz: 1, width: 4, facing: 'n', unlocked: true, link: 'wave_n' },
-    { cx: w - 2, cz: 23, width: 4, facing: 'e', unlocked: true, link: 'wave_e' },
-    { cx: 1, cz: 23, width: 4, facing: 'w', unlocked: true, link: 'wave_w' },
+    { cx: mid - 1, cz: 1, width: 4, facing: 'n', unlocked: true, link: 'wave_n' },
+    { cx: w - 2, cz: mid - 1, width: 4, facing: 'e', unlocked: true, link: 'wave_e' },
+    { cx: 1, cz: mid - 1, width: 4, facing: 'w', unlocked: true, link: 'wave_w' },
   ];
   for (const g of gates) {
     carveGate(tiles, w, h, g);
     zone.gates.push(g);
-    zone.enemySpawns.push(cellPoint(g.cx + 1, g.facing === 'n' ? 3 : g.facing === 'e' ? 24 : 24));
+    zone.enemySpawns.push(cellPoint(g.cx + 1, g.facing === 'n' ? 3 : mid));
   }
-  // Extract back to hub (south)
-  const extract: GateDef = { cx: 23, cz: h - 2, width: 4, facing: 's', unlocked: false, link: 'hub' };
+  const extract: GateDef = { cx: mid - 1, cz: h - 2, width: 4, facing: 's', unlocked: false, link: 'hub' };
   carveGate(tiles, w, h, extract);
   zone.gates.push(extract);
-  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(22 + (i % 4), 28 + Math.floor(i / 4)));
-  zone.bossSpawn = cellPoint(24, 18);
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(mid - 1 + (i % 4), mid + 2 + Math.floor(i / 4)));
+  zone.bossSpawn = cellPoint(mid, mid - 4);
   void rng;
-  zone.center = cellPoint(24, 24);
+  zone.center = cellPoint(mid, mid);
   ensureConnectivity(zone);
   return zone;
 }

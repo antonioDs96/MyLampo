@@ -211,6 +211,8 @@ export class Arena {
     const env = new Batch(assets);
     const mass = new Batch(assets);
     const solid = (cx: number, cz: number) => isSolidCell(layout, cx, cz);
+    // Per-cell floor meshes explode vertex count on procedural maps — use one ground plane instead.
+    const flatFloor = w * h > 280;
 
     for (let cz = 0; cz < h; cz++) {
       for (let cx = 0; cx < w; cx++) {
@@ -226,10 +228,12 @@ export class Arena {
           }
           continue;
         }
-        const r = hash(cx, cz, 1);
-        const floor = theme.floor[Math.floor(r * theme.floor.length)]!;
-        const turn = floor.includes('wood') ? 0 : Math.floor(hash(cx, cz, 2) * 4) * (Math.PI / 2);
-        env.add(floor, x, 0, z, turn);
+        if (!flatFloor) {
+          const r = hash(cx, cz, 1);
+          const floor = theme.floor[Math.floor(r * theme.floor.length)]!;
+          const turn = floor.includes('wood') ? 0 : Math.floor(hash(cx, cz, 2) * 4) * (Math.PI / 2);
+          env.add(floor, x, 0, z, turn);
+        }
 
         // A wall on every edge that borders a solid cell, facing into the room.
         const edges: [number, number, number, number, number][] = [
@@ -344,6 +348,18 @@ export class Arena {
     if (envMesh) {
       envMesh.material = envMat;
       this.owned.push(envMesh);
+    }
+    if (flatFloor) {
+      const ground = MeshBuilder.CreateGround('arenaFloor', { width: w * CELL, height: h * CELL, subdivisions: 1 }, scene);
+      ground.position.set((w * CELL) / 2, FLOOR_Y - 0.02, (h * CELL) / 2);
+      const floorMat = new StandardMaterial('arenaFloorMat', scene);
+      floorMat.diffuseColor = Color3.FromHexString(theme.floor[0]?.includes('wood') ? '#5a4030' : '#3a3a42');
+      floorMat.specularColor = Color3.Black();
+      floorMat.clipPlane = cutPlane;
+      ground.material = floorMat;
+      ground.isPickable = false;
+      ground.freezeWorldMatrix();
+      this.owned.push(floorMat, ground);
     }
 
     for (const b of pendingBreakables) {
