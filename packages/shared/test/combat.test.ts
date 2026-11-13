@@ -709,3 +709,34 @@ describe('impact physics', () => {
     expect(events(world, 'fx').some((ev) => ev.e === 'fx' && ev.what === 'clash')).toBe(true);
   });
 });
+
+describe('last-standing PvP', () => {
+  it('heroes damage each other when pvp is on, and cannot revive when noRevive is on', () => {
+    const world = new World({ layout: parseLayout(ARENA), seed: 11, introDelay: 0, pvp: true, noRevive: true });
+    const a = world.addPlayer('a', 'jusef', 0);
+    const b = world.addPlayer('b', 'alexios', 1);
+    a.x = 4 * 4;
+    a.z = 4 * 4;
+    b.x = a.x;
+    b.z = a.z + 1.6;
+    a.yaw = yawOf(b.x - a.x, b.z - a.z);
+    const hp0 = b.hp;
+    tap(world, 'a', Btn.Light);
+    run(world, 'a', T(HEROES.jusef.light[0]!.dur) + 4);
+    for (let i = 0; i < 6; i++) world.step(0.05);
+    expect(b.hp).toBeLessThan(hp0);
+    expect(world.stats.get('a')!.dmg).toBeGreaterThan(0);
+
+    b.act = Act.Downed;
+    b.hp = 0;
+    a.act = Act.Idle;
+    a.ref = '';
+    // Interact near a downed rival: revive must stay disabled.
+    for (let i = 0; i < T(TUNING.reviveTime) + 10; i++) {
+      world.applyCommand('a', cmd({ buttons: Btn.Interact }));
+      if (i % 3 === 2) world.step(0.05);
+    }
+    expect(b.act).toBe(Act.Downed);
+    expect(events(world, 'revive')).toHaveLength(0);
+  });
+});

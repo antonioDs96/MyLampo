@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HERO_IDS, MAX_PLAYERS, MISSIONS, type HeroId } from '@malampu/shared';
+import { Act, HERO_IDS, MAX_PLAYERS, MISSIONS, type HeroId } from '@malampu/shared';
 import { Party } from './party';
 
 const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
@@ -136,5 +136,43 @@ describe('missions played by bots', () => {
       revives += result.revives;
     }
     expect(revives).toBeGreaterThan(0);
+  });
+
+  it('refuses last-standing arenas with a single hero', () => {
+    const party = new Party();
+    party.add('alexios');
+    party.host.onMessage('bot1', { t: 'mission', id: 'arena_fossa' });
+    party.host.onMessage('bot1', { t: 'start' });
+    expect(party.host.phase).toBe('hub');
+    expect(party.errors.at(-1)).toMatch(/almeno due eroi/);
+  });
+
+  it('ends an arena when only one hero is still standing', () => {
+    const party = new Party(42);
+    party.add('alexios');
+    party.add('jusef');
+    party.host.onMessage('bot1', { t: 'mission', id: 'arena_fossa' });
+    party.host.onMessage('bot1', { t: 'start' });
+    expect(party.host.phase).toBe('mission');
+    expect(party.host.world.pvp).toBe(true);
+    expect(party.host.world.noRevive).toBe(true);
+
+    const victim = party.host.world.players.get('bot2')!;
+    victim.hp = 0;
+    victim.act = Act.Downed;
+    for (let i = 0; i < 80 && party.host.phase === 'mission'; i++) party.tick(false);
+    expect(party.host.phase).toBe('victory');
+  });
+
+  it('a boss arena starts with its champion wave', () => {
+    const party = new Party(5);
+    for (const hero of TEAM) party.add(hero);
+    party.host.onMessage('bot1', { t: 'mission', id: 'boss_klaus' });
+    party.host.onMessage('bot1', { t: 'start' });
+    expect(party.host.phase).toBe('mission');
+    expect(party.host.info.layoutId).toBe('boss_tamburo');
+    expect(party.host.world.pvp).toBe(false);
+    party.run(5);
+    expect(party.host.world.enemies.some((e) => e.type === 'klaus')).toBe(true);
   });
 });

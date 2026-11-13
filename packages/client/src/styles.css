@@ -1119,6 +1119,29 @@ input.code {
   color: #0c0812;
 }
 
+.council-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.council-tabs .tab {
+  appearance: none;
+  border: 1px solid rgba(60, 35, 15, 0.35);
+  background: rgba(255, 240, 210, 0.35);
+  color: #2a160a;
+  font: 650 14px var(--serif);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.council-tabs .tab.active {
+  background: #2a160a;
+  color: #f4e4c4;
+  border-color: #2a160a;
+}
+
 .council-body {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr);
@@ -1127,8 +1150,71 @@ input.code {
   overflow: auto;
 }
 
+.council-body.proves {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+
+.proves-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.proves-col h3 {
+  margin: 0;
+  font: 700 22px var(--serif);
+  color: #2a160a;
+}
+
+.proves-lead {
+  margin: 0 0 4px;
+  color: rgba(42, 22, 10, 0.72);
+  font-size: 0.95rem;
+}
+
+.prove-card {
+  border: 1px solid rgba(60, 35, 15, 0.28);
+  border-left: 4px solid #8a4a22;
+  background: linear-gradient(135deg, rgba(255, 245, 220, 0.72), rgba(230, 200, 150, 0.45));
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prove-card.arena {
+  border-left-color: #6b2f3a;
+  background: linear-gradient(135deg, rgba(255, 236, 228, 0.75), rgba(210, 160, 140, 0.4));
+}
+
+.prove-card.chosen {
+  outline: 2px solid #2a160a;
+}
+
+.prove-tag {
+  font: 700 11px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(42, 22, 10, 0.65);
+}
+
+.prove-card h4 {
+  margin: 0;
+  font: 700 18px var(--serif);
+  color: #2a160a;
+}
+
+.prove-card p {
+  margin: 0;
+  color: rgba(42, 22, 10, 0.8);
+  line-height: 1.4;
+}
+
 @media (max-width: 900px) {
-  .council-body {
+  .council-body,
+  .council-body.proves {
     grid-template-columns: 1fr;
   }
 }

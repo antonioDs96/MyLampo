@@ -17,6 +17,7 @@ import {
   lerpAngle,
   losClear,
   MAX_PLAYERS,
+  EXTRA_PLAYS,
   MISSIONS,
   parseLayout,
   packCmds,
@@ -85,7 +86,7 @@ function hexColor(hex: string): RGB {
 const HERO_COLOR = Object.fromEntries(Object.values(HEROES).map((h) => [h.id, hexColor(h.color)])) as Record<HeroId, RGB>;
 
 const LAYOUTS = new Map<string, LayoutDef>([[HUB_LAYOUT.id, HUB_LAYOUT]]);
-for (const m of MISSIONS) for (const s of m.stages) LAYOUTS.set(s.layout.id, s.layout);
+for (const m of [...MISSIONS, ...EXTRA_PLAYS]) for (const s of m.stages) LAYOUTS.set(s.layout.id, s.layout);
 
 interface Frame {
   recv: number;
@@ -401,8 +402,10 @@ export class Game {
         this.cam.addShake(0.9);
         this.hud.banner('Giorno di Caos', `La locanda si ricompone: ${info.title}`);
       } else {
-        const mission = MISSIONS.find((m) => m.id === info.mission);
-        this.hud.banner(info.title, mission ? `${mission.name} · sala ${info.stage + 1} di ${info.stages}` : '');
+        const mission = [...MISSIONS, ...EXTRA_PLAYS].find((m) => m.id === info.mission);
+        const modeLabel =
+          mission?.mode === 'arena' ? 'Ultimo in piedi' : mission?.mode === 'boss' ? 'Arena boss' : mission ? `sala ${info.stage + 1} di ${info.stages}` : '';
+        this.hud.banner(info.title, mission ? `${mission.name} · ${modeLabel}` : '');
       }
     }
     if (first || !info.mutation) {

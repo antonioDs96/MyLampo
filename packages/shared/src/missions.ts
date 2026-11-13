@@ -23,6 +23,8 @@ export interface StageDef {
   waves: WaveDef[];
 }
 
+export type MissionMode = 'story' | 'boss' | 'arena';
+
 export interface MissionDef {
   id: string;
   order: number;
@@ -32,6 +34,8 @@ export interface MissionDef {
   brief: string;
   stages: StageDef[];
   victory: Line[];
+  /** story = campaign; boss = co-op spectacle fight; arena = last player standing. */
+  mode?: MissionMode;
 }
 
 export const HUB_LAYOUT: LayoutDef = {
@@ -473,6 +477,223 @@ export const MISSIONS: MissionDef[] = [
   },
 ];
 
+const ARENA_FOSSA: LayoutDef = {
+  id: 'arena_fossa',
+  name: 'La Fossa di Badiscar',
+  theme: 'crypt',
+  rows: [
+    '###########',
+    '#bbbb.bbbb#',
+    '#b.P...P.b#',
+    '#b.......b#',
+    '#b.P...P.b#',
+    '#b.......b#',
+    '#b.P...P.b#',
+    '#b.......b#',
+    '#b.P...P.b#',
+    '#bbbb.bbbb#',
+    '###########',
+  ],
+};
+
+const ARENA_ANELLO: LayoutDef = {
+  id: 'arena_anello',
+  name: "L'Anello di Ujian",
+  theme: 'alley',
+  rows: [
+    '#############',
+    '#c.........c#',
+    '#.P.......P.#',
+    '#...........#',
+    '#.P.......P.#',
+    '#.....o.....#',
+    '#.P.......P.#',
+    '#...........#',
+    '#.P.......P.#',
+    '#c.........c#',
+    '#############',
+  ],
+};
+
+const BOSS_TAMBURO: LayoutDef = {
+  id: 'boss_tamburo',
+  name: 'Arena del Tamburo',
+  theme: 'cathedral',
+  rows: [
+    '#############',
+    '#E.........E#',
+    '#..o.....o..#',
+    '#...........#',
+    '#.....B.....#',
+    '#...........#',
+    '#...........#',
+    '#..o.....o..#',
+    '#.P.P.P.P.P.#',
+    '#.P.P.P.....#',
+    '#############',
+  ],
+};
+
+const BOSS_ECO: LayoutDef = {
+  id: 'boss_eco',
+  name: "Arena dell'Eco",
+  theme: 'crypt',
+  rows: [
+    '#############',
+    '#r.........r#',
+    '#...........#',
+    '#..o.....o..#',
+    '#.....B.....#',
+    '#...........#',
+    '#..o.....o..#',
+    '#...........#',
+    '#.P.P.P.P.P.#',
+    '#.P.P.P.....#',
+    '#############',
+  ],
+};
+
+const BOSS_SOLE: LayoutDef = {
+  id: 'boss_sole',
+  name: 'Arena del Sole Nero',
+  theme: 'inn',
+  rows: [
+    '#############',
+    '#E.........E#',
+    '#..b.....c..#',
+    '#...........#',
+    '#.....B.....#',
+    '#...........#',
+    '#..c.....b..#',
+    '#...........#',
+    '#.P.P.P.P.P.#',
+    '#.P.P.P.....#',
+    '#############',
+  ],
+};
+
+/** One-shot boss arenas and last-standing pits, selectable from the council table. */
+export const EXTRA_PLAYS: MissionDef[] = [
+  {
+    id: 'boss_klaus',
+    order: 101,
+    mode: 'boss',
+    name: 'Arena del Tamburo',
+    region: 'sanarica',
+    place: 'Prove speciali · Klaus Kaballor',
+    brief: 'Niente corridoi, niente ondate: solo voi e il Tamburo Sacro. Chi cade resta a terra finché il gigante non tace.',
+    stages: [
+      {
+        title: 'Arena del Tamburo',
+        layout: BOSS_TAMBURO,
+        intro: [
+          { who: 'Carlos', text: 'Niente processione. Niente scuse. Kaballor è già in mezzo al cerchio.' },
+          { who: 'Carlos', text: 'Schivate le onde rosse, uscite dal silenzio, e quando barcolla — tutti insieme.' },
+        ],
+        waves: [{ spawns: [['klaus', 1]] }],
+      },
+    ],
+    victory: [{ who: 'Carlos', text: 'Il tamburo tace. Questa volta non c’era una cattedrale a proteggerlo: solo voi.' }],
+  },
+  {
+    id: 'boss_eco',
+    order: 102,
+    mode: 'boss',
+    name: "Arena dell'Eco",
+    region: 'mur',
+    place: "Prove speciali · L'Eco di Calem",
+    brief: "L'ombra maggiore che Calem ha partorito, rinchiusa in una fossa di pietra. Batterla qui è più onesto che nelle cripte.",
+    stages: [
+      {
+        title: "Arena dell'Eco",
+        layout: BOSS_ECO,
+        intro: [
+          { who: 'Carlos', text: "L'Eco non ha più stanze da spostare. Ha solo voi da spezzare." },
+          { who: 'Carlos', text: 'Quando si spezza, non perdete tempo: l’esecuzione è la fine del caos.' },
+        ],
+        waves: [{ spawns: [['ombra_maggiore', 1], ['ombra', 2]] }],
+      },
+    ],
+    victory: [{ who: 'Carlos', text: 'L’Eco si dissolve. Calem, da qualche parte, ha appena perso un segreto.' }],
+  },
+  {
+    id: 'boss_sole',
+    order: 103,
+    mode: 'boss',
+    name: 'Arena del Sole Nero',
+    region: 'ujian',
+    place: 'Prove speciali · Inquisitori',
+    brief: 'Due Inquisitori nello stesso cerchio. Lame rosse, niente parate: solo schivate e contrattacchi.',
+    stages: [
+      {
+        title: 'Arena del Sole Nero',
+        layout: BOSS_SOLE,
+        intro: [
+          { who: 'Carlos', text: 'Due sole neri. Se ne lasciate uno solo vivo troppo a lungo, vi taglia a metà.' },
+        ],
+        waves: [{ spawns: [['inquisitore', 2], ['cultista', 2]] }],
+      },
+    ],
+    victory: [{ who: 'Carlos', text: 'L’Ordine ha perso due lame. Buon segno. Cattivo precedent.' }],
+  },
+  {
+    id: 'arena_fossa',
+    order: 201,
+    mode: 'arena',
+    name: 'La Fossa di Badiscar',
+    region: 'badiscar',
+    place: 'Prove speciali · Ultimo in piedi',
+    brief: 'Niente mostri. Solo la Compagnia. Chi cade resta a terra: vince l’ultimo che resta in piedi.',
+    stages: [
+      {
+        title: 'La Fossa di Badiscar',
+        layout: ARENA_FOSSA,
+        intro: [
+          { who: 'Carlos', text: 'Regole della Fossa: niente rianimazioni, niente alleanze. Ultimo in piedi beve gratis. Gli altri pagano il tavolo.' },
+        ],
+        waves: [],
+      },
+    ],
+    victory: [{ who: 'Carlos', text: 'Uno solo resta. Gli altri, a terra. La taverna ha già acceso le mance.' }],
+  },
+  {
+    id: 'arena_anello',
+    order: 202,
+    mode: 'arena',
+    name: "L'Anello di Ujian",
+    region: 'ujian',
+    place: 'Prove speciali · Ultimo in piedi',
+    brief: 'Cerchio aperto, un pilastro al centro, casse ai bordi. Stesso patto: ultimo in piedi.',
+    stages: [
+      {
+        title: "L'Anello di Ujian",
+        layout: ARENA_ANELLO,
+        intro: [
+          { who: 'Carlos', text: 'Spingeteli contro le casse. O contro il pilastro. O gli uni contro gli altri. Io conto i colpi.' },
+        ],
+        waves: [],
+      },
+    ],
+    victory: [{ who: 'Carlos', text: 'L’Anello ha scelto. Gli altri possono alzarsi… dopo aver pagato il vino.' }],
+  },
+];
+
+export function allMissions(): MissionDef[] {
+  return [...MISSIONS, ...EXTRA_PLAYS];
+}
+
 export function missionById(id: string): MissionDef | undefined {
-  return MISSIONS.find((m) => m.id === id);
+  return allMissions().find((m) => m.id === id);
+}
+
+export function storyMissions(): MissionDef[] {
+  return MISSIONS;
+}
+
+export function bossPlays(): MissionDef[] {
+  return EXTRA_PLAYS.filter((m) => m.mode === 'boss');
+}
+
+export function arenaPlays(): MissionDef[] {
+  return EXTRA_PLAYS.filter((m) => m.mode === 'arena');
 }

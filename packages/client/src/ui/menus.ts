@@ -3,9 +3,12 @@ import {
   HERO_IDS,
   MISSIONS,
   REGIONS,
+  arenaPlays,
+  bossPlays,
   missionById,
   type HeroId,
   type LobbyState,
+  type MissionDef,
   type RegionDef,
 } from '@malampu/shared';
 import { h, portrait, svg } from './dom';
@@ -55,6 +58,8 @@ export class Menus {
   private lobby: LobbyState | null = null;
   private myId = '';
   private region = 'ujian';
+  /** Council view: Salento map or special trials list. */
+  private councilTab: 'map' | 'proves' = 'map';
   private titleError = '';
   private busyText = '';
   private name = '';
@@ -266,7 +271,66 @@ export class Menus {
     const host = lobby.host === this.myId;
     const hostName = lobby.players.find((p) => p.id === lobby.host)?.name ?? '';
     const selected = missionById(lobby.mission);
-    if (this.panel !== 'council' && selected) this.region = selected.region;
+    if (this.panel !== 'council' && selected) {
+      this.region = selected.region;
+      this.councilTab = selected.mode && selected.mode !== 'story' ? 'proves' : 'map';
+    }
+    const ready = lobby.players.every((p) => p.hero);
+    const heroesReady = lobby.players.filter((p) => p.hero).length;
+
+    const tabs = h(
+      'div',
+      { class: 'council-tabs' },
+      h('button', {
+        class: `tab ${this.councilTab === 'map' ? 'active' : ''}`,
+        text: 'Spedizioni',
+        onclick: () => {
+          this.councilTab = 'map';
+          this.actions.sound('ui');
+          this.openCouncil();
+        },
+      }),
+      h('button', {
+        class: `tab ${this.councilTab === 'proves' ? 'active' : ''}`,
+        text: 'Prove speciali',
+        onclick: () => {
+          this.councilTab = 'proves';
+          this.actions.sound('ui');
+          this.openCouncil();
+        },
+      }),
+    );
+
+    const body =
+      this.councilTab === 'proves'
+        ? this.provesPanel(host, hostName, ready, heroesReady, selected)
+        : this.mapPanel(host, hostName, ready, selected);
+
+    this.show(
+      'council',
+      h(
+        'div',
+        { class: 'sheet council' },
+        h(
+          'header',
+          {},
+          h('h2', { text: 'La Tavola del Consiglio' }),
+          h('p', {
+            text:
+              this.councilTab === 'proves'
+                ? 'Arene boss e fosse dove vince l’ultimo che resta in piedi. Niente processioni: solo spettacolo.'
+                : 'Il Salento sotto l’Eclissi. Le regioni numerate sono pronte per una spedizione.',
+          }),
+          tabs,
+        ),
+        body,
+        h('footer', {}, h('button', { class: 'btn ghost', text: 'Torna in taverna', onclick: () => this.back() })),
+      ),
+    );
+  }
+
+  private mapPanel(host: boolean, hostName: string, ready: boolean, selected: ReturnType<typeof missionById>): HTMLElement {
+    const lobby = this.lobby!;
     const region = REGIONS.find((r) => r.id === this.region) ?? REGIONS[0]!;
     const mission = region.mission ? missionById(region.mission) : undefined;
     const byId = new Map(REGIONS.map((r) => [r.id, r]));
@@ -283,7 +347,9 @@ export class Menus {
     }
     for (const r of REGIONS) {
       const playable = !!r.mission;
-      const g = svg('g', { class: `region ${playable ? 'playable' : 'locked'} ${r.id === this.region ? 'active' : ''} ${selected?.region === r.id ? 'chosen' : ''}` });
+      const g = svg('g', {
+        class: `region ${playable ? 'playable' : 'locked'} ${r.id === this.region ? 'active' : ''} ${selected?.region === r.id && !selected.mode ? 'chosen' : ''}`,
+      });
       g.style.setProperty('--c', r.color);
       if (playable) g.append(svg('circle', { cx: r.x, cy: r.y, r: 26, class: 'pulse' }));
       g.append(svg('circle', { cx: r.x, cy: r.y, r: playable ? 15 : 10, class: 'node' }));
@@ -309,20 +375,96 @@ export class Menus {
       map.append(g);
     }
 
-    const ready = lobby.players.every((p) => p.hero);
-    this.show(
-      'council',
+    return h(
+      'div',
+      { class: 'council-body' },
+      h('div', { class: 'map-box' }, map as unknown as Node),
+      this.regionPanel(region, mission, host, hostName, ready, selected?.id ?? ''),
+    );
+  }
+
+  private provesPanel(
+    host: boolean,
+    hostName: string,
+    ready: boolean,
+    heroesReady: number,
+    selected: ReturnType<typeof missionById>,
+  ): HTMLElement {
+    const bosses = bossPlays();
+    const arenas = arenaPlays();
+    const pick = (m: MissionDef) => {
+      if (!host) {
+        this.actions.sound('deny');
+        return;
+      }
+      this.actions.sound('ui');
+      this.actions.selectMission(m.id);
+    };
+    const start = (m: MissionDef) => {
+      if (!host) return;
+      if (selected?.id !== m.id) {
+        pick(m);
+        return;
+      }
+      if (!ready) {
+        this.actions.sound('deny');
+        return;
+      }
+      if (m.mode === 'arena' && heroesReady < 2) {
+        this.actions.sound('deny');
+        return;
+      }
+      this.actions.sound('ui');
+      this.actions.startMission();
+    };
+    const card = (m: MissionDef) => {
+      const chosen = selected?.id === m.id;
+      const arena = m.mode === 'arena';
+      const canStart = ready && chosen && (!arena || heroesReady >= 2);
+      return h(
+        'article',
+        { class: `prove-card ${arena ? 'arena' : 'boss'} ${chosen ? 'chosen' : ''}` },
+        h('div', { class: 'prove-tag', text: arena ? 'Ultimo in piedi' : 'Arena boss' }),
+        h('h4', { text: m.name }),
+        h('div', { class: 'mission-place', text: m.place }),
+        h('p', { text: m.brief }),
+        host
+          ? h('button', {
+              class: `btn ${chosen ? 'primary' : 'ghost'} ${canStart || !chosen ? '' : 'disabled'}`,
+              text: !chosen
+                ? 'Seleziona'
+                : arena && heroesReady < 2
+                  ? 'Servono almeno due eroi'
+                  : ready
+                    ? 'Partite!'
+                    : 'Tutti devono scegliere un eroe',
+              onclick: () => start(m),
+            })
+          : h('div', {
+              class: 'locked-note',
+              text: chosen
+                ? `${hostName} ha scelto questa prova: si parte quando dà il via.`
+                : `Solo ${hostName} sceglie la prova.`,
+            }),
+      );
+    };
+
+    return h(
+      'div',
+      { class: 'council-body proves' },
       h(
         'div',
-        { class: 'sheet council' },
-        h('header', {}, h('h2', { text: 'La Tavola del Consiglio' }), h('p', { text: 'Il Salento sotto l’Eclissi. Le regioni numerate sono pronte per una spedizione.' })),
-        h(
-          'div',
-          { class: 'council-body' },
-          h('div', { class: 'map-box' }, map as unknown as Node),
-          this.regionPanel(region, mission, host, hostName, ready, selected?.id ?? ''),
-        ),
-        h('footer', {}, h('button', { class: 'btn ghost', text: 'Torna in taverna', onclick: () => this.back() })),
+        { class: 'proves-col' },
+        h('h3', { text: 'Arene boss' }),
+        h('p', { class: 'proves-lead', text: 'Uno contro uno spettacolo: la Compagnia insieme, i giganti al centro.' }),
+        ...bosses.map(card),
+      ),
+      h(
+        'div',
+        { class: 'proves-col' },
+        h('h3', { text: 'Ultimo in piedi' }),
+        h('p', { class: 'proves-lead', text: 'Niente mostri. Niente rianimazioni. Vince chi resta in piedi.' }),
+        ...arenas.map(card),
       ),
     );
   }
@@ -425,11 +567,25 @@ export class Menus {
         h(
           'header',
           {},
-          h('h2', { text: win ? 'Vittoria' : 'La Compagnia è caduta' }),
+          h('h2', {
+            text: win
+              ? mission?.mode === 'arena'
+                ? 'Ultimo in piedi'
+                : 'Vittoria'
+              : mission?.mode === 'arena'
+                ? 'Nessun vincitore'
+                : 'La Compagnia è caduta',
+          }),
           h('p', {
             text: win
-              ? `${mission?.name ?? ''} — l'Eclissi arretra di un passo.`
-              : `${mission?.name ?? ''} — il Sole Nero non concede tregua, ma la taverna sì.`,
+              ? mission?.mode === 'arena'
+                ? `${mission.name} — uno solo resta. Gli altri pagano il vino.`
+                : mission?.mode === 'boss'
+                  ? `${mission.name} — il cerchio ha scelto i suoi campioni.`
+                  : `${mission?.name ?? ''} — l'Eclissi arretra di un passo.`
+              : mission?.mode === 'arena'
+                ? `${mission.name} — tutti a terra. La Fossa non premia nessuno.`
+                : `${mission?.name ?? ''} — il Sole Nero non concede tregua, ma la taverna sì.`,
           }),
         ),
         h('table', { class: 'stats' }, h('thead', {}, h('tr', {}, h('th', { text: 'Eroe' }), ...cols.map(([label]) => h('th', { text: label })))), h('tbody', {}, ...rows)),

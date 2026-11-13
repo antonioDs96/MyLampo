@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allMissions,
   angleDiff,
   approachAngle,
   buildFlow,
@@ -8,7 +9,6 @@ import {
   flowDirection,
   HUB_LAYOUT,
   losClear,
-  MISSIONS,
   nearestFloor,
   parseLayout,
   Rng,
@@ -100,7 +100,8 @@ describe('layout', () => {
   });
 
   it('every mission layout is closed, connected and has the spawns it needs', () => {
-    const defs = [HUB_LAYOUT, ...MISSIONS.flatMap((m) => m.stages.map((s) => s.layout))];
+    const plays = allMissions();
+    const defs = [HUB_LAYOUT, ...plays.flatMap((m) => m.stages.map((s) => s.layout))];
     for (const def of defs) {
       const l = parseLayout(def);
       for (const row of def.rows) expect(row.length, `${def.id} row width`).toBe(l.w);
@@ -117,7 +118,10 @@ describe('layout', () => {
       for (let i = 0; i < field.length; i++) {
         if (!l.solid[i]) expect(field[i], `${def.id} cell ${i} reachable`).toBeGreaterThanOrEqual(0);
       }
-      if (def !== HUB_LAYOUT) expect(l.enemySpawns.length, `${def.id} enemy spawns`).toBeGreaterThan(0);
+      const owner = plays.find((m) => m.stages.some((s) => s.layout.id === def.id));
+      if (def !== HUB_LAYOUT && owner?.mode !== 'arena') {
+        expect(l.enemySpawns.length, `${def.id} enemy spawns`).toBeGreaterThan(0);
+      }
     }
   });
 });

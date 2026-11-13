@@ -72,6 +72,8 @@ interface HitSpec {
   oz: number;
   /** Enemy that dealt it (0 = none). */
   src: number;
+  /** Player that dealt it (PvP), if any. */
+  by?: string;
   slow?: number;
   /** Re-checked when the lag grace expires: the hit misses if this returns false. */
   still?: (p: PlayerState) => boolean;
@@ -95,6 +97,10 @@ export interface WorldOpts {
   waves?: WaveDef[];
   /** Seconds before the first wave. */
   introDelay?: number;
+  /** Heroes can damage each other (last-standing arenas). */
+  pvp?: boolean;
+  /** Downed heroes stay down — no revive / Party heal. */
+  noRevive?: boolean;
 }
 
 const tmp: Point = { x: 0, z: 0 };
@@ -103,6 +109,8 @@ export class World {
   readonly layout: Layout;
   readonly rng: Rng;
   readonly safe: boolean;
+  readonly pvp: boolean;
+  readonly noRevive: boolean;
   time = 0;
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
@@ -132,6 +140,8 @@ export class World {
     this.layout = opts.layout;
     this.rng = new Rng(opts.seed);
     this.safe = !!opts.safe;
+    this.pvp = !!opts.pvp;
+    this.noRevive = !!opts.noRevive;
     this.waves = opts.waves ?? [];
     this.ctx = { layout: this.layout, enemies: this.lite, allies: this.allies };
     if (this.waves.length > 0) {
@@ -185,7 +195,13 @@ export class World {
     }
     this.allies.length = 0;
     for (const p of this.players.values()) {
-      this.allies.push({ id: p.id, x: p.x, z: p.z, downed: p.act === Act.Downed });
+      this.allies.push({
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        // In last-standing arenas nobody can be revived: hide the downed flag from the interact loop.
+        downed: !this.noRevive && p.act === Act.Downed,
+      });
     }
   }
 
@@ -239,6 +255,18 @@ export class World {
     const fx = Math.sin(p.yaw);
     const fz = Math.cos(p.yaw);
     let any = false;
+    const hitRival = (q: PlayerState, cx: number, cz: number): boolean => {
+      const res = this.tryHitPlayer(q, {
+        dmg: def.dmg * mult,
+        red: heavy,
+        kb: def.kb * (heavy ? 1.15 : 1),
+        ox: cx,
+        oz: cz,
+        src: 0,
+        by: p.id,
+      });
+      return res !== 'none' && res !== 'dodged';
+    };
     if (def.aoe) {
       const ahead = def.aoeAhead ?? 0;
       const cx = p.x + fx * ahead;
@@ -249,6 +277,14 @@ export class World {
         const d = Math.hypot(e.x - cx, e.z - cz) - ENEMIES[e.type].radius;
         if (d > radius + TUNING.lagPad) continue;
         any = this.damageEnemy(e, def.dmg * mult, def.poise * mult, p, { kb: def.kb, heavy, effect: full ? def.charged : undefined }) || any;
+      }
+      if (this.pvp) {
+        for (const q of this.players.values()) {
+          if (q.id === p.id || q.act === Act.Downed) continue;
+          const d = Math.hypot(q.x - cx, q.z - cz) - TUNING.playerRadius;
+          if (d > radius + TUNING.lagPad) continue;
+          any = hitRival(q, cx, cz) || any;
+        }
       }
       this.events.push({ e: 'fx', what: 'slam', x: cx, z: cz, r: radius });
     } else {
@@ -261,6 +297,17 @@ export class World {
         if (d > def.range + TUNING.lagPad) continue;
         if (def.arc < 360 && d > 0.8 && Math.abs(angleDiff(yawOf(dx, dz), p.yaw)) > half) continue;
         any = this.damageEnemy(e, def.dmg * mult, def.poise * mult, p, { kb: def.kb, heavy, effect: full ? def.charged : undefined }) || any;
+      }
+      if (this.pvp) {
+        for (const q of this.players.values()) {
+          if (q.id === p.id || q.act === Act.Downed) continue;
+          const dx = q.x - p.x;
+          const dz = q.z - p.z;
+          const d = Math.hypot(dx, dz) - TUNING.playerRadius;
+          if (d > def.range + TUNING.lagPad) continue;
+          if (def.arc < 360 && d > 0.8 && Math.abs(angleDiff(yawOf(dx, dz), p.yaw)) > half) continue;
+          any = hitRival(q, p.x, p.z) || any;
+        }
       }
     }
     if (any) {
@@ -502,6 +549,7 @@ export class World {
   }
 
   revive(targetId: string, by: PlayerState | null): void {
+    if (this.noRevive) return;
     const t = this.players.get(targetId);
     if (!t || t.act !== Act.Downed) return;
     t.act = Act.Idle;
@@ -642,6 +690,7 @@ export class World {
       }
       case 'ballata': {
         for (const a of this.alliesNear(p.x, p.z, 14, true)) {
+          if (this.pvp && a.id !== p.id) continue;
           if (a.act === Act.Downed) this.revive(a.id, p);
           this.heal(a, HEROES[a.hero].hp * 0.25);
           addStatus(a.st, PS.DmgUp, T(10), 0.3);
@@ -658,6 +707,13 @@ export class World {
       }
       case 'sisma': {
         for (const e of this.enemiesNear(p.x, p.z, 10)) this.damageEnemy(e, 60, 80, p, { kb: 12, heavy: true });
+        if (this.pvp) {
+          for (const q of this.players.values()) {
+            if (q.id === p.id || q.act === Act.Downed) continue;
+            if (Math.hypot(q.x - p.x, q.z - p.z) > 10) continue;
+            this.tryHitPlayer(q, { dmg: 60, red: true, kb: 12, ox: p.x, oz: p.z, src: 0, by: p.id });
+          }
+        }
         cast(10);
         break;
       }
@@ -675,12 +731,20 @@ export class World {
       case 'chiavistello': {
         for (const a of this.players.values()) {
           if (a.act === Act.Downed) continue;
+          if (this.pvp && a.id !== p.id) continue;
           this.heal(a, HEROES[a.hero].hp * 0.4);
           removeStatus(a.st, PS.Silence);
           removeStatus(a.st, PS.Slow);
         }
         this.zones = this.zones.filter((z) => !(z.kind === 'silence' && Math.hypot(z.x - p.x, z.z - p.z) <= 18));
         for (const e of this.enemiesNear(p.x, p.z, 13)) this.damageEnemy(e, 45, 60, p, { kb: 8, heavy: true });
+        if (this.pvp) {
+          for (const q of this.players.values()) {
+            if (q.id === p.id || q.act === Act.Downed) continue;
+            if (Math.hypot(q.x - p.x, q.z - p.z) > 13) continue;
+            this.tryHitPlayer(q, { dmg: 45, red: true, kb: 8, ox: p.x, oz: p.z, src: 0, by: p.id });
+          }
+        }
         cast(13);
         break;
       }
@@ -928,8 +992,16 @@ export class World {
     p.ult = Math.min(100, p.ult + amount * TUNING.ultPerDamageTaken * (p.hero === 'vyncent' ? 1.5 : 1));
     const st = this.stats.get(p.id);
     if (st) st.taken += amount;
+    if (spec.by) {
+      const atk = this.stats.get(spec.by);
+      if (atk) atk.dmg += amount;
+    }
     this.events.push({ e: 'phit', id: p.id, dmg: amount, x: p.x, z: p.z, red: spec.red });
     if (p.hp <= 0) {
+      if (spec.by) {
+        const atk = this.stats.get(spec.by);
+        if (atk) atk.kills++;
+      }
       this.down(p);
       return;
     }
@@ -1559,6 +1631,18 @@ export class World {
           if (t < hitAt) {
             hitAt = t;
             hitEnemy = e;
+            hitPlayer = undefined;
+          }
+        }
+        if (this.pvp) {
+          for (const q of this.players.values()) {
+            if (q.id === pr.owner || q.act === Act.Downed || pr.hit.includes(this.pidIndex(q.id))) continue;
+            const t = along(q.x, q.z, TUNING.playerRadius + pr.r);
+            if (t < hitAt) {
+              hitAt = t;
+              hitPlayer = q;
+              hitEnemy = undefined;
+            }
           }
         }
       } else {
@@ -1585,7 +1669,15 @@ export class World {
       } else if (hitPlayer) {
         pr.x = sx + pr.dx * hitAt;
         pr.z = sz + pr.dz * hitAt;
-        const res = this.tryHitPlayer(hitPlayer, { dmg: pr.dmg, red: pr.red, kb: 3, ox: sx, oz: sz, src: pr.src });
+        const res = this.tryHitPlayer(hitPlayer, {
+          dmg: pr.dmg,
+          red: pr.red || pr.effect === 'heavy',
+          kb: 3,
+          ox: sx,
+          oz: sz,
+          src: pr.src,
+          by: pr.owner || undefined,
+        });
         if (res === 'parried') {
           // A perfect parry sends the projectile back where it came from.
           pr.owner = hitPlayer.id;
@@ -1606,7 +1698,10 @@ export class World {
         } else if (res === 'dodged') {
           pr.hit.push(this.pidIndex(hitPlayer.id));
         } else {
-          dead = true;
+          pr.hit.push(this.pidIndex(hitPlayer.id));
+          if (pr.aoe > 0 && pr.owner) this.explode(pr, this.players.get(pr.owner) ?? null, 0);
+          if (pr.pierce > 0) pr.pierce--;
+          else dead = true;
         }
       } else {
         pr.x = ex;
@@ -1640,6 +1735,21 @@ export class World {
       if (e.id === skip) continue;
       this.damageEnemy(e, pr.dmg * 0.7, pr.poise * 0.7, owner, { kb: 3 });
     }
+    if (this.pvp && owner) {
+      for (const q of this.players.values()) {
+        if (q.id === owner.id || q.act === Act.Downed) continue;
+        if (Math.hypot(q.x - pr.x, q.z - pr.z) > pr.aoe + TUNING.playerRadius) continue;
+        this.tryHitPlayer(q, {
+          dmg: pr.dmg * 0.7,
+          red: true,
+          kb: 3,
+          ox: pr.x,
+          oz: pr.z,
+          src: 0,
+          by: owner.id,
+        });
+      }
+    }
     pr.aoe = 0;
   }
 
@@ -1669,6 +1779,13 @@ export class World {
               addStatus(e.st, ES.Marked, 4, 0);
               this.damageEnemy(e, z.power, 5, owner, {});
             }
+            if (this.pvp && owner) {
+              for (const q of this.players.values()) {
+                if (q.id === owner.id || q.act === Act.Downed) continue;
+                if (Math.hypot(q.x - z.x, q.z - z.z) > z.r) continue;
+                this.tryHitPlayer(q, { dmg: z.power, red: false, kb: 1, ox: z.x, oz: z.z, src: 0, by: owner.id });
+              }
+            }
           }
           break;
         }
@@ -1687,16 +1804,42 @@ export class World {
               e.z += dz * s;
             }
           }
+          if (this.pvp && owner) {
+            for (const q of this.players.values()) {
+              if (q.id === owner.id || q.act === Act.Downed) continue;
+              const dx = z.x - q.x;
+              const dz = z.z - q.z;
+              const d = Math.hypot(dx, dz);
+              if (d > z.r * 1.25 || d <= 0.6) continue;
+              const s = Math.min(strength * dt * 0.85, d - 0.5) / d;
+              q.x += dx * s;
+              q.z += dz * s;
+            }
+          }
           if (z.kind === 'blackhole') {
             z.tick -= dt;
             if (z.tick <= 0) {
               z.tick += 0.5;
               for (const e of this.enemiesNear(z.x, z.z, z.r)) this.damageEnemy(e, 8, 6, owner, {});
+              if (this.pvp && owner) {
+                for (const q of this.players.values()) {
+                  if (q.id === owner.id || q.act === Act.Downed) continue;
+                  if (Math.hypot(q.x - z.x, q.z - z.z) > z.r) continue;
+                  this.tryHitPlayer(q, { dmg: 8, red: false, kb: 2, ox: z.x, oz: z.z, src: 0, by: owner.id });
+                }
+              }
             }
           }
           if (done) {
             for (const e of this.enemiesNear(z.x, z.z, z.r)) {
               this.damageEnemy(e, z.power, z.power, owner, { kb: 6, heavy: true });
+            }
+            if (this.pvp && owner) {
+              for (const q of this.players.values()) {
+                if (q.id === owner.id || q.act === Act.Downed) continue;
+                if (Math.hypot(q.x - z.x, q.z - z.z) > z.r) continue;
+                this.tryHitPlayer(q, { dmg: z.power, red: true, kb: 6, ox: z.x, oz: z.z, src: 0, by: owner.id });
+              }
             }
             if (owner) removeStatus(owner.st, PS.Counter);
             this.events.push({ e: 'fx', what: z.kind === 'blackhole' ? 'collapse' : 'implode', x: z.x, z: z.z, r: z.r });

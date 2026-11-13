@@ -7,7 +7,7 @@ import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
 import { HEROES, isHeroId } from './heroes';
 import { collide, nearestFloor, parseLayout } from './layout';
 import { HUB_LINES } from './lore';
-import { HUB_LAYOUT, MISSIONS, missionById, type MissionDef } from './missions';
+import { HUB_LAYOUT, MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
 import { clonePlayer, neutralCmd } from './player';
 import {
   packEnemy,
@@ -234,6 +234,18 @@ export class GameHost {
       this.io.broadcast({ t: 'error', text: `Manca ancora la scelta dell'eroe: ${missing.map((c) => c.name).join(', ')}.` });
       return;
     }
+    const mission = this.mission();
+    const mode: MissionMode = mission.mode ?? 'story';
+    if (mode === 'arena') {
+      const ready = [...this.clients.values()].filter((c) => c.hero);
+      if (ready.length < 2) {
+        this.io.broadcast({
+          t: 'error',
+          text: "L'arena Ultimo in piedi serve almeno due eroi in taverna. Chiamate un amico — o un nemico.",
+        });
+        return;
+      }
+    }
     this.phase = 'mission';
     this.loadStage(0, false, true);
   }
@@ -250,7 +262,16 @@ export class GameHost {
     this.stage = stage;
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     const layout = parseLayout(def.layout);
-    const world = new World({ layout, seed: this.seed, waves: def.waves, introDelay: mutation ? 4.5 : 4 });
+    const mode: MissionMode = mission.mode ?? 'story';
+    const arena = mode === 'arena';
+    const world = new World({
+      layout,
+      seed: this.seed,
+      waves: def.waves,
+      introDelay: mutation ? 4.5 : arena ? 2.5 : 4,
+      pvp: arena,
+      noRevive: arena,
+    });
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
       const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id));
@@ -356,11 +377,30 @@ export class GameHost {
   private flow(): void {
     if (this.phase !== 'mission') return;
     const world = this.world;
+    const mission = this.mission();
+    const arena = (mission.mode ?? 'story') === 'arena';
     if (!this.transition) {
-      if (world.players.size > 0 && world.allDown()) {
+      if (arena) {
+        const standing = world.alivePlayers();
+        if (world.players.size >= 2 && standing.length <= 1) {
+          if (standing.length === 1) {
+            const champ = standing[0]!;
+            const name = this.clients.get(champ.id)?.name ?? HEROES[champ.hero].short;
+            world.events.push({
+              e: 'say',
+              who: 'Carlos',
+              text: `${name} resta in piedi. Gli altri… beh, la pagheranno al bancone.`,
+            });
+            for (const line of mission.victory) world.events.push({ e: 'say', who: line.who, text: line.text });
+            this.transition = { at: this.clock + 3500, to: 'victory' };
+          } else {
+            world.events.push({ e: 'say', who: 'Carlos', text: 'Tutti a terra. Nessun vincitore — solo conti da saldare.' });
+            this.transition = { at: this.clock + 2500, to: 'defeat' };
+          }
+        }
+      } else if (world.players.size > 0 && world.allDown()) {
         this.transition = { at: this.clock + 2500, to: 'defeat' };
       } else if (world.waveState === 'done') {
-        const mission = this.mission();
         if (this.stage + 1 < mission.stages.length) {
           this.transition = { at: this.clock + 3500, to: 'next' };
         } else {
