@@ -165,6 +165,8 @@ export class Game {
   private lockId = 0;
   private hitStop = 0;
   private predictedHitAt = -1e9;
+  /** Last freezeHost passed to conn.setPaused — edge-trigger only. */
+  private hostFreeze = false;
   private lastFrame = 0;
   private lastPing = 0;
   private rtt = 0;
@@ -1125,8 +1127,13 @@ export class Game {
     const conn = this.conn;
     if (conn) {
       // Pause only after we have a live world — keep lobby/welcome flowing while menus show.
+      // Edge-trigger: calling unpause every frame broke solo movement when the host module
+      // lagged behind (Vite HMR) or when resume reset the sim clock unnecessarily.
       const freezeHost = paused && !!this.info && this.info.kind !== undefined;
-      conn.setPaused?.(freezeHost, now);
+      if (freezeHost !== this.hostFreeze) {
+        this.hostFreeze = freezeHost;
+        conn.setPaused?.(freezeHost, now);
+      }
       if (now - this.lastPing > 2000) {
         this.lastPing = now;
         this.send({ t: 'ping', at: now });
