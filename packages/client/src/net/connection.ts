@@ -10,6 +10,8 @@ export interface Connection {
   send(msg: ClientMsg): void;
   /** Called every frame with a monotonic clock in ms. */
   update(nowMs: number): void;
+  /** Solo only: freeze the in-memory host while menus / scheda are open. */
+  setPaused?(on: boolean, nowMs?: number): void;
   close(): void;
 }
 
@@ -34,8 +36,15 @@ export class LocalConnection implements Connection {
     if (!this.closed) this.host.onMessage(LOCAL_ID, msg);
   }
 
+  setPaused(on: boolean, nowMs = performance.now()): void {
+    if (this.closed) return;
+    if (on) this.host.pause();
+    else this.host.unpause(nowMs);
+  }
+
   update(nowMs: number): void {
     if (this.closed) return;
+    // host.update is a no-op while paused; inbox (welcome/lobby/world) must still flush.
     this.host.update(nowMs);
     if (this.inbox.length === 0) return;
     const batch = this.inbox.splice(0);

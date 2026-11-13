@@ -112,6 +112,8 @@ export class GameHost {
   private xpGain: Record<string, number> = {};
   private proc: ProceduralMissionRuntime | null = null;
   private gateArmAt = 0;
+  /** Solo / offline UI pause — freezes sim clock without dropping the world. */
+  private paused = false;
 
   constructor(io: HostIO, code: string, seed: number) {
     this.io = io;
@@ -643,8 +645,26 @@ export class GameHost {
 
   // ---------------------------------------------------------------- loop
 
+  /** Freeze the simulation (menus / scheda). Wall-clock gaps are discarded on resume. */
+  pause(): void {
+    this.paused = true;
+  }
+
+  /** Resume after UI pause; pass the current monotonic clock so catch-up is skipped. */
+  unpause(nowMs: number): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.lastNow = nowMs;
+    this.acc = 0;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
   /** Call often with a monotonic clock in ms; the host advances in fixed 50 ms ticks. */
   update(nowMs: number): void {
+    if (this.paused) return;
     if (this.lastNow < 0) this.lastNow = nowMs;
     this.acc += Math.min(250, Math.max(0, nowMs - this.lastNow));
     this.lastNow = nowMs;
