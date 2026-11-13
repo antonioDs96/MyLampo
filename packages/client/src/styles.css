@@ -755,7 +755,8 @@ kbd {
 .menus.panel-heroes,
 .menus.panel-council,
 .menus.panel-results,
-.menus.panel-help {
+.menus.panel-help,
+.menus.panel-bestiary {
   display: grid;
   place-items: center;
   padding: 24px;
@@ -772,7 +773,8 @@ kbd {
 .menus.panel-heroes,
 .menus.panel-council,
 .menus.panel-results,
-.menus.panel-help {
+.menus.panel-help,
+.menus.panel-bestiary {
   background: rgba(6, 3, 10, 0.72);
   backdrop-filter: blur(5px);
 }
