@@ -305,11 +305,16 @@ export class Game {
   }
 
   private syncInput(): void {
-    const on = !!this.info && !this.menus.open && !this.sheet.isOpen;
+    const on = !!this.info && !this.uiPaused;
     const was = this.input.enabled;
     this.input.setEnabled(on);
     if (!on) this.input.releaseLock();
     else if (!was) this.input.requestLock();
+  }
+
+  /** Help / council / bestiary / scheda — freeze solo sim and stop local prediction. */
+  private get uiPaused(): boolean {
+    return this.menus.open || this.sheet.isOpen;
   }
 
   private toggleSheet(): void {
@@ -1116,8 +1121,12 @@ export class Game {
     this.lastFrame = now;
     this.fps += (1 / Math.max(dt, 0.001) - this.fps) * 0.05;
 
+    const paused = this.uiPaused;
     const conn = this.conn;
     if (conn) {
+      // Pause only after we have a live world — keep lobby/welcome flowing while menus show.
+      const freezeHost = paused && !!this.info && this.info.kind !== undefined;
+      conn.setPaused?.(freezeHost, now);
       if (now - this.lastPing > 2000) {
         this.lastPing = now;
         this.send({ t: 'ping', at: now });
@@ -1127,15 +1136,16 @@ export class Game {
 
     if (this.info && this.layout && this.conn) {
       const input = this.input.poll(dt);
-      this.simulate(dt, input);
-      if (this.hitStop > 0) this.hitStop -= dt;
+      if (!paused) this.simulate(dt, input);
+      else this.acc = 0;
+      if (!paused && this.hitStop > 0) this.hitStop -= dt;
       this.render(dt, now, input);
     }
 
-    this.arena?.update(dt);
+    if (!paused) this.arena?.update(dt);
     this.audio.update(dt);
     this.hud.update(dt);
-    this.vfx.update(dt, this.cam);
+    if (!paused) this.vfx.update(dt, this.cam);
     this.scene.render();
   }
 
@@ -1831,10 +1841,11 @@ export class Game {
     hud.setDowned(downedText);
 
     const count = lobby ? lobby.players.length : 1;
+    const pauseNote = this.uiPaused ? ' · In pausa' : '';
     hud.setRoom(
       this.conn?.offline
-        ? 'Partita in solitaria · H comandi'
-        : `Stanza ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi`,
+        ? `Partita in solitaria · H comandi${pauseNote}`
+        : `Stanza ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi${pauseNote}`,
     );
     hud.endFrame();
   }
