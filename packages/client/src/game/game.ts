@@ -1171,8 +1171,7 @@ export class Game {
       lockAt = { x: lerp(la.x, lb.x, u), z: lerp(la.z, lb.z, u), h: this.enemyHeight(la.id) };
     }
     if (!me) this.cam.rotate(dt * 0.12, 0);
-    const aimMode = !!(me && HEROES[me.hero].ranged);
-    this.cam.update(dt, this.layout, meX, meZ, lockAt, Math.abs(input.lookX) > 0.002, aimMode);
+    this.cam.update(dt, this.layout, meX, meZ, lockAt, Math.abs(input.lookX) > 0.002);
     this.scene.updateTransformMatrix(true);
     this.viewProj.copyFrom(this.scene.getTransformMatrix());
 
@@ -1623,8 +1622,6 @@ export class Game {
       hud.setBoss(null);
     }
 
-    const rangedFree = !!(me && HEROES[me.hero].ranged && !lock);
-    hud.crosshair(rangedFree && !this.menus.open);
     if (lock) {
       const at = this.project(lock.x, this.enemyHeight(lock.id) * 0.55, lock.z);
       hud.reticle(at?.x ?? 0, at?.y ?? 0, !!at);

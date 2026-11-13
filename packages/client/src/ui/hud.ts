@@ -73,7 +73,6 @@ export class Hud {
   private readonly room = h('div', { class: 'room' });
   private readonly world = h('div', { class: 'world-layer' });
   private readonly reticleEl = h('div', { class: 'reticle hidden' });
-  private readonly crosshairEl = h('div', { class: 'crosshair hidden' }, h('i'), h('i'), h('i'), h('i'));
   private readonly vignette = h('div', { class: 'vignette' });
   private readonly downedBox = h('div', { class: 'downed hidden' });
   private readonly chargeBox = h('div', { class: 'charge hidden' }, h('i'));
@@ -112,7 +111,6 @@ export class Hud {
     this.root.append(
       this.vignette,
       this.world,
-      this.crosshairEl,
       this.reticleEl,
       h('div', { class: 'top' }, h('div', { class: 'stage' }, this.stageTitle, this.waveText), this.boss),
       this.party,
@@ -368,11 +366,6 @@ export class Hud {
   reticle(x: number, y: number, on: boolean): void {
     this.reticleEl.classList.toggle('hidden', !on);
     if (on) this.reticleEl.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
-  }
-
-  /** Center-screen free-aim crosshair for ranged heroes (CoD-style). */
-  crosshair(on: boolean): void {
-    this.crosshairEl.classList.toggle('hidden', !on);
   }
 
   floater(x: number, y: number, text: string, cls = ''): void {

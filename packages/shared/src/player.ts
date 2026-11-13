@@ -160,17 +160,12 @@ function findEnemy(ctx: StepCtx, id: number): EnemyLite | undefined {
   return undefined;
 }
 
-function isRangedShot(hero: HeroDef, def: AttackDef | null): boolean {
-  return hero.ranged && (!def || !!def.proj || def.charged === 'pull');
-}
-
 function pickTarget(p: PlayerState, hero: HeroDef, def: AttackDef | null, cmd: InputCmd, ctx: StepCtx, reach: number): number {
   const lock = findEnemy(ctx, cmd.lock);
   if (lock) return lock.id;
-  // Casters/archers aim like a shooter: no soft magnet — only an explicit Tab lock counts.
-  if (isRangedShot(hero, def)) return 0;
   const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  const want = moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
+  const ranged = hero.ranged && (!def || !!def.proj || def.charged === 'pull');
+  const want = ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
   let best = 0;
   let bestScore = Infinity;
   for (const e of ctx.enemies) {
@@ -180,8 +175,14 @@ function pickTarget(p: PlayerState, hero: HeroDef, def: AttackDef | null, cmd: I
     const d = Math.hypot(dx, dz) - e.r;
     if (d > reach) continue;
     const ang = Math.abs(angleDiff(yawOf(dx, dz), want));
-    if (ang > 1.35 && d > 2.2) continue;
-    const score = d + ang * 3.5;
+    let score: number;
+    if (ranged) {
+      if (ang > 0.42) continue;
+      score = ang * 30 + d * 0.25;
+    } else {
+      if (ang > 1.35 && d > 2.2) continue;
+      score = d + ang * 3.5;
+    }
     if (score < bestScore) {
       bestScore = score;
       best = e.id;
@@ -221,12 +222,7 @@ function startAttack(p: PlayerState, hero: HeroDef, heavy: boolean, cmd: InputCm
   p.tgt = pickTarget(p, hero, def, cmd, ctx, def.proj ? def.proj.range : def.range + def.lunge + 3);
   const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
   const fallback = hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
-  if (isRangedShot(hero, def) && !findEnemy(ctx, p.tgt)) {
-    // Free-aim: snap body to the camera crosshair, never to a nearby enemy.
-    p.yaw = fallback;
-  } else {
-    faceTarget(p, ctx, fallback, Math.PI * 2);
-  }
+  faceTarget(p, ctx, fallback, Math.PI * 2);
 
   if (heavy && def.charged === 'behind' && p.charge >= 1) {
     const e = findEnemy(ctx, p.tgt);
@@ -346,9 +342,7 @@ function startAbility(p: PlayerState, hero: HeroDef, ult: boolean, silenced: boo
   p.combo = 0;
   p.tgt = pickTarget(p, hero, null, cmd, ctx, hero.ranged ? 40 : 14);
   const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  const fallback = hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
-  if (hero.ranged && !findEnemy(ctx, p.tgt)) p.yaw = fallback;
-  else faceTarget(p, ctx, fallback, Math.PI * 2);
+  faceTarget(p, ctx, hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw, Math.PI * 2);
   ev.push({ type: 'abilityStart', ult });
   return true;
 }
@@ -544,11 +538,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
         vz = mz * speed;
         const lock = findEnemy(ctx, cmd.lock);
         if (lock) p.yaw = approachAngle(p.yaw, yawOf(lock.x - p.x, lock.z - p.z), turn);
-        else if (hero.ranged) {
-          // Keep the body loosely aligned with the camera so shots match the crosshair,
-          // but do not hard-snap every idle tick (that feels glued).
-          p.yaw = approachAngle(p.yaw, cmd.aim, turn * (moving ? 1.1 : 1.4));
-        } else if (moving) p.yaw = approachAngle(p.yaw, yawOf(mx, mz), turn);
+        else if (moving) p.yaw = approachAngle(p.yaw, yawOf(mx, mz), turn);
       }
       break;
     }
@@ -561,13 +551,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       p.t += rate;
       const first = T(def.hits[0]!);
       if (prevT < first) {
-        if (isRangedShot(hero, def)) {
-          const e = findEnemy(ctx, p.tgt);
-          const want = e ? yawOf(e.x - p.x, e.z - p.z) : cmd.aim;
-          p.yaw = approachAngle(p.yaw, want, e ? turn * 0.7 : turn * 2.2);
-        } else {
-          faceTarget(p, ctx, p.yaw, turn * 0.7);
-        }
+        faceTarget(p, ctx, p.yaw, turn * 0.7);
         if (def.lunge > 0) {
           const e = findEnemy(ctx, p.tgt);
           const perTick = (def.lunge / Math.max(1, first)) * rate * (heavy ? 1 + p.charge * 0.5 : 1);
@@ -684,7 +668,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       const lock = findEnemy(ctx, cmd.lock);
       if (lock) p.tgt = lock.id;
       else if (!findEnemy(ctx, p.tgt) || (p.t | 0) % 12 === 0) p.tgt = pickTarget(p, hero, null, cmd, ctx, 9);
-      faceTarget(p, ctx, hero.ranged ? cmd.aim : p.yaw, turn);
+      faceTarget(p, ctx, p.yaw, turn);
       vx = mx * speed * hero.block.moveMul;
       vz = mz * speed * hero.block.moveMul;
       if (!(cmd.buttons & Btn.Block) && p.t >= T(0.16)) setAct(p, Act.Idle);
