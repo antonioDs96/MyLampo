@@ -123,7 +123,6 @@ export interface AllyDef {
 
 export const ALLIES: AllyDef[] = [
   { id: 'carlos', name: 'Carlos, il Consigliere Ombra', role: 'Ex diplomatico e mentore riluttante', desc: "Attende la Compagnia alla Taverna di Carl. Guida il gruppo con un'ironia tagliente." },
-  { id: 'dalith', name: 'Dalìth, la Dalisca', role: 'Informante e ballerina ipnotica', desc: 'Legge le intenzioni dal corpo con la Danza della Memoria.' },
   { id: 'sarya', name: 'Sàrya di Vael', role: 'Diplomatica in esilio', desc: 'Custode di lingue antiche e di segreti sulla Madre Originale.' },
   { id: 'eleonora', name: 'Eleonora la Magnifica', role: 'Broker e patrona', desc: 'Architetto invisibile delle rotte commerciali: sa in anticipo dove si muove il Sole Nero.' },
   { id: 'sec', name: "Sec, il Divoratore d'Incanto", role: 'Vampiro antico', desc: 'Dimora nelle cripte sotto Kaza-Massel. Alleato, o forse soltanto ombra.' },

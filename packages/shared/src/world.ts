@@ -645,6 +645,7 @@ export class World {
         kbMul *= live.knockbackMul;
         poiseMul *= live.postureMul;
       }
+      mul *= this.kazaBondMul(p);
     }
     if (!opts.raw) {
       if (hasStatus(e.st, ES.Marked)) mul *= TUNING.markedDamageMul;
@@ -855,6 +856,30 @@ export class World {
     }
   }
 
+  /**
+   * Dalìth and Anthon grew up in the same chaos. While both are on their feet
+   * and within 9 m, each of their blows lands harder.
+   */
+  private kazaBondMul(p: PlayerState): number {
+    const other = p.hero === 'dalith' ? 'anthon' : p.hero === 'anthon' ? 'dalith' : '';
+    if (!other) return 1;
+    for (const a of this.players.values()) {
+      if (a.hero !== other || a.act === Act.Downed) continue;
+      if (Math.hypot(a.x - p.x, a.z - p.z) <= 9) return 1.12;
+    }
+    return 1;
+  }
+
+  /** Healing potions are milk-based. Dalìth keeps half the cure and cramps. */
+  private applyPotionHeal(p: PlayerState, amount: number, itemId: string): void {
+    const lactose = p.hero === 'dalith' && itemId.startsWith('potion_');
+    const kept = lactose ? Math.max(1, Math.round(amount * 0.5)) : amount;
+    this.heal(p, kept, true, p.id);
+    if (!lactose) return;
+    addStatus(p.st, PS.Cramp, T(2.5), 0.35);
+    this.events.push({ e: 'say', who: 'Dalìth', text: 'Latte nella pozione. Quel veleno non dimentica.' });
+  }
+
   heal(p: PlayerState, amount: number, announce = true, byId?: string): void {
     if (p.act === Act.Downed || amount <= 0) return;
     const max = p.maxHp || HEROES[p.hero].hp;
@@ -991,6 +1016,15 @@ export class World {
         cast(`ondata_${roll}`, roll === 1 ? 14 : roll === 3 ? 10 : 7);
         break;
       }
+      case 'danza': {
+        for (const e of this.enemiesNear(p.x, p.z, 7.5)) {
+          this.confuse(e, 4);
+          addStatus(e.st, ES.Marked, 7, 0);
+        }
+        addStatus(p.st, PS.Haste, T(4), 0.18);
+        cast(id, 7.5);
+        break;
+      }
     }
   }
 
@@ -1076,6 +1110,20 @@ export class World {
         const at = this.aimPoint(p, 9);
         this.addZone('blackhole', at.x, at.z, 8, 4, p.id, 50);
         cast(8, at.x, at.z);
+        break;
+      }
+      case 'spirale': {
+        for (const e of this.enemiesNear(p.x, p.z, 8)) {
+          this.damageEnemy(e, 32, 28, p, { kb: 5, heavy: true });
+          if (e.state !== EState.Dead) {
+            this.confuse(e, 5);
+            addStatus(e.st, ES.Marked, 8, 0);
+          }
+        }
+        for (const a of this.alliesNear(p.x, p.z, 9)) {
+          addStatus(a.st, PS.Haste, T(a.id === p.id ? 5 : 4), a.id === p.id ? 0.2 : 0.1);
+        }
+        cast(8);
         break;
       }
     }
@@ -2470,8 +2518,8 @@ export class World {
         const def = getItem(result.item.itemId);
         const healOp = def?.effects?.find((o) => o.op === 'heal_dice');
         if (healOp?.param) {
-          const p = this.players.get(best.id);
-          if (p) this.heal(p, rollDice(healOp.param, () => this.rng.next()), true, best.id);
+        const p = this.players.get(best.id);
+        if (p) this.applyPotionHeal(p, rollDice(healOp.param, () => this.rng.next()), result.item.itemId);
         }
       }
       if (result.fillUlt) {
@@ -2591,7 +2639,7 @@ export class World {
     if (!def?.effects) return false;
     const live = this.liveOf(id);
     q.enqueueOpcodes(def.id, def.effects, {
-      heal: (amt) => this.heal(p, amt, true, id),
+      heal: (amt) => this.applyPotionHeal(p, amt, used.itemId),
       damageAoe: (dice, _type, radius) => {
         const dmg = rollDice(dice, () => this.rng.next());
         for (const e of this.enemiesNear(p.x, p.z, radius)) {

@@ -132,6 +132,8 @@ export class CharacterSheet {
         'div',
         { class: 'sheet-list', text: profile.skills.map((s) => (profile.mastery.includes(s) ? `★ ${s}` : s)).join(', ') },
       ),
+      h('div', { class: 'sheet-section', text: 'Note' }),
+      h('div', { class: 'sheet-list', text: profile.notes }),
     );
 
     const masteryLabel =

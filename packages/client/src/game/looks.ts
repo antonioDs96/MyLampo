@@ -25,7 +25,7 @@ export interface Look {
   attach?: Attachment[];
   emissive?: RGB;
   alpha?: number;
-  extras?: ('horns' | 'ears' | 'orb' | 'drum' | 'halo' | 'runes' | 'claws' | 'longHair' | 'wildHair')[];
+  extras?: ('horns' | 'ears' | 'orb' | 'drum' | 'halo' | 'runes' | 'claws' | 'longHair' | 'wildHair' | 'crimsonBob')[];
   idle: string;
   run: string;
   /** Colour of the eye glow (skeleton models). */
@@ -122,6 +122,17 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
     show: ['Mage_Cape', '1H_Wand'],
     extras: ['orb'],
     idle: 'Idle',
+    run: 'Running_B',
+  },
+  // Hypnotic dancer: wine-red clothes, short raven-red bob, no weapon in hand.
+  dalith: {
+    model: 'Rogue',
+    scale: 0.98,
+    tint: [1, 1, 1],
+    recolor: { from: [[125, 200]], hue: 348, sat: 0.62, val: 0.52 },
+    show: [],
+    extras: ['crimsonBob'],
+    idle: 'Unarmed_Idle',
     run: 'Running_B',
   },
 };

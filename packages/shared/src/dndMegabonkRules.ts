@@ -228,6 +228,18 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     mastery: ['Arcano'],
     notes: 'Tabella d100/d10 Surge Magia Selvaggia.',
   },
+  dalith: {
+    id: 'dalith',
+    species: 'Umana',
+    clazz: 'Bardo / Monaco della Danza',
+    hitDie: 8,
+    primaries: ['DES', 'CAR'],
+    scores: { FOR: 10, DES: 16, COS: 12, INT: 13, SAG: 14, CAR: 15 },
+    saveProf: ['DES', 'CAR'],
+    skills: ['Acrobazia', 'Intrattenere', 'Intuizione', 'Inganno', 'Furtività', 'Percezione'],
+    mastery: ['Intuizione', 'Intrattenere'],
+    notes: 'Danza della Memoria. Intolleranza al lattosio: le pozioni di guarigione curano a metà. Legame con Anthon.',
+  },
 };
 
 export type MegabonkTomeId =

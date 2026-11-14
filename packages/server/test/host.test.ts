@@ -16,14 +16,14 @@ import { Party } from './party';
 const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
 
 describe('lobby', () => {
-  it('the first player hosts, heroes are exclusive and the room holds eight', () => {
+  it('the first player hosts, heroes are exclusive and the room holds the whole company', () => {
     const party = new Party();
     for (const hero of HERO_IDS) party.add(hero);
     expect(party.ids).toHaveLength(MAX_PLAYERS);
     expect(party.lobby.host).toBe('bot1');
     expect(party.lobby.players.map((p) => p.hero)).toEqual(HERO_IDS);
 
-    expect(party.host.join('late', 'Nono')).toBe(false);
+    expect(party.host.join('late', 'In più')).toBe(false);
 
     party.host.onMessage('bot2', { t: 'hero', hero: HERO_IDS[0]! });
     expect(party.errors.at(-1)).toMatch(/già stato scelto/);
@@ -135,7 +135,7 @@ describe('missions played by bots', () => {
     expect(me.hp).toBeGreaterThan(0);
   });
 
-  it('every mission ends for a full party of eight, and allies get revived along the way', () => {
+  it('every mission ends for a full company, and allies get revived along the way', () => {
     let revives = 0;
     for (const mission of MISSIONS) {
       // Slightly imperfect bots so someone goes down and gets picked back up.

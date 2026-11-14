@@ -116,7 +116,7 @@ export function generateContractBoard(hubId: HubId, seed: number | string, count
     let rewardHint = 'Bottino di missione + PE';
     if (kind === 'BOSS_HUNT') {
       brief = `Inseguite ${boss} attraverso tre zone. Sotto il 50% HP sfonderà la tana e andrà in Furia.`;
-      rewardHint = 'Forziere Reliquia del Boss (arma rara 1/8)';
+      rewardHint = 'Forziere Reliquia del Boss (arma rara, un archetipo a testa)';
     } else if (kind === 'CAPTURE_QUEST') {
       brief = `Tramortite ${boss} senza ucciderlo: sotto il 15% HP e Spezzato, premi [F] per catturare (regola Tramortire).`;
       rewardHint = 'Bonus cattura + Forziere Reliquia';

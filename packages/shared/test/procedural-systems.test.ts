@@ -97,10 +97,11 @@ describe('bestiary & boss loot', () => {
     expect(imm).toBe(0);
   });
 
-  it('rolls boss weapons with equal 12.5% across 8 archetypes', () => {
-    expect(WEAPON_ARCHETYPES).toHaveLength(8);
+  it('rolls boss weapons with an equal share across every hero archetype', () => {
+    const archetypes = WEAPON_ARCHETYPES.length;
+    expect(archetypes).toBe(9);
     const defs = buildBossWeaponDefs();
-    expect(Object.keys(defs)).toHaveLength(24);
+    expect(Object.keys(defs)).toHaveLength(archetypes * 3);
     const counts = new Map<string, number>();
     const rng = {
       n: 0,
@@ -111,14 +112,14 @@ describe('bestiary & boss loot', () => {
         return this.n++ % n;
       },
     };
-    for (let i = 0; i < 800; i++) {
+    const rolls = archetypes * 100;
+    for (let i = 0; i < rolls; i++) {
       const rolled = rollBossWeapon('urban', rng);
       counts.set(rolled.hero, (counts.get(rolled.hero) ?? 0) + 1);
       expect(rolled.bonus).toBe(BIOME_BONUS.urban);
     }
     for (const arch of WEAPON_ARCHETYPES) {
       const c = counts.get(arch.hero) ?? 0;
-      // 800/8 = 100 each with our sequential int — allow exact
       expect(c).toBe(100);
     }
   });

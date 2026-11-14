@@ -330,6 +330,33 @@ export class CharacterView {
         face.position.y = 0.18;
         break;
       }
+      case 'crimsonBob': {
+        // Short raven-red bob with bangs, parented to the bare Rogue head.
+        const mat = this.extraMaterial([0.55, 0.07, 0.16], [0.12, 0.02, 0.04]);
+        const scalp = add(MeshBuilder.CreateSphere('scalp', { diameter: 0.74, segments: 10 }, this.scene), head, mat);
+        scalp.position.set(0, 0.8, 0.02);
+        scalp.scaling.set(1.08, 0.62, 1.12);
+        const bangs = add(MeshBuilder.CreateBox('bangs', { width: 0.58, height: 0.14, depth: 0.22 }, this.scene), head, mat);
+        bangs.position.set(0, 0.7, 0.3);
+        bangs.rotation.x = 0.4;
+        const locks: [number, number, number, number, number, number][] = [
+          [0, 0.58, -0.24, 0.48, 0.26, 0],
+          [-0.3, 0.56, -0.06, 0.46, 0.18, 0.45],
+          [0.3, 0.56, -0.06, 0.46, 0.18, -0.45],
+          [-0.22, 0.52, 0.16, 0.34, 0.14, 0.15],
+          [0.22, 0.52, 0.16, 0.34, 0.14, -0.15],
+        ];
+        for (const [x, y, z, h, d, twist] of locks) {
+          const lock = add(
+            MeshBuilder.CreateCylinder('lock', { height: h, diameterTop: d * 0.55, diameterBottom: d, tessellation: 6 }, this.scene),
+            head,
+            mat,
+          );
+          lock.position.set(x, y - h * 0.35, z);
+          lock.rotation.set(0.4, twist * 0.3, twist);
+        }
+        break;
+      }
     }
   }
 

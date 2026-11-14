@@ -209,7 +209,7 @@ export class Menus {
           this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
           this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
         ),
-        h('p', { class: 'foot', text: 'Fino a 8 giocatori · mouse e tastiera o gamepad · modelli KayKit (CC0)' }),
+        h('p', { class: 'foot', text: 'Fino a 9 giocatori · mouse e tastiera o gamepad · modelli KayKit (CC0)' }),
       ),
     );
     if (!this.name) name.focus();
@@ -253,6 +253,7 @@ export class Menus {
           h('div', { class: 'hero-level', text: `Liv. ${prog.level}` }),
         ),
         h('p', { class: 'hero-style', text: hero.style }),
+        h('p', { class: 'hero-lore', text: hero.desc }),
         h('div', {
           class: 'hero-xp',
           text: prog.level >= 20 ? 'Livello massimo' : `PE ${prog.into} / ${prog.need}`,

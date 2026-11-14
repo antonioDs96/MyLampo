@@ -6,7 +6,8 @@ export type HeroId =
   | 'rycard'
   | 'fabyorn'
   | 'gabryel'
-  | 'anthon';
+  | 'anthon'
+  | 'dalith';
 
 export type EnemyTypeId =
   | 'manichino'
@@ -85,6 +86,8 @@ export const PS = {
   Slow: 9,
   Counter: 10,
   Bubble: 11,
+  /** Dalìth's lactose cramp. Threat-slows use PS.Slow and do not touch her. */
+  Cramp: 12,
 } as const;
 
 /** Enemy statuses. */

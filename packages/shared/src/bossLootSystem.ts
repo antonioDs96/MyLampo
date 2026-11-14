@@ -1,5 +1,5 @@
 /**
- * Boss relic chest: equal 12.5% (1/8) roll across the 8 hero weapon archetypes,
+ * Boss relic chest: equal roll across every hero weapon archetype,
  * with biome-specific fixed bonuses (Crit / Laceration / Heal-on-hit).
  */
 import type { HeroId } from './types';
@@ -32,7 +32,7 @@ export interface WeaponArchetype {
   properties: string[];
 }
 
-/** 8 archetypes — one per Compagnia hero. */
+/** One archetype per Compagnia hero. */
 export const WEAPON_ARCHETYPES: WeaponArchetype[] = [
   {
     hero: 'albereth',
@@ -106,6 +106,15 @@ export const WEAPON_ARCHETYPES: WeaponArchetype[] = [
     mastery: 'fiaccare',
     properties: [],
   },
+  {
+    hero: 'dalith',
+    baseId: 'memory_veil',
+    nameStem: 'Velo della Memoria',
+    damageDice: '1d6',
+    damageType: 'tagliente',
+    mastery: 'graffio',
+    properties: ['Accurata', 'Leggera'],
+  },
 ];
 
 const BIOME_PREFIX: Record<BiomeId, string> = {
@@ -118,7 +127,7 @@ export function bossWeaponItemId(biome: BiomeId, hero: HeroId): string {
   return `boss_${biome}_${hero}`;
 }
 
-/** Register-time defs for the 24 rare boss weapons (call once from itemsCatalog bootstrap). */
+/** Register-time defs for the rare boss weapons (3 biomes × one archetype per hero). */
 export function buildBossWeaponDefs(): Record<string, ItemDef> {
   const out: Record<string, ItemDef> = {};
   for (const biome of Object.keys(BIOME_BONUS) as BiomeId[]) {
@@ -176,7 +185,7 @@ export function compatibleHeroOf(itemId: string): HeroId | undefined {
 }
 
 /**
- * Equal probability 1/8 among archetypes (12.5% each).
+ * Equal probability among archetypes.
  * Biome fixes the special stat; roll only picks the hero archetype.
  */
 export function rollBossWeapon(biome: BiomeId, rng: Rng | { next(): number; int(n: number): number }): {
@@ -185,7 +194,7 @@ export function rollBossWeapon(biome: BiomeId, rng: Rng | { next(): number; int(
   bonus: BossBiomeBonus;
   def: ItemDef;
 } {
-  const roll = rng.int(8);
+  const roll = rng.int(WEAPON_ARCHETYPES.length);
   const arch = WEAPON_ARCHETYPES[roll]!;
   const itemId = bossWeaponItemId(biome, arch.hero);
   const def = getItem(itemId) ?? buildBossWeaponDefs()[itemId]!;

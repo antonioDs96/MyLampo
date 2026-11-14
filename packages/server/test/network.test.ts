@@ -157,11 +157,11 @@ describe('rooms', () => {
     await expect(client.joinById(code, { name: 'Tardi' })).rejects.toThrow();
   });
 
-  it('holds eight players and turns the ninth away', async () => {
+  it('fills the room and turns the next player away', async () => {
     const bots = [await NetBot.create(client, 'P1')];
     for (let i = 2; i <= MAX_PLAYERS; i++) bots.push(await NetBot.join(client, bots[0]!.code, `P${i}`));
     await until('full lobby', () => bots[0]!.lobby?.players.length === MAX_PLAYERS);
-    await expect(client.joinById(bots[0]!.code, { name: 'P9' })).rejects.toThrow();
+    await expect(client.joinById(bots[0]!.code, { name: 'In più' })).rejects.toThrow();
     expect(bots[0]!.lobby!.players).toHaveLength(MAX_PLAYERS);
     await Promise.all(bots.map((b) => b.leave()));
   });

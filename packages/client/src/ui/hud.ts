@@ -45,6 +45,7 @@ const STATUS_LABEL: Record<number, [string, string]> = {
   [PS.Berserk]: ['Furia', 'power'],
   [PS.Silence]: ['Silenzio', 'bad'],
   [PS.Slow]: ['Rallentato', 'bad'],
+  [PS.Cramp]: ['Crampi', 'bad'],
   [PS.Counter]: ['Contrattacco', 'power'],
   [PS.Bubble]: ['Bolla sonora', 'good'],
 };

@@ -9,7 +9,7 @@ export const WORLD_DT = 1 / WORLD_HZ;
 /** Clients render remote entities this far in the past to interpolate between snapshots. */
 export const INTERP_DELAY_MS = 100;
 
-export const MAX_PLAYERS = 8;
+export const MAX_PLAYERS = 9;
 
 export const sec = (s: number): number => s * TICK_HZ;
 

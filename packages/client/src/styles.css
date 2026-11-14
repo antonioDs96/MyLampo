@@ -1015,6 +1015,8 @@ input.code {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   padding: 6px 26px;
+  flex: 1;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -1079,6 +1081,13 @@ input.code {
   font-size: 13px;
   font-style: italic;
   color: #d8cfe2;
+}
+
+.hero-lore {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 .hero-card ul {

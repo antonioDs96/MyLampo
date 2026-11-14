@@ -7,6 +7,7 @@ import {
   EState,
   hasStatus,
   HEROES,
+  makeInstance,
   parseLayout,
   PS,
   quantizeCmd,
@@ -797,6 +798,72 @@ describe('impact physics', () => {
     for (let i = 0; i < 8; i++) world.step(0.05);
     expect(Math.hypot(b.kx, b.kz)).toBeGreaterThan(1);
     expect(events(world, 'fx').some((ev) => ev.e === 'fx' && ev.what === 'clash')).toBe(true);
+  });
+});
+
+describe('Dalìth', () => {
+  function hitCultist(nearAnthon: boolean, far = false): number {
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'dalith', 0);
+    if (nearAnthon) {
+      const anthon = world.addPlayer('b', 'anthon', 1);
+      anthon.x = p.x + (far ? 14 : 3);
+      anthon.z = p.z;
+    }
+    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2);
+    p.yaw = 0;
+    tap(world, 'a', Btn.Light, { lock: e.id });
+    run(world, 'a', T(HEROES.dalith.light[0]!.hits[0]!) + 1, { lock: e.id });
+    return e.maxHp - e.hp;
+  }
+
+  it('reads nearby bodies with the Danza della Memoria', () => {
+    const { world, p } = setup('dalith');
+    const e = passiveEnemy(world, 'cultista', p.x + 2, p.z);
+    tap(world, 'a', Btn.Ability);
+    run(world, 'a', T(HEROES.dalith.ability.dur) + 2);
+    expect(hasStatus(e.st, ES.Confused)).toBe(true);
+    expect(hasStatus(e.st, ES.Marked)).toBe(true);
+    expect(hasStatus(p.st, PS.Haste)).toBe(true);
+  });
+
+  it('refuses to be slowed', () => {
+    const slowed = setup('jusef');
+    const dog = passiveEnemy(slowed.world, 'mastino_guerra', slowed.p.x, slowed.p.z + 2.2);
+    const wind = windup(slowed.world, dog, slowed.p, 'morso');
+    run(slowed.world, 'a', T(wind + 0.6));
+    expect(hasStatus(slowed.p.st, PS.Slow)).toBe(true);
+
+    const { world, p } = setup('dalith');
+    const bite = passiveEnemy(world, 'mastino_guerra', p.x, p.z + 2.2);
+    const wind2 = windup(world, bite, p, 'morso');
+    run(world, 'a', T(wind2 + 0.6));
+    expect(p.hp).toBeLessThan(HEROES.dalith.hp);
+    expect(hasStatus(p.st, PS.Slow)).toBe(false);
+  });
+
+  it('keeps half of a healing potion and cramps', () => {
+    function drink(hero: 'dalith' | 'jusef') {
+      const { world, p } = setup(hero);
+      world.getInventory('a')!.belt[0] = makeInstance('potion_healing', 1);
+      p.hp = 10;
+      expect(world.useBelt('a', 0)).toBe(true);
+      return { world, p, gained: p.hp - 10 };
+    }
+    const dalith = drink('dalith');
+    const jusef = drink('jusef');
+    expect(dalith.gained).toBe(Math.max(1, Math.round(jusef.gained * 0.5)));
+    expect(hasStatus(dalith.p.st, PS.Cramp)).toBe(true);
+    expect(hasStatus(jusef.p.st, PS.Cramp)).toBe(false);
+    expect(dalith.world.events.some((e) => e.e === 'say' && e.who === 'Dalìth')).toBe(true);
+  });
+
+  it('hits harder while Anthon is close, and not when he is far', () => {
+    const alone = hitCultist(false);
+    const near = hitCultist(true);
+    const far = hitCultist(true, true);
+    expect(near).toBeGreaterThan(alone);
+    expect(far).toBe(alone);
   });
 });
 

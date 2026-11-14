@@ -651,6 +651,7 @@ export const STARTER_LOADOUT: Record<string, { mainHand: string; armor?: string;
   fabyorn: { mainHand: 'greatsword', armor: 'hide' },
   gabryel: { mainHand: 'quarterstaff', armor: 'padded' },
   anthon: { mainHand: 'dagger', armor: 'padded' },
+  dalith: { mainHand: 'dagger', armor: 'leather' },
 };
 
 /** Compare two items for inventory tooltip (green + / red −). */

@@ -462,6 +462,15 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
         speedMul *= 1.25;
         break;
       case PS.Slow:
+        // Ostinata: threats and the Eclipse's drag do not change Dalìth's pace.
+        // Lactose cramps are PS.Cramp and still bend her.
+        if (hero.id === 'dalith') {
+          p.st.splice(i, 1);
+          break;
+        }
+        speedMul *= 1 - s.p;
+        break;
+      case PS.Cramp:
         speedMul *= 1 - s.p;
         break;
       case PS.Silence:

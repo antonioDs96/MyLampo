@@ -1110,6 +1110,17 @@ export class Game {
       case 'collasso':
         vfx.implode(ev.x, ev.z, ev.r, VIOLET, 0.5);
         break;
+      case 'danza':
+        vfx.shockwave(ev.x, ev.z, ev.r, c, 0.7);
+        vfx.burst(ev.x, 1.2, ev.z, 36, [0.85, 0.15, 0.32], { speed: 6, life: 0.9, flat: 0.85, drag: 1.2 });
+        vfx.burst(ev.x, 0.4, ev.z, 22, [1, 0.72, 0.4], { speed: 2, life: 1.1, up: 3.2, flat: 0.9, radius: ev.r * 0.4 });
+        break;
+      case 'spirale':
+        vfx.shockwave(ev.x, ev.z, ev.r, c, 0.55, 1.2);
+        vfx.shockwave(ev.x, ev.z, ev.r * 0.55, [1, 0.78, 0.42], 0.45);
+        vfx.burst(ev.x, 1.1, ev.z, 52, [0.8, 0.12, 0.26], { speed: 11, life: 0.7, stretch: 0.06, flat: 0.55 });
+        this.shakeNear(ev.x, ev.z, 0.45);
+        break;
     }
   }
 
