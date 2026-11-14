@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   Act,
+  EState,
   GameHost,
   HEROES,
   HERO_IDS,
@@ -328,5 +329,59 @@ describe('loot stays in the inventory', () => {
     expect(after.mainHand?.itemId).toBe('greatsword');
     expect(after.gold).toBe(90);
     expect(after.bag.map((i) => i.uid).sort()).toEqual(['loot-sword', 'session-mace']);
+  });
+
+  it('drops a boss relic into the hero who is already on the field', () => {
+    const party = new Party(5);
+    const id = party.add('fabyorn');
+    party.host.world.relicGrants.push({
+      hero: 'fabyorn',
+      itemId: 'boss_urban_fabyorn',
+      banner: 'Reliquia del Boss · Mannaia → fabyorn',
+    });
+    party.run(0.1);
+    const inv = party.host.world.getInventory(id)!;
+    expect(inv.bag.map((i) => i.itemId)).toContain('boss_urban_fabyorn');
+    expect(inv.relic).toBeNull();
+  });
+
+  it('holds a boss relic until the named hero is chosen', () => {
+    const party = new Party(5);
+    const id = party.add('fabyorn');
+    party.host.world.relicGrants.push({
+      hero: 'jusef',
+      itemId: 'boss_coastal_jusef',
+      banner: 'Reliquia del Boss · Stocco → jusef',
+    });
+    party.run(0.1);
+    expect(party.host.world.getInventory(id)!.bag.some((i) => i.itemId.startsWith('boss_'))).toBe(false);
+    party.host.onMessage(id, { t: 'hero', hero: 'jusef' });
+    const inv = party.host.world.getInventory(id)!;
+    expect(inv.hero).toBe('jusef');
+    expect(inv.bag.map((i) => i.itemId)).toContain('boss_coastal_jusef');
+  });
+
+  it('does not leave a boss relic on the ground for the next room to delete', () => {
+    const party = new Party(9);
+    const id = party.add('fabyorn');
+    party.host.onMessage(id, { t: 'start' });
+    const world = party.host.world;
+    const p = world.players.get(id)!;
+    world.spawnEnemy('klaus', p.x + 2, p.z);
+    const boss = world.enemies.find((e) => e.type === 'klaus')!;
+    let guard = 0;
+    while (boss.state !== EState.Dead && guard++ < 40) world.damageEnemy(boss, 900, 0, p, { raw: true });
+    expect(boss.state).toBe(EState.Dead);
+    expect(world.loot.some((d) => d.itemId?.startsWith('boss_'))).toBe(false);
+    const grant = world.relicGrants[0]!;
+    expect(grant.itemId.startsWith('boss_')).toBe(true);
+    party.run(0.2);
+    if (grant.hero === 'fabyorn') {
+      expect(party.host.world.getInventory(id)!.bag.map((i) => i.itemId)).toContain(grant.itemId);
+    } else {
+      party.host.onMessage(id, { t: 'hub' });
+      party.host.onMessage(id, { t: 'hero', hero: grant.hero });
+      expect(party.host.world.getInventory(id)!.bag.map((i) => i.itemId)).toContain(grant.itemId);
+    }
   });
 });

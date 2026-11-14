@@ -24,7 +24,9 @@ import {
   type Snapshot,
   type WorldInfo,
 } from './protocol';
-import { inventoryHasProgress, restoreSavedGear, type HeroInventory } from './lootSystem';
+import { makeInstance, type ItemInstance } from './itemsCatalog';
+import { emptyInventory, inventoryHasProgress, restoreSavedGear, type HeroInventory } from './lootSystem';
+import { spawnBossRelicChest } from './bossLootSystem';
 import { awardXp, levelFromXp } from './progress';
 import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
 import { World, type PlayerStats } from './world';
@@ -125,6 +127,8 @@ export class GameHost {
    * room vanished from the sheet.
    */
   private readonly stash = new Map<string, Map<HeroId, HeroInventory>>();
+  /** Relics rolled for a hero nobody is playing yet (co-op, hero still at the bar). */
+  private readonly pendingRelics = new Map<HeroId, ItemInstance[]>();
   /** Server-owned sheets. Absent in tests that only care about one room. */
   private readonly archive?: GearArchive;
 
@@ -236,7 +240,10 @@ export class GameHost {
       case 'capture':
         if (this.phase === 'mission' && this.proc) {
           if (tryCapture(this.proc)) {
+            const relic = spawnBossRelicChest(this.proc.contract.biome, 0, 0, this.world.rng);
+            this.world.relicGrants.push({ hero: relic.hero, itemId: relic.itemId, banner: relic.banner });
             this.world.events.push({ e: 'say', who: 'Carlos', text: 'Cattura riuscita — tramortito, non ucciso. Il Consiglio vi deve un favore.' });
+            this.world.events.push({ e: 'say', who: 'Carlos', text: relic.banner });
             unlockNextGate(this.proc);
             this.transition = { at: this.clock + 3500, to: 'victory' };
             this.sendLobby();
@@ -379,6 +386,82 @@ export class GameHost {
     for (const [id, inv] of world.inventories) this.putStash(id, inv.hero, inv);
   }
 
+  /** Drop rolled relics into the named hero's bag, or hold them until that hero is fielded. */
+  private collectRelicGrants(): void {
+    const grants = this.world.relicGrants.splice(0);
+    for (const g of grants) {
+      const id = this.giveRelic(g.hero, g.itemId);
+      if (!id) continue;
+      this.world.events.push({
+        e: 'pickup',
+        id,
+        dropId: g.itemId,
+        kind: 'equipment',
+        amount: 1,
+        itemId: g.itemId,
+        toast: g.banner,
+      });
+    }
+  }
+
+  private giveRelic(hero: HeroId, itemId: string): string | null {
+    const inst = makeInstance(itemId, 1);
+    const put = (inv: HeroInventory): boolean => {
+      if (inv.bag.length >= 40) return false;
+      inv.bag.push(inst);
+      return true;
+    };
+    for (const c of this.clients.values()) {
+      if (c.hero !== hero) continue;
+      const inv = this.world.getInventory(c.id);
+      if (inv && put(inv)) {
+        this.putStash(c.id, hero, inv);
+        return c.id;
+      }
+    }
+    for (const c of this.clients.values()) {
+      const inv = this.stash.get(c.id)?.get(hero);
+      if (inv && put(inv)) return null;
+    }
+    if (this.clients.size === 1) {
+      const only = [...this.clients.values()][0]!;
+      if (put(this.sheetFor(only, hero))) return null;
+    }
+    const q = this.pendingRelics.get(hero) ?? [];
+    q.push(inst);
+    this.pendingRelics.set(hero, q);
+    return null;
+  }
+
+  private sheetFor(c: Client, hero: HeroId): HeroInventory {
+    let book = this.stash.get(c.id);
+    if (!book) this.stash.set(c.id, (book = new Map()));
+    let inv = book.get(hero);
+    if (!inv) {
+      inv = emptyInventory(hero, { starter: true });
+      book.set(hero, inv);
+    }
+    return inv;
+  }
+
+  private flushPendingRelics(world: World, id: string, hero: HeroId): void {
+    const q = this.pendingRelics.get(hero);
+    if (!q?.length) return;
+    const inv = world.getInventory(id);
+    if (!inv) return;
+    const left: ItemInstance[] = [];
+    for (const inst of q) {
+      if (inv.bag.some((i) => i.uid === inst.uid)) continue;
+      if (inv.bag.length >= 40) {
+        left.push(inst);
+        continue;
+      }
+      inv.bag.push(inst);
+    }
+    if (left.length) this.pendingRelics.set(hero, left);
+    else this.pendingRelics.delete(hero);
+  }
+
   /**
    * Put the hero's sheet into a world. A brand-new hero gets the starter kit;
    * anyone who already looted keeps that same sheet across rooms and the tavern.
@@ -389,6 +472,7 @@ export class GameHost {
       starterGear: !kept,
       inventory: kept,
     });
+    this.flushPendingRelics(world, c.id, hero);
     world.syncPe(c.id, c.xp[hero] ?? 0);
     const inv = world.getInventory(c.id);
     if (inv) this.putStash(c.id, hero, inv);
@@ -789,6 +873,7 @@ export class GameHost {
     }
 
     world.step(WORLD_DT);
+    this.collectRelicGrants();
     // Keep XP books aligned with gem PE and push inventory when progression events fire.
     const pending = world.events;
     let needInv = false;
@@ -928,7 +1013,7 @@ export class GameHost {
         unlockNextGate(rt);
         const kind = rt.contract.kind as MissionKind;
         if (kind === 'RAID_DEFENSE') {
-          world.events.push({ e: 'say', who: 'Carlos', text: 'La Reliquia regge. Forziere del Consiglio in arrivo.' });
+          world.events.push({ e: 'say', who: 'Carlos', text: 'La Reliquia regge. Il forziere è nello zaino dell’eroe indicato.' });
           rt.objectives.complete = true;
           this.transition = { at: this.clock + 4000, to: 'victory' };
         } else if (kind === 'GATHERING_RUN' && rt.objectives.extractUnlocked) {
