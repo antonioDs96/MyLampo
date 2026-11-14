@@ -42,17 +42,17 @@ export const TUNING = {
   chargedDamage: 1.9,
   chargeMoveMul: 0.4,
 
-  reviveTime: 2.6,
-  reviveRange: 2.4,
-  reviveHp: 0.35,
-  reviveInvuln: 1.6,
+  reviveTime: 2.4,
+  reviveRange: 2.6,
+  reviveHp: 0.45,
+  reviveInvuln: 2,
 
-  executeRange: 5.2,
+  executeRange: 5.5,
   executeDur: 0.95,
   executeAt: 0.42,
-  executeEliteFrac: 0.25,
-  executeBossFrac: 0.08,
-  executeHeal: 0.08,
+  executeEliteFrac: 0.3,
+  executeBossFrac: 0.1,
+  executeHeal: 0.1,
 
   /** Lag forgiveness: hits wait this long (ms) for a late dodge/parry before applying. */
   graceMinMs: 100,
@@ -81,14 +81,14 @@ export const TUNING = {
   poiseDecay: 11,
 
   /** Flinches in a row before an enemy stops being interrupted, and for how long. */
-  flinchLimit: 2,
-  resolveTime: 2.6,
+  flinchLimit: 3,
+  resolveTime: 2.2,
 
   maxMeleeAttackers: 3,
   maxRangedAttackers: 2,
 
-  /** Global enemy damage pressure (co-op feel: meaner telegraphs). */
-  threatMul: 1.2,
+  /** Global enemy damage pressure. Intelligence, not raw numbers, should carry the fight. */
+  threatMul: 1.08,
 
   /**
    * Extra difficulty per hero beyond the first.
@@ -96,15 +96,15 @@ export const TUNING = {
    */
   party: {
     /** Grunt max-HP bonus per extra hero. */
-    hpGrunt: 0.24,
+    hpGrunt: 0.2,
     /** Elite max-HP bonus per extra hero. */
-    hpElite: 0.7,
+    hpElite: 0.65,
     /** Boss (bar) max-HP bonus per extra hero. */
-    hpBoss: 1.05,
+    hpBoss: 1.0,
     /** Elite/boss stagger-bar bonus per extra hero. */
-    poiseElite: 0.55,
+    poiseElite: 0.5,
     /** Extra enemy damage fraction per extra hero (on top of threatMul). */
-    threatPer: 0.07,
+    threatPer: 0.06,
     /** +1 simultaneous attacker on a hero every N extra heroes. */
     attackerEvery: 3,
   },
