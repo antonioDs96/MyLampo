@@ -809,18 +809,9 @@ kbd {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.sigil-salento {
-  opacity: 0.42;
-}
-
-.sigil-goddess {
-  opacity: 1;
-}
-
-.sigil-ring {
-  opacity: 1;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 
 @keyframes eclipse-ring {

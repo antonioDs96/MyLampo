@@ -130,53 +130,12 @@ export class Menus {
 
   /** Brutal eclipse mark: Salento landscape behind, veiled goddess sigil in front. */
   private eclipseMark(): HTMLElement {
-    const sea = svg(
-      'g',
-      { class: 'sigil-salento', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-      svg('line', { x1: 18, y1: 118, x2: 182, y2: 118 }),
-      svg('path', { d: 'M18 118c14 6 28 10 42 8 16-2 28-10 44-9 18 1 30 10 48 9 10-1 20-4 30-8' }),
-      svg('path', { d: 'M28 118c8 10 18 18 32 20M70 130c10 4 22 6 34 4M118 132c12-1 24-6 34-14' }),
-      // Olive tree (left)
-      svg('path', { d: 'M46 118V86' }),
-      svg('path', { d: 'M46 98c-10-8-14-18-8-28 8 4 12 12 10 22M46 94c10-10 16-20 8-30-6 6-10 14-8 24M40 84c-4-10 0-18 8-22M52 82c4-8 10-12 16-12' }),
-      svg('path', { d: 'M38 78c-2 0-4 2-4 3M58 74c2 0 3 2 3 3M44 68c-1-1 0-3 2-3M52 66c1-1 3 0 3 2' }),
-      // Cliff + trullo (right)
-      svg('path', { d: 'M128 118l8-22 10-6 12 4 10 10 14 14' }),
-      svg('path', { d: 'M148 104v14' }),
-      svg('path', { d: 'M140 104h16l-8-14z' }),
-      svg('circle', { cx: 148, cy: 88, r: 1.6, fill: 'currentColor', stroke: 'none' }),
-    );
-    const goddess = svg(
-      'g',
-      { class: 'sigil-goddess', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-      // Crescent
-      svg('path', { d: 'M100 42c8 0 14 6 14 14 0-10-6-18-16-18-8 0-14 6-14 14 4-6 10-10 16-10z', fill: 'currentColor', stroke: 'none' }),
-      // Veil / hood geometry
-      svg('path', { d: 'M68 78c8-22 22-34 32-34s24 12 32 34' }),
-      svg('path', { d: 'M72 80c6-16 16-26 28-26s22 10 28 26' }),
-      svg('path', { d: 'M64 90l12-8 12 4 12-6 12 6 12-4 12 8' }),
-      svg('path', { d: 'M70 96c6 18 14 34 30 42 16-8 24-24 30-42' }),
-      // Face
-      svg('path', { d: 'M86 92c4 18 10 28 14 28s10-10 14-28' }),
-      svg('path', { d: 'M90 108c6 4 14 4 20 0' }),
-      svg('line', { x1: 92, y1: 98, x2: 96, y2: 98 }),
-      svg('line', { x1: 104, y1: 98, x2: 108, y2: 98 }),
-      // Shoulders / robe
-      svg('path', { d: 'M74 132c8 10 16 16 26 18 10-2 18-8 26-18' }),
-      svg('path', { d: 'M78 128c-8 8-14 18-16 28M122 128c8 8 14 18 16 28' }),
-      svg('path', { d: 'M88 148c4 6 8 10 12 10s8-4 12-10' }),
-    );
-    return h(
-      'div',
-      { class: 'logo-eclipse', attrs: { 'aria-hidden': 'true' } },
-      svg(
-        'svg',
-        { class: 'logo-sigil', viewBox: '0 0 200 200', width: '100%', height: '100%' },
-        svg('circle', { class: 'sigil-ring', cx: 100, cy: 100, r: 92, fill: 'none', stroke: 'currentColor', 'stroke-width': 2 }),
-        sea,
-        goddess,
-      ),
-    );
+    const img = new Image();
+    img.className = 'logo-sigil';
+    img.alt = '';
+    img.decoding = 'async';
+    img.src = '/brand/sigil.png';
+    return h('div', { class: 'logo-eclipse', attrs: { 'aria-hidden': 'true' } }, img);
   }
 
   private brandBlock(compact = false): HTMLElement {
