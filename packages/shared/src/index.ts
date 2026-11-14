@@ -16,6 +16,7 @@ export * from './host';
 export * from './itemsCatalog';
 export * from './dndMegabonkRules';
 export * from './lootSystem';
+export * from './gearArchive';
 export * from './effectQueue';
 export * from './proceduralBiomes';
 export * from './bestiaryCatalog';

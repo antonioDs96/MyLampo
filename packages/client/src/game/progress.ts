@@ -1,6 +1,8 @@
-import { HERO_IDS, type HeroId } from '@malampu/shared';
+import { HERO_IDS, isProfileId, type HeroId } from '@malampu/shared';
 
 const KEY = 'malampu.progress.v1';
+/** Who this browser is. The hero sheets themselves live on the game server. */
+const PROFILE_KEY = 'malampu.profile';
 
 export type ProgressBook = Partial<Record<HeroId, number>>;
 
@@ -25,6 +27,19 @@ export function saveProgress(book: ProgressBook): void {
     localStorage.setItem(KEY, JSON.stringify(book));
   } catch {
     /* private mode / quota */
+  }
+}
+
+/** Stable id for this browser. The server stores the sheets under it. */
+export function profileId(): string {
+  try {
+    const existing = localStorage.getItem(PROFILE_KEY);
+    if (existing && isProfileId(existing)) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(PROFILE_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
   }
 }
 

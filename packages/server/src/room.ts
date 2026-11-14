@@ -1,5 +1,5 @@
 import { matchMaker, Room, type Client } from '@colyseus/core';
-import { GameHost, MAX_PLAYERS, type ClientMsg, type ServerMsg } from '@malampu/shared';
+import { GameHost, MAX_PLAYERS, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
 
 /** Letters and digits that are hard to confuse when read aloud or typed from a chat. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -29,7 +29,7 @@ async function freeCode(): Promise<string> {
 export class MalampuRoom extends Room {
   private host!: GameHost;
 
-  override async onCreate(): Promise<void> {
+  override async onCreate(options?: { archive?: GearArchive }): Promise<void> {
     this.maxClients = MAX_PLAYERS;
     this.autoDispose = true;
     // State is sent as explicit snapshot messages, not through schema patches.
@@ -43,6 +43,7 @@ export class MalampuRoom extends Room {
       },
       this.roomId,
       (Math.random() * 0xffffffff) >>> 0,
+      options?.archive,
     );
 
     this.onMessage(CHANNEL, (client: Client, msg: ClientMsg) => {
