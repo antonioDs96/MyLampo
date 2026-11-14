@@ -1,5 +1,5 @@
 import { Client, type Room } from '@colyseus/sdk';
-import { GameHost, type ClientMsg, type ServerMsg } from '@malampu/shared';
+import { GameHost, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
 
 export interface Connection {
   /** True when the whole game runs inside this browser tab. */
@@ -28,9 +28,14 @@ export class LocalConnection implements Connection {
   /** Mirrors host pause so we only transition on edges (avoids per-frame unpause calls). */
   private paused = false;
 
-  constructor(name: string) {
+  constructor(name: string, archive?: GearArchive) {
     const deliver = (msg: ServerMsg) => this.inbox.push(msg);
-    this.host = new GameHost({ send: (_id, msg) => deliver(msg), broadcast: deliver }, 'SOLO', (Math.random() * 0xffffffff) >>> 0);
+    this.host = new GameHost(
+      { send: (_id, msg) => deliver(msg), broadcast: deliver },
+      'SOLO',
+      (Math.random() * 0xffffffff) >>> 0,
+      archive,
+    );
     this.host.join(LOCAL_ID, name);
   }
 
@@ -57,6 +62,10 @@ export class LocalConnection implements Connection {
   close(): void {
     this.closed = true;
   }
+}
+
+export function serverEndpoint(): string {
+  return endpoint();
 }
 
 function endpoint(): string {

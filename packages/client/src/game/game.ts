@@ -59,7 +59,8 @@ import {
 import { CharacterSheet } from '../ui/characterSheet';
 import { Hud, type PartyEntry } from '../ui/hud';
 import { Menus } from '../ui/menus';
-import { LocalConnection, RemoteConnection, type Connection } from '../net/connection';
+import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
+import { HttpGearArchive } from '../net/gear';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
@@ -67,7 +68,7 @@ import { ChaseCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
 import { Input, type InputFrame } from './input';
 import { ENEMY_LOOKS, HERO_LOOKS, type RGB } from './looks';
-import { loadGear, loadProgress, mergeProgress, saveGear, type ProgressBook } from './progress';
+import { loadProgress, mergeProgress, profileId, type ProgressBook } from './progress';
 import { Vfx } from './vfx';
 
 const BLUE: RGB = [0.25, 0.65, 1];
@@ -258,7 +259,9 @@ export class Game {
     this.audio.play('ui');
     this.myName = name;
     if (solo) {
-      this.attach(new LocalConnection(name));
+      const archive = new HttpGearArchive(serverEndpoint());
+      await archive.prefetch(profileId());
+      this.attach(new LocalConnection(name, archive));
       return;
     }
     this.menus.busy(code ? 'Entro nella stanza…' : 'Apro una nuova stanza…');
@@ -281,7 +284,8 @@ export class Game {
   }
 
   private sendProgress(): void {
-    this.send({ t: 'progress', xp: this.progress as Record<string, number>, gear: loadGear() });
+    this.send({ t: 'profile', id: profileId() });
+    this.send({ t: 'progress', xp: this.progress as Record<string, number> });
   }
 
   private leave(reason: string): void {
@@ -345,7 +349,6 @@ export class Game {
     const hero = this.myHero();
     if (hero) {
       this.progress = mergeProgress(this.progress, hero, inv.pe);
-      saveGear(hero, inv);
       if (this.sheet.isOpen) this.sheet.render(hero, inv);
       if (inv.pendingCards.length) {
         this.hud.showLevelCards(

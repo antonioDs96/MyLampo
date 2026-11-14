@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { Act, HEROES, HERO_IDS, MAX_PLAYERS, MISSIONS, type GroundDrop, type HeroId } from '@malampu/shared';
+import {
+  Act,
+  GameHost,
+  HEROES,
+  HERO_IDS,
+  MAX_PLAYERS,
+  MISSIONS,
+  MemoryGearArchive,
+  type GroundDrop,
+  type HeroId,
+} from '@malampu/shared';
 import { Party } from './party';
 
 const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
@@ -259,66 +269,64 @@ describe('loot stays in the inventory', () => {
     expect(back.tomes).toContain('fortuna');
   });
 
-  it('restores a saved sheet onto the starter kit and will not drop session loot', () => {
-    const party = new Party(3);
-    const id = party.add('fabyorn');
-    party.host.onMessage(id, {
-      t: 'progress',
-      xp: { fabyorn: 0 },
-      gear: {
-        fabyorn: {
-          gold: 40,
-          bag: [{ uid: 'loot-sword', itemId: 'longsword', qty: 1 }],
-        },
-      },
-    });
-    const restored = party.host.world.getInventory(id)!;
-    expect(restored.mainHand?.itemId).toBe('greatsword');
-    expect(restored.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
-    expect(restored.gold).toBe(40);
+  it('reloads each hero from the server archive in a new session', () => {
+    const archive = new MemoryGearArchive();
+    const profile = '11111111-1111-4111-8111-111111111111';
+    const io = { send() {}, broadcast() {} };
+    const first = new GameHost(io, 'A', 1, archive);
+    first.join('p', 'Ada');
+    first.onMessage('p', { t: 'profile', id: profile });
+    first.onMessage('p', { t: 'hero', hero: 'fabyorn' });
+    const inv = first.world.getInventory('p')!;
+    inv.bag.push({ uid: 'loot-sword', itemId: 'longsword', qty: 1 });
+    inv.gold = 40;
+    inv.tomes.push('fortuna');
+    first.onMessage('p', { t: 'hero', hero: 'jusef' });
+    first.leave('p');
 
-    restored.bag.push({ uid: 'session-mace', itemId: 'mace', qty: 1 });
-    restored.gold = 90;
-    party.host.onMessage(id, {
-      t: 'progress',
-      xp: { fabyorn: 0 },
-      gear: {
-        fabyorn: {
-          gold: 10,
-          mainHand: { uid: 'old-axe', itemId: 'greataxe', qty: 1 },
-          bag: [{ uid: 'old-dagger', itemId: 'dagger', qty: 1 }],
-        },
-      },
-    });
-    const live = party.host.world.getInventory(id)!;
-    expect(live.mainHand?.itemId).toBe('greatsword');
-    expect(live.gold).toBe(90);
-    expect(live.bag.map((i) => i.uid).sort()).toEqual(['loot-sword', 'old-dagger', 'session-mace']);
+    const second = new GameHost(io, 'B', 2, archive);
+    second.join('p2', 'Ada');
+    second.onMessage('p2', { t: 'profile', id: profile });
+    second.onMessage('p2', { t: 'hero', hero: 'fabyorn' });
+    const again = second.world.getInventory('p2')!;
+    expect(again.mainHand?.itemId).toBe('greatsword');
+    expect(again.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
+    expect(again.gold).toBe(40);
+    expect(again.tomes).toContain('fortuna');
+
+    second.onMessage('p2', { t: 'hero', hero: 'jusef' });
+    const jusef = second.world.getInventory('p2')!;
+    expect(jusef.mainHand?.itemId).toBe('rapier');
+    expect(jusef.bag.some((i) => i.uid === 'loot-sword')).toBe(false);
+    expect(jusef.gold).toBe(15);
   });
 
-  it('applies a saved sheet received before the hero is chosen, and ignores an empty one', () => {
-    const party = new Party(11);
-    expect(party.host.join('late', 'Late')).toBe(true);
-    party.host.onMessage('late', {
-      t: 'progress',
-      xp: { fabyorn: 0 },
-      gear: {
-        fabyorn: { gold: 40, bag: [{ uid: 'loot-sword', itemId: 'longsword', qty: 1 }] },
-        jusef: {},
-      },
-    });
-    party.host.onMessage('late', { t: 'hero', hero: 'fabyorn' });
-    const inv = party.host.world.getInventory('late')!;
-    expect(inv.mainHand?.itemId).toBe('greatsword');
-    expect(inv.armor?.itemId).toBe('hide');
-    expect(inv.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
-    expect(inv.gold).toBe(40);
+  it('keeps session loot when the server book is read again', () => {
+    const archive = new MemoryGearArchive();
+    const profile = '22222222-2222-4222-8222-222222222222';
+    const io = { send() {}, broadcast() {} };
+    const host = new GameHost(io, 'A', 3, archive);
+    host.join('p', 'Ada');
+    host.onMessage('p', { t: 'profile', id: profile });
+    host.onMessage('p', { t: 'hero', hero: 'fabyorn' });
+    const inv = host.world.getInventory('p')!;
+    inv.bag.push({ uid: 'loot-sword', itemId: 'longsword', qty: 1 });
+    inv.gold = 40;
+    host.leave('p');
 
-    party.host.onMessage('late', { t: 'hero', hero: '' });
-    party.host.onMessage('late', { t: 'hero', hero: 'jusef' });
-    const jusef = party.host.world.getInventory('late')!;
-    expect(jusef.hero).toBe('jusef');
-    expect(jusef.mainHand?.itemId).toBe('rapier');
-    expect(jusef.gold).toBe(15);
+    const live = new GameHost(io, 'B', 4, archive);
+    live.join('p2', 'Ada');
+    live.onMessage('p2', { t: 'hero', hero: 'fabyorn' });
+    live.onMessage('p2', { t: 'profile', id: profile });
+    const restored = live.world.getInventory('p2')!;
+    expect(restored.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
+    expect(restored.gold).toBe(40);
+    restored.bag.push({ uid: 'session-mace', itemId: 'mace', qty: 1 });
+    restored.gold = 90;
+    live.onMessage('p2', { t: 'profile', id: profile });
+    const after = live.world.getInventory('p2')!;
+    expect(after.mainHand?.itemId).toBe('greatsword');
+    expect(after.gold).toBe(90);
+    expect(after.bag.map((i) => i.uid).sort()).toEqual(['loot-sword', 'session-mace']);
   });
 });

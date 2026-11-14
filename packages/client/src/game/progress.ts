@@ -1,7 +1,8 @@
-import { HERO_IDS, type HeroId, type HeroInventory } from '@malampu/shared';
+import { HERO_IDS, isProfileId, type HeroId } from '@malampu/shared';
 
 const KEY = 'malampu.progress.v1';
-const GEAR_KEY = 'malampu.gear.v1';
+/** Who this browser is. The hero sheets themselves live on the game server. */
+const PROFILE_KEY = 'malampu.profile';
 
 export type ProgressBook = Partial<Record<HeroId, number>>;
 
@@ -29,27 +30,16 @@ export function saveProgress(book: ProgressBook): void {
   }
 }
 
-/** Saved sheets, keyed by hero. Unknown shapes are ignored on the server. */
-export function loadGear(): Record<string, unknown> {
+/** Stable id for this browser. The server stores the sheets under it. */
+export function profileId(): string {
   try {
-    const raw = localStorage.getItem(GEAR_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed as Record<string, unknown>;
+    const existing = localStorage.getItem(PROFILE_KEY);
+    if (existing && isProfileId(existing)) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(PROFILE_KEY, id);
+    return id;
   } catch {
-    return {};
-  }
-}
-
-/** Remember the sheet so a reload doesn't mint a fresh starter kit over the loot. */
-export function saveGear(hero: HeroId, inv: HeroInventory): void {
-  try {
-    const all = loadGear();
-    all[hero] = inv;
-    localStorage.setItem(GEAR_KEY, JSON.stringify(all));
-  } catch {
-    /* private mode / quota */
+    return crypto.randomUUID();
   }
 }
 

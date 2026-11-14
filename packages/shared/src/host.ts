@@ -4,7 +4,9 @@
  * runs it in the browser through an in-memory loopback.
  */
 import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
-import { HEROES, isHeroId } from './heroes';
+import type { GearArchive } from './gearArchive';
+import { isProfileId } from './gearArchive';
+import { HEROES, HERO_IDS, isHeroId } from './heroes';
 import { collide, nearestFloor, parseLayout } from './layout';
 import { HUB_LINES } from './lore';
 import { MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
@@ -22,7 +24,7 @@ import {
   type Snapshot,
   type WorldInfo,
 } from './protocol';
-import { inventoryHasProgress, restoreSavedGear, sanitizeInventory, type HeroInventory } from './lootSystem';
+import { inventoryHasProgress, restoreSavedGear, type HeroInventory } from './lootSystem';
 import { awardXp, levelFromXp } from './progress';
 import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
 import { World, type PlayerStats } from './world';
@@ -71,6 +73,8 @@ interface Client {
   budget: number;
   idleTicks: number;
   rtt: number;
+  /** Stable id for the on-disk hero book. Empty until the client introduces itself. */
+  profileId: string;
 }
 
 const STEPS_PER_TICK = TICK_HZ / WORLD_HZ;
@@ -121,9 +125,12 @@ export class GameHost {
    * room vanished from the sheet.
    */
   private readonly stash = new Map<string, Map<HeroId, HeroInventory>>();
+  /** Server-owned sheets. Absent in tests that only care about one room. */
+  private readonly archive?: GearArchive;
 
-  constructor(io: HostIO, code: string, seed: number) {
+  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive) {
     this.io = io;
+    this.archive = archive;
     this.code = code;
     this.seed = seed >>> 0 || 1;
     this.refreshContracts();
@@ -165,6 +172,7 @@ export class GameHost {
       budget: STEPS_PER_TICK,
       idleTicks: 0,
       rtt: 0,
+      profileId: '',
     });
     if (!this.hostId) this.hostId = id;
     this.io.send(id, { t: 'welcome', id });
@@ -174,7 +182,10 @@ export class GameHost {
   }
 
   leave(id: string): void {
-    if (!this.clients.delete(id)) return;
+    const c = this.clients.get(id);
+    if (!c) return;
+    this.persistProfile(c);
+    this.clients.delete(id);
     this.stash.delete(id);
     this.world.removePlayer(id);
     if (this.hostId === id) this.hostId = this.clients.keys().next().value ?? '';
@@ -289,7 +300,10 @@ export class GameHost {
         break;
       }
       case 'progress':
-        this.mergeProgress(c, msg.xp, msg.gear);
+        this.mergeProgress(c, msg.xp);
+        break;
+      case 'profile':
+        this.bindProfile(c, msg.id);
         break;
       case 'useBelt':
         if (this.world.useBelt(id, Number(msg.slot) | 0)) this.sendInv(id);
@@ -312,9 +326,11 @@ export class GameHost {
     const inv = this.world.getInventory(id);
     if (!inv) return;
     this.io.send(id, { t: 'inv', id, inv });
+    const c = this.clients.get(id);
+    if (c?.profileId) this.archive?.save(c.profileId, inv.hero, inv);
   }
 
-  private mergeProgress(c: Client, raw: unknown, gearRaw?: unknown): void {
+  private mergeProgress(c: Client, raw: unknown): void {
     if (raw && typeof raw === 'object') {
       const next = { ...c.xp };
       for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
@@ -326,16 +342,29 @@ export class GameHost {
       }
       c.xp = next;
     }
-    if (gearRaw && typeof gearRaw === 'object' && !Array.isArray(gearRaw)) {
-      for (const [k, v] of Object.entries(gearRaw as Record<string, unknown>)) {
-        if (!isHeroId(k)) continue;
-        const saved = sanitizeInventory(k, v);
-        if (saved) this.adoptGear(c.id, k, saved);
-      }
-    }
     if (c.hero) this.world.syncPe(c.id, c.xp[c.hero] ?? 0);
     this.sendLobby();
     this.sendInv(c.id);
+  }
+
+  /** Pull this player's hero book off the server archive into the session stash. */
+  private bindProfile(c: Client, raw: unknown): void {
+    const id = String(raw ?? '');
+    if (!isProfileId(id) || !this.archive) return;
+    c.profileId = id;
+    const sheets = this.archive.load(id);
+    for (const hero of HERO_IDS) {
+      const saved = sheets[hero];
+      if (saved) this.adoptGear(c.id, hero, saved);
+    }
+    if (c.hero) this.sendInv(c.id);
+  }
+
+  private persistProfile(c: Client): void {
+    if (!c.profileId || !this.archive) return;
+    const book = this.stash.get(c.id);
+    if (!book) return;
+    for (const [hero, inv] of book) this.archive.save(c.profileId, hero, inv);
   }
 
   private putStash(id: string, hero: HeroId, inv: HeroInventory): void {
@@ -385,6 +414,7 @@ export class GameHost {
 
   private spawnHero(c: Client, hero: HeroId): void {
     this.captureWorldInventories(this.world);
+    this.persistProfile(c);
     this.world.removePlayer(c.id);
     this.placeHero(this.world, c, hero);
     this.sendInv(c.id);
