@@ -68,6 +68,7 @@ import { Audio } from './audio';
 import { ChaseCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
 import { Input, type InputFrame } from './input';
+import { TouchControls } from './touch';
 import { ENEMY_LOOKS, HERO_LOOKS, type RGB } from './looks';
 import { loadProgress, mergeProgress, profileId, type ProgressBook } from './progress';
 import { Vfx } from './vfx';
@@ -142,6 +143,8 @@ const FAIL_TEXT: Record<string, string> = {
 export class Game {
   readonly input: Input;
   readonly hud: Hud;
+  private readonly touch: TouchControls;
+  private touchHinted = false;
   readonly menus: Menus;
   readonly audio = new Audio();
   private readonly cam: ChaseCamera;
@@ -196,7 +199,8 @@ export class Game {
     private readonly canvas: HTMLCanvasElement,
     ui: HTMLElement,
   ) {
-    this.input = new Input(canvas);
+    this.touch = new TouchControls(ui);
+    this.input = new Input(canvas, this.touch);
     this.input.onPadStart = () => this.onKey('KeyH');
     this.cam = new ChaseCamera(scene);
     this.vfx = new Vfx(scene);
@@ -204,6 +208,16 @@ export class Game {
     this.hud = new Hud(ui);
     this.sheet = new CharacterSheet(ui);
     this.hud.onOpenSheet = () => this.toggleSheet();
+    this.touch.onPause = () => this.onKey('KeyH');
+    this.touch.onSheet = () => this.toggleSheet();
+    this.touch.onLayout = (shown) => {
+      if (!shown) return;
+      this.input.releaseLock();
+      if (this.info && !this.touchHinted) {
+        this.touchHinted = true;
+        this.hud.hint('Levetta a sinistra per muoverti, comandi a destra. Trascina lo schermo libero per girare la visuale.');
+      }
+    };
     this.hud.onUseBelt = (slot) => this.send({ t: 'useBelt', slot });
     this.hud.onPickCard = (index) => this.send({ t: 'pickCard', index });
     this.sheet.onAction = (a) => {
@@ -247,6 +261,8 @@ export class Game {
     this.input.onKey = (code) => this.onKey(code);
     document.addEventListener('pointerlockchange', () => {
       // Esc releases the mouse before the page sees the key: treat it as "pause".
+      // Touch layout releases the lock on purpose, and must not open the pause menu.
+      if (this.touch.shown) return;
       if (!this.input.pointerLocked && this.input.enabled && this.info && document.hasFocus() && !this.input.script) this.openHelp();
     });
     window.addEventListener('pointerdown', () => this.audio.unlock(), { capture: true });
@@ -319,8 +335,9 @@ export class Game {
     const on = !!this.info && !this.uiPaused;
     const was = this.input.enabled;
     this.input.setEnabled(on);
+    this.touch.setGameplay(on);
     if (!on) this.input.releaseLock();
-    else if (!was) this.input.requestLock();
+    else if (!was && !this.touch.shown) this.input.requestLock();
   }
 
   /** Help / council / bestiary / scheda — freeze solo sim and stop local prediction. */
@@ -1780,7 +1797,11 @@ export class Game {
     const hud = this.hud;
     const info = this.info!;
     const lobby = this.lobby;
-    if (me) hud.updateMe(me, dt);
+    if (me) {
+      hud.updateMe(me, dt);
+      const silenced = me.st.some((s) => s.k === PS.Silence) && !me.st.some((s) => s.k === PS.Bubble);
+      this.touch.setSkills(me.cd <= 0, me.ult >= 100, silenced);
+    } else this.touch.setSkills(false, false, false);
 
     if (lobby && latest) {
       const party: PartyEntry[] = [];
@@ -1832,25 +1853,28 @@ export class Game {
     let prompt: string | null = null;
     let downedText: string | null = null;
     if (me) {
+      const use = this.touch.shown ? 'Usa' : 'F';
       if (me.act === Act.Downed) {
         downedText = this.alliesLite.some((a) => a.id !== me.id && !a.downed)
-          ? 'Sei a terra — un compagno può rialzarti restandoti accanto e tenendo premuto F'
+          ? `Sei a terra — un compagno può rialzarti restandoti accanto e tenendo premuto ${use}`
           : 'Sei a terra';
       } else if (me.act === Act.Revive) {
         prompt = 'Rianimazione in corso…';
       } else if (execTarget && me.act !== Act.Execute) {
-        prompt = '[F] Esecuzione';
+        prompt = `[${use}] Esecuzione`;
       } else {
         const fallen = this.alliesLite.find((a) => a.downed && a.id !== me.id && Math.hypot(a.x - meX, a.z - meZ) <= TUNING.reviveRange);
-        if (fallen) prompt = `Tieni premuto [F] per rialzare ${this.nameOf(fallen.id)}`;
+        if (fallen) prompt = `Tieni premuto [${use}] per rialzare ${this.nameOf(fallen.id)}`;
         else if (lock) prompt = personaOf(lock.type).strategy;
-        else if (info.kind === 'hub' && this.nearTable(me)) prompt = '[F] Tavola del Consiglio — bacheca contratti';
-        else if (info.kind === 'mission' && lobby?.objective?.includes('[F]')) prompt = lobby.objective;
-        else if (info.kind === 'mission' && info.contractKind === 'GATHERING_RUN') prompt = '[F] Estrai risorsa (se vicino al nodo)';
+        else if (info.kind === 'hub' && this.nearTable(me)) prompt = `[${use}] Tavola del Consiglio — bacheca contratti`;
+        else if (info.kind === 'mission' && lobby?.objective?.includes('[F]')) prompt = this.touch.shown ? lobby.objective.replaceAll('[F]', '[Usa]') : lobby.objective;
+        else if (info.kind === 'mission' && info.contractKind === 'GATHERING_RUN') prompt = `[${use}] Estrai risorsa (se vicino al nodo)`;
         else if (info.kind === 'hub') {
           const lvl = this.lobby?.players.find((p) => p.id === this.myId);
           const lv = lvl?.hero ? ` · ${HEROES[lvl.hero as HeroId].short} liv. ${lvl.level}` : '';
-          prompt = `Avvicinati alla tavola del Consiglio · [B] bestiario · [C] cambia eroe${lv}`;
+          prompt = this.touch.shown
+            ? `Avvicinati alla tavola del Consiglio${lv}`
+            : `Avvicinati alla tavola del Consiglio · [B] bestiario · [C] cambia eroe${lv}`;
         }
       }
     }
