@@ -20,7 +20,10 @@ async function boot(): Promise<void> {
 
   game.menus.loading(0, 'Si accendono le torce…');
   engine.runRenderLoop(() => game.frame());
-  window.addEventListener('resize', () => engine.resize());
+  const resize = () => engine.resize();
+  window.addEventListener('resize', resize);
+  window.visualViewport?.addEventListener('resize', resize);
+  window.visualViewport?.addEventListener('scroll', resize);
 
   try {
     await assets.load((done, total) => game.menus.loading(done / total, `Carico la Compagnia e i suoi nemici… ${done}/${total}`));
