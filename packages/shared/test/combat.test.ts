@@ -858,6 +858,24 @@ describe('Dalìth', () => {
     expect(dalith.world.events.some((e) => e.e === 'say' && e.who === 'Dalìth')).toBe(true);
   });
 
+  it('dodges with a pirouette, even on full vigour', () => {
+    const { world, p } = setup('dalith');
+    expect(HEROES.dalith.dodge.kind).toBe('pirouette');
+    expect(HEROES.dalith.dodge.teleport).toBeUndefined();
+    p.stamina = p.maxStamina;
+    p.stamDelay = T(2);
+    const x0 = p.x;
+    tap(world, 'a', Btn.Dodge, { mx: 1 });
+    expect(p.act).toBe(Act.Dodge);
+    expect(p.blink).toBe(0);
+    expect(p.dodgeCd).toBe(0);
+    expect(p.iframes).toBeGreaterThan(0);
+    expect(p.stamina).toBe(p.maxStamina - HEROES.dalith.dodge.cost);
+    run(world, 'a', T(HEROES.dalith.dodge.dur) + 1, { mx: 1 });
+    expect(p.x - x0).toBeGreaterThan(HEROES.dalith.dodge.dist * 0.9);
+    expect(p.act).toBe(Act.Idle);
+  });
+
   it('hits harder while Anthon is close, and not when he is far', () => {
     const alone = hitCultist(false);
     const near = hitCultist(true);

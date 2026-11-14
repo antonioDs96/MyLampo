@@ -46,13 +46,19 @@ export interface AttackDef {
 }
 
 export interface DodgeDef {
-  kind: 'roll' | 'step' | 'blink';
+  kind: 'roll' | 'step' | 'blink' | 'pirouette';
   dist: number;
   dur: number;
   /** Invulnerability window (seconds from dodge start). */
   iStart: number;
   iEnd: number;
   cost: number;
+  /** Pose held while a pirouette turns: one leg lifted, the body upright. */
+  spin?: string;
+  /** Seconds into `spin` that show the raised-leg pose. */
+  pose?: number;
+  /** How many turns the pirouette completes before the dodge ends. */
+  turns?: number;
   /**
    * Charged blink for non-blink heroes: only when vigour covers this higher cost
    * (and the teleport cooldown is clear). Anthon keeps a native blink instead.
@@ -564,7 +570,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     color: '#c4315c',
     desc: 'Ballerina e informante dei bassifondi di Kaza-Massel. La danza le legge le intenzioni; né oro né minacce le fanno lasciare una missione rischiosa. Capelli rosso corvino, intolleranza al lattosio da un veleno, legame simbiotico e competitivo con Anthon.',
     passive: 'Ostinata: i rallentamenti non le cambiano il passo. Le pozioni di guarigione, a base di latte, la curano solo a metà e le danno i crampi. Vicino ad Anthon, entrambi infliggono il 12% di danni in più.',
-    style: 'Danza a mani nude — calci, giravolte e incanto. Veloce e fragile.',
+    style: 'Danza a mani nude — calci e incanto. La schivata è una piroetta. Veloce e fragile.',
     hp: 92,
     stamina: 118,
     speed: 8,
@@ -578,7 +584,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       atk({ anim: '2H_Melee_Attack_Spinning', impact: [0.35, 0.62], speed: 1.5, dmg: 7, range: 3.1, arc: 360, lunge: 1.2, recover: 0.38, cancelAfter: 0.2, kb: 3 }),
     ],
     heavy: atk({ anim: '2H_Melee_Attack_Spin', impact: [0.74], start: 0.3, speed: 1.15, dmg: 22, poise: 22, range: 3.3, arc: 360, lunge: 1.8, recover: 0.48, cancelAfter: 0.26, kb: 5, charged: 'confuse', cost: 14 }),
-    dodge: { ...ROLL, dist: 5.2, cost: 18 },
+    dodge: { kind: 'pirouette', dist: 5.2, dur: 0.52, iStart: 0, iEnd: 0.4, cost: 18, spin: 'Unarmed_Melee_Attack_Kick', pose: 0.3, turns: 2 },
     block: GUARD,
     ability: {
       id: 'danza',

@@ -1505,7 +1505,9 @@ export class Game {
     const vfx = this.vfx;
     const hero = HEROES[p.hero];
     const c = HERO_COLOR[p.hero];
-    view.root.position.set(x, FLOOR_Y, z);
+    const pirouette = p.act === Act.Dodge && hero.dodge.kind === 'pirouette' && !p.blink;
+    const spinU = pirouette ? Math.min(1, p.t / TICK_HZ / hero.dodge.dur) : 0;
+    view.root.position.set(x, FLOOR_Y + Math.sin(spinU * Math.PI) * 0.22, z);
     view.root.rotation.y = yaw;
     view.trackMotion(dt);
 
@@ -1593,11 +1595,31 @@ export class Game {
         vfx.puff(hv.x, 0.8, hv.z, 5, [0.3, 0.1, 0.5], 0.4, 1.4, 0.5);
         vfx.implode(hv.x, hv.z, 1.6, c, 0.2);
         vfx.shockwave(x, z, 1.8, c, 0.25);
+      } else if (hero.dodge.kind === 'pirouette') {
+        vfx.shockwave(x, z, 1.35, [0.9, 0.18, 0.36], 0.32);
+        vfx.burst(x, 1.05, z, 16, [1, 0.74, 0.42], { speed: 3.2, life: 0.55, up: 2.6, flat: 0.35, size: 0.12 });
       } else {
         vfx.puff(x, 0.15, z, 3, [0.5, 0.45, 0.4], 0.4, 0.5, 0.5, 0.6);
       }
     }
-    if (p.act === Act.Dodge && !p.blink && Math.random() < dt * 50) {
+    if (pirouette) {
+      const turns = hero.dodge.turns ?? 2;
+      const spin = spinU * Math.PI * 2 * turns;
+      vfx.ring(x, z, 0.42 + Math.sin(spinU * Math.PI) * 0.38, [0.85, 0.16, 0.32], 0.55);
+      for (let i = 0; i < 8; i++) {
+        const a = spin - i * 0.55;
+        const h = 0.18 + (i / 7) * 1.7;
+        const gold = i % 2 === 0;
+        vfx.sprite(
+          x + Math.sin(a) * 0.46,
+          h,
+          z + Math.cos(a) * 0.46,
+          gold ? 0.11 : 0.18,
+          gold ? [1, 0.78, 0.45] : [0.86, 0.14, 0.32],
+          0.8,
+        );
+      }
+    } else if (p.act === Act.Dodge && !p.blink && Math.random() < dt * 50) {
       vfx.burst(x, 0.9, z, 1, c, { speed: 0.5, life: 0.25, size: 0.3 });
     }
     if (p.act === Act.Block) {

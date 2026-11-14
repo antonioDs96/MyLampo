@@ -518,6 +518,14 @@ export function posePlayer(view: CharacterView, p: PlayerState, dt: number, opts
       break;
     }
     case Act.Dodge: {
+      if (hero.dodge.kind === 'pirouette' && !p.blink) {
+        const turns = hero.dodge.turns ?? 2;
+        const u = Math.min(1, t / hero.dodge.dur);
+        view.play(hero.dodge.spin ?? 'Unarmed_Melee_Attack_Kick', hero.dodge.pose ?? 0.5, false);
+        // The pose stays on one leg; the body itself turns, and finishes facing the way she travelled.
+        view.root.rotation.y += u * Math.PI * 2 * turns;
+        break;
+      }
       const rel = angleDiff(yawOf(p.dx, p.dz), p.yaw);
       const clip =
         Math.abs(rel) < 0.8 ? 'Dodge_Forward' : Math.abs(rel) > 2.35 ? 'Dodge_Backward' : rel > 0 ? 'Dodge_Right' : 'Dodge_Left';

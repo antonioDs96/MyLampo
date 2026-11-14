@@ -238,7 +238,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     saveProf: ['DES', 'CAR'],
     skills: ['Acrobazia', 'Intrattenere', 'Intuizione', 'Inganno', 'Furtività', 'Percezione'],
     mastery: ['Intuizione', 'Intrattenere'],
-    notes: 'Danza della Memoria. Intolleranza al lattosio: le pozioni di guarigione curano a metà. Legame con Anthon.',
+    notes: 'Danza della Memoria. La schivata è una piroetta. Intolleranza al lattosio: le pozioni di guarigione curano a metà. Legame con Anthon.',
   },
 };
 
