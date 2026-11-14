@@ -574,6 +574,14 @@ export function tryClaimDrop(
 
   const inst = makeInstance(def.id, 1, drop.dropId);
 
+  // Relics fill the Monile slot. The previous one, if any, falls into the bag.
+  if (def.kind === 'relic') {
+    if (inv.relic && inv.bag.length >= 40) return reject('bag_full');
+    if (inv.relic) inv.bag.push(inv.relic);
+    inv.relic = inst;
+    return { ok: true, item: inst, toast: def.name };
+  }
+
   // Consumables → belt if space, else bag
   if (def.kind === 'consumable' || def.belt) {
     // Stack into existing belt slot

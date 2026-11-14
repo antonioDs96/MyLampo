@@ -185,6 +185,11 @@ export class World {
   readonly inventories = new Map<string, HeroInventory>();
   /** Ground loot with Megabonk magnet physics. */
   loot: GroundDrop[] = [];
+  /**
+   * Boss relics waiting for the host to put them in the named hero's bag.
+   * A ground chest was vanishing with the room before anyone could walk over it.
+   */
+  relicGrants: { hero: HeroId; itemId: string; banner: string }[] = [];
   /** EffectQueue per player (consumable buffs). */
   readonly effectQueues = new Map<string, EffectQueue>();
   /** Skillful play window: +15% PE on gem pickup (parry / counter / execute). */
@@ -813,21 +818,11 @@ export class World {
           gem: d.gem,
         });
       }
-      // Boss relic chest: 1/8 roll across 8 hero archetypes (biome fixes the bonus).
+      // Boss relic: rolled for one hero and handed to the host, which puts it in that bag.
       if (def.boss) {
         const biome = (getZone(this.layout)?.biome ?? BESTIARY_BY_ID[e.type]?.biome ?? 'coastal') as BiomeId;
         const relic = spawnBossRelicChest(biome, e.x, e.z, this.rng);
-        this.loot.push(relic.drop);
-        this.events.push({
-          e: 'loot',
-          dropId: relic.drop.dropId,
-          kind: relic.drop.kind,
-          x: relic.drop.x,
-          z: relic.drop.z,
-          amount: 1,
-          itemId: relic.itemId,
-          rarity: 'rare',
-        });
+        this.relicGrants.push({ hero: relic.hero, itemId: relic.itemId, banner: relic.banner });
         this.events.push({ e: 'say', who: 'Carlos', text: relic.banner });
       }
     }

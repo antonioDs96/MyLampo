@@ -134,6 +134,12 @@ describe('loot system', () => {
     expect(tryClaimDrop(bogus, 'p', inv).ok).toBe(false);
     expect(bogus.claimedBy).toBeUndefined();
     expect(inv.bag).toHaveLength(1);
+
+    const charm: GroundDrop = { ...sword, dropId: 'd-charm', itemId: 'eclipse_charm', claimedBy: undefined };
+    const relicClaim = tryClaimDrop(charm, 'p', inv);
+    expect(relicClaim.ok).toBe(true);
+    expect(inv.relic?.itemId).toBe('eclipse_charm');
+    expect(inv.bag.map((i) => i.itemId)).toEqual(['longsword']);
   });
 
   it('restores saved loot without dropping the starter kit or unknown ids', () => {
