@@ -459,7 +459,12 @@ export class Hud {
     }
     this.levelCards.classList.remove('hidden');
     this.levelCards.replaceChildren(
-      h('div', { class: 'level-cards-title', text: 'Potenziamento Rapido — premi 1 · 2 · 3' }),
+      h('div', {
+        class: 'level-cards-title',
+        text: document.documentElement.classList.contains('touch-mode')
+          ? 'Potenziamento rapido — tocca una carta'
+          : 'Potenziamento Rapido — premi 1 · 2 · 3',
+      }),
       ...cards.map((c, i) =>
         h(
           'button',

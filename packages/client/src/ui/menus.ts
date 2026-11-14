@@ -209,7 +209,7 @@ export class Menus {
           this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
           this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
         ),
-        h('p', { class: 'foot', text: 'Fino a 9 giocatori · mouse e tastiera o gamepad · modelli KayKit (CC0)' }),
+        h('p', { class: 'foot', text: 'Fino a 9 giocatori · tastiera, gamepad o comandi touch · modelli KayKit (CC0)' }),
       ),
     );
     if (!this.name) name.focus();
@@ -810,6 +810,7 @@ export class Menus {
           h(
             'div',
             { class: 'tips' },
+            h('p', {}, h('b', { text: 'Schermo touch: ' }), 'la levetta a sinistra muove l’eroe e i comandi stanno a destra. Trascina un punto libero dello schermo per girare la visuale. Pausa e Scheda sono in alto a destra.'),
             h('p', {}, h('b', { class: 'blue', text: 'Lampo azzurro: ' }), 'il colpo si può parare. Alza la guardia un attimo prima dell’impatto per una parata perfetta che sbilancia il nemico.'),
             h('p', {}, h('b', { class: 'red', text: 'Lampo rosso: ' }), 'colpo imparabile. Schiva: se lo fai all’ultimo istante ottieni un Contrattacco (danni quasi doppi per tre secondi).'),
             h('p', {}, h('b', { text: 'Barra gialla: ' }), 'è l’equilibrio del nemico. Quando si riempie il nemico è Spezzato: avvicinati e premi F per l’esecuzione.'),

@@ -1,4 +1,5 @@
 import { Btn } from '@malampu/shared';
+import type { TouchControls } from './touch';
 
 export interface InputFrame {
   /** Stick-space movement: x to the right, y forward (relative to the camera). */
@@ -58,7 +59,10 @@ export class Input {
   private padCycleHeld = false;
   private usingPad = false;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly touch: TouchControls | null = null,
+  ) {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       const typing = e.target instanceof HTMLInputElement;
@@ -78,8 +82,8 @@ export class Input {
       this.keys.clear();
       this.mouseButtons = 0;
     });
-    canvas.addEventListener('mousedown', (e) => {
-      if (!this.enabled) return;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!this.enabled || e.pointerType === 'touch' || this.touch?.shown) return;
       // The click that captures the mouse also counts as an action.
       if (document.pointerLockElement !== canvas) this.requestLock();
       // Middle click locks on, like Tab.
@@ -91,7 +95,12 @@ export class Input {
       }
       this.usingPad = false;
     });
-    window.addEventListener('mouseup', (e) => {
+    window.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch') return;
+      this.mouseButtons &= ~(1 << e.button);
+    });
+    window.addEventListener('pointercancel', (e) => {
+      if (e.pointerType === 'touch') return;
       this.mouseButtons &= ~(1 << e.button);
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -124,6 +133,7 @@ export class Input {
   }
 
   requestLock(): void {
+    if (this.touch?.shown) return;
     try {
       const r = this.canvas.requestPointerLock() as unknown;
       if (r instanceof Promise) r.catch(() => {});
@@ -159,6 +169,7 @@ export class Input {
     const start = !!this.gamepad()?.buttons[9]?.pressed;
     if (start && !this.padStartHeld) this.onPadStart?.();
     this.padStartHeld = start;
+    const touch = this.touch?.consume() ?? null;
     if (this.script) {
       out.moveX = this.script.moveX;
       out.moveY = this.script.moveY;
@@ -209,6 +220,18 @@ export class Input {
       const cycle = pad.buttons[15]?.pressed ? 1 : pad.buttons[14]?.pressed ? -1 : 0;
       if (cycle && !this.padCycleHeld) this.lockCycle = cycle;
       this.padCycleHeld = cycle !== 0;
+    }
+
+    if (touch) {
+      if (touch.engaged) {
+        out.moveX = touch.moveX;
+        out.moveY = touch.moveY;
+        this.usingPad = false;
+      }
+      out.buttons |= touch.buttons;
+      out.lookX += touch.lookX;
+      out.lookY += touch.lookY;
+      if (touch.lockToggle) this.lockToggle = true;
     }
 
     const len = Math.hypot(out.moveX, out.moveY);
