@@ -971,6 +971,14 @@ input.code {
   cursor: not-allowed;
 }
 
+.or {
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .note {
   font-size: 13px;
   color: var(--muted);

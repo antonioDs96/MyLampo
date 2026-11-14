@@ -29,6 +29,8 @@ export interface LobbyContract {
 export interface LobbyState {
   code: string;
   host: string;
+  /** True when anyone may walk in without a private code. */
+  public: boolean;
   phase: Phase;
   mission: string;
   stage: number;

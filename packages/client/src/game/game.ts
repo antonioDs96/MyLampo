@@ -235,6 +235,7 @@ export class Game {
     this.menus = new Menus(ui, {
       create: (name) => void this.connect(name, null, false),
       join: (name, code) => void this.connect(name, code, false),
+      joinPublic: (name) => void this.connect(name, null, false, true),
       solo: (name) => void this.connect(name, null, true),
       pickHero: (id) => this.send({ t: 'hero', hero: id }),
       releaseHero: () => this.send({ t: 'hero', hero: '' }),
@@ -271,7 +272,7 @@ export class Game {
 
   // ---------------------------------------------------------------- session
 
-  private async connect(name: string, code: string | null, solo: boolean): Promise<void> {
+  private async connect(name: string, code: string | null, solo: boolean, pub = false): Promise<void> {
     this.audio.unlock();
     this.audio.play('ui');
     this.myName = name;
@@ -281,9 +282,9 @@ export class Game {
       this.attach(new LocalConnection(name, archive));
       return;
     }
-    this.menus.busy(code ? 'Entro nella stanza…' : 'Apro una nuova stanza…');
+    this.menus.busy(pub ? 'Entro nella taverna pubblica…' : code ? 'Entro nella stanza…' : 'Apro una nuova stanza…');
     try {
-      this.attach(await RemoteConnection.open(name, code));
+      this.attach(await RemoteConnection.open(name, code, pub));
     } catch (err) {
       this.audio.play('deny');
       this.menus.title(err instanceof Error ? err.message : String(err));
@@ -505,7 +506,10 @@ export class Game {
         this.menus.close();
       }
     }
-    if (lobby.phase === 'hub' && !hero && this.info && this.menus.panel === 'none') this.menus.openHeroes(false);
+    // Hub, or a public drop-in while a sortie is already underway.
+    if ((lobby.phase === 'hub' || lobby.phase === 'mission') && !hero && this.info && this.menus.panel === 'none') {
+      this.menus.openHeroes(false);
+    }
   }
 
   private clearViews(heroes: boolean): void {
@@ -575,7 +579,11 @@ export class Game {
       if (!this.myHero()) this.menus.openHeroes(false);
     } else {
       this.audio.setMood('battle');
-      if (this.menus.open) this.menus.close();
+      // Keep the roster up for someone who walked into a fight without a hero yet.
+      if (!this.myHero()) {
+        if (this.menus.panel === 'title' || this.menus.panel === 'loading') this.menus.close();
+        this.menus.openHeroes(false);
+      } else if (this.menus.open) this.menus.close();
       if (info.mutation) {
         this.audio.play('mutation');
         this.cam.addShake(0.9);
@@ -1919,7 +1927,7 @@ export class Game {
     hud.setRoom(
       this.conn?.offline
         ? `Partita in solitaria · H comandi${pauseNote}`
-        : `Stanza ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi${pauseNote}`,
+        : `${lobby?.public ? 'Taverna' : 'Stanza'} ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi${pauseNote}`,
     );
     hud.endFrame();
   }

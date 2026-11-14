@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { matchMaker, Room, type Client } from '@colyseus/core';
-import { GameHost, MAX_PLAYERS, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
+import { GameHost, MAX_PLAYERS, PUBLIC_ROOM_ID, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
 
 /** Letters and digits that are hard to confuse when read aloud or typed from a chat. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -10,6 +11,21 @@ export const ROOM_NAME = 'malampu';
 /** Single message channel: the payload itself says what it is (`t`). */
 export const CHANNEL = 'm';
 export const CLOSE_ROOM_FULL = 4000;
+
+/**
+ * Proves a room was opened by this process. A client can ask for `public: true`
+ * (that only makes an extra tavern that closes when empty) but cannot claim the
+ * anchor id.
+ */
+const ANCHOR_TOKEN = randomBytes(24).toString('hex');
+
+let acceptingPublic = true;
+
+interface RoomOptions {
+  archive?: GearArchive;
+  public?: boolean;
+  anchorToken?: string;
+}
 
 function randomCode(): string {
   let code = '';
@@ -25,26 +41,43 @@ async function freeCode(): Promise<string> {
   throw new Error('no free room code');
 }
 
-/** One party of up to eight friends. All game rules live in the shared GameHost. */
-export class MalampuRoom extends Room {
-  private host!: GameHost;
+/** Opens the tavern that stays up for anyone, if this process is still accepting players. */
+export function openPublicRooms(): void {
+  acceptingPublic = true;
+}
 
-  override async onCreate(options?: { archive?: GearArchive }): Promise<void> {
+/** Stop recreating the public tavern while the process is shutting down. */
+export function closePublicRooms(): void {
+  acceptingPublic = false;
+}
+
+export async function ensurePublicRoom(): Promise<void> {
+  if (!acceptingPublic) return;
+  if (await matchMaker.getRoomById(PUBLIC_ROOM_ID)) return;
+  await matchMaker.createRoom(ROOM_NAME, { public: true, anchorToken: ANCHOR_TOKEN });
+}
+
+/** One party of up to nine. All game rules live in the shared GameHost. */
+export class MalampuRoom extends Room<{ metadata: { public: boolean } }> {
+  private host!: GameHost;
+  private archive?: GearArchive;
+  /** The tavern that outlives its players and is recreated if the process drops it. */
+  private anchor = false;
+  private isPublic = false;
+
+  override async onCreate(options?: RoomOptions): Promise<void> {
     this.maxClients = MAX_PLAYERS;
-    this.autoDispose = true;
     // State is sent as explicit snapshot messages, not through schema patches.
     this.patchRate = null;
-    this.roomId = await freeCode();
+    this.archive = options?.archive;
+    this.anchor = options?.anchorToken === ANCHOR_TOKEN;
+    this.isPublic = this.anchor || options?.public === true;
+    // Private rooms and overflow taverns close when the last player leaves.
+    // The anchor stays listed so the next person still has somewhere to walk in.
+    this.autoDispose = !this.anchor;
+    this.roomId = this.anchor ? PUBLIC_ROOM_ID : await freeCode();
 
-    this.host = new GameHost(
-      {
-        send: (id, msg) => this.clients.getById(id)?.send(CHANNEL, msg),
-        broadcast: (msg: ServerMsg) => this.broadcast(CHANNEL, msg),
-      },
-      this.roomId,
-      (Math.random() * 0xffffffff) >>> 0,
-      options?.archive,
-    );
+    this.bootHost();
 
     this.onMessage(CHANNEL, (client: Client, msg: ClientMsg) => {
       if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
@@ -62,5 +95,28 @@ export class MalampuRoom extends Room {
 
   override onLeave(client: Client): void {
     this.host.leave(client.sessionId);
+    // Colyseus has already dropped this client. An empty anchor goes back to the
+    // hub so the next company does not inherit a deserted mission.
+    if (this.anchor && this.clients.length === 0) this.bootHost();
+  }
+
+  override onDispose(): void {
+    if (!this.anchor || !acceptingPublic) return;
+    queueMicrotask(() => {
+      void ensurePublicRoom().catch((err) => console.error('taverna pubblica', err));
+    });
+  }
+
+  private bootHost(): void {
+    this.host = new GameHost(
+      {
+        send: (id, msg) => this.clients.getById(id)?.send(CHANNEL, msg),
+        broadcast: (msg: ServerMsg) => this.broadcast(CHANNEL, msg),
+      },
+      this.roomId,
+      (Math.random() * 0xffffffff) >>> 0,
+      this.archive,
+      this.isPublic,
+    );
   }
 }

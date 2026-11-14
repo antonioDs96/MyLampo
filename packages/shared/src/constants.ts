@@ -11,6 +11,12 @@ export const INTERP_DELAY_MS = 100;
 
 export const MAX_PLAYERS = 9;
 
+/**
+ * Stable id of the tavern that the server keeps open.
+ * Six characters, so it never collides with the five-character private codes.
+ */
+export const PUBLIC_ROOM_ID = 'APERTA';
+
 export const sec = (s: number): number => s * TICK_HZ;
 
 export const TUNING = {
