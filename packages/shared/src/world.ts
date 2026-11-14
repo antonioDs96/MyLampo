@@ -15,6 +15,20 @@ import {
 } from './dndMegabonkRules';
 import { EffectQueue, clearPoisonLike } from './effectQueue';
 import { ENEMIES, type EnemyAttackDef, type EnemyDef } from './enemies';
+import {
+  canCommitAttack,
+  chargeWindow,
+  clusterCount,
+  flankPoint,
+  isBehind,
+  personaOf,
+  pickAttackIndex,
+  preyScore,
+  retargetWindow,
+  steerMode,
+  type HunterView,
+  type PreyView,
+} from './enemyMind';
 import { HEROES, type AttackDef } from './heroes';
 import { getItem, rollDice } from './itemsCatalog';
 import {
@@ -197,6 +211,8 @@ export class World {
   private readonly flows = new Map<string, { field: Int16Array; at: number }>();
   private lite: EnemyLite[] = [];
   private allies: AllyLite[] = [];
+  /** First elite/boss of each type announces its counter-strategy. */
+  private readonly seenPersona = new Set<EnemyTypeId>();
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
@@ -1399,6 +1415,11 @@ export class World {
     };
     this.enemies.push(e);
     this.events.push({ e: 'spawn', id: e.id });
+    if ((def.elite || def.boss || def.bar) && !this.seenPersona.has(type)) {
+      this.seenPersona.add(type);
+      const tip = personaOf(type).strategy;
+      if (tip) this.events.push({ e: 'hint', text: tip });
+    }
     return e;
   }
 
@@ -1414,20 +1435,64 @@ export class World {
     return f.field;
   }
 
+  private asPrey(p: PlayerState): PreyView {
+    return {
+      id: p.id,
+      hero: p.hero,
+      x: p.x,
+      z: p.z,
+      yaw: p.yaw,
+      hp: p.hp,
+      maxHp: p.maxHp || HEROES[p.hero].hp,
+      act: p.act,
+      iframes: p.iframes,
+    };
+  }
+
+  private asHunter(e: EnemyState): HunterView {
+    return {
+      id: e.id,
+      type: e.type,
+      x: e.x,
+      z: e.z,
+      yaw: e.yaw,
+      target: e.target,
+      lastHitBy: e.lastHitBy,
+      atk: e.atk,
+      cool: e.cool,
+      phase: e.phase,
+    };
+  }
+
+  private alivePrey(): PreyView[] {
+    const out: PreyView[] = [];
+    for (const p of this.players.values()) {
+      if (p.act === Act.Downed || hasStatus(p.st, PS.Stealth)) continue;
+      out.push(this.asPrey(p));
+    }
+    return out;
+  }
+
   private pickTarget(e: EnemyState): PlayerState | undefined {
     const current = this.players.get(e.target);
     const valid = (p: PlayerState | undefined): p is PlayerState =>
       !!p && p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth);
     if (hasStatus(e.st, ES.Taunted) && valid(current)) return current;
     if (valid(current) && e.retarget > 0) return current;
-    e.retarget = 1.5 + this.rng.next();
+    const persona = personaOf(e.type);
+    e.retarget = retargetWindow(persona.mind) + this.rng.next() * 0.4;
+    const party = this.alivePrey();
+    const pack: HunterView[] = [];
+    for (const o of this.enemies) {
+      if (o.id === e.id || o.state === EState.Dead) continue;
+      pack.push(this.asHunter(o));
+    }
+    const hunter = this.asHunter(e);
     let best: PlayerState | undefined;
     let bestScore = Infinity;
     for (const p of this.players.values()) {
       if (!valid(p)) continue;
-      let score = Math.hypot(p.x - e.x, p.z - e.z);
-      if (p.id === e.target) score -= 3;
-      if (p.id === e.lastHitBy) score -= 4;
+      const score = preyScore(persona, hunter, this.asPrey(p), pack, party);
       if (score < bestScore) {
         bestScore = score;
         best = p;
@@ -1447,23 +1512,27 @@ export class World {
     return n;
   }
 
-  private chooseAttack(e: EnemyState, def: EnemyDef, d: number): number {
-    let total = 0;
-    const ok: number[] = [];
-    for (let i = 0; i < def.attacks.length; i++) {
-      const a = def.attacks[i]!;
-      if ((a.phase ?? 0) > e.phase) continue;
-      if (d > a.startRange || d < (a.minRange ?? 0)) continue;
-      ok.push(i);
-      total += a.weight;
-    }
-    if (ok.length === 0) return -1;
-    let roll = this.rng.next() * total;
-    for (const i of ok) {
-      roll -= def.attacks[i]!.weight;
-      if (roll <= 0) return i;
-    }
-    return ok[ok.length - 1]!;
+  private chooseAttack(e: EnemyState, def: EnemyDef, d: number, target: PlayerState): number {
+    const persona = personaOf(e.type);
+    const prey = this.asPrey(target);
+    const party = this.alivePrey();
+    return pickAttackIndex(
+      persona.mind,
+      def.attacks,
+      e.phase,
+      d,
+      {
+        dist: d,
+        blocking: target.act === Act.Block,
+        dodging: target.act === Act.Dodge || target.iframes > 0,
+        attacking: target.act === Act.Attack || target.act === Act.Heavy || target.act === Act.Charge,
+        clustered: clusterCount(prey, party),
+        behind: isBehind(e, prey),
+        lastKind: '',
+      },
+      e.atk,
+      this.rng.next(),
+    );
   }
 
   private beginAttack(e: EnemyState, def: EnemyDef, idx: number, target: PlayerState): void {
@@ -1753,51 +1822,62 @@ export class World {
     if (def.dummy) {
       e.yaw = approachAngle(e.yaw, faceYaw, 6 * dt);
       if (e.cool <= 0 && gap < 3.4) {
-        const idx = this.chooseAttack(e, def, dist);
+        const idx = this.chooseAttack(e, def, dist, target);
         if (idx >= 0) this.beginAttack(e, def, idx, target);
       }
       return;
     }
 
+    const mind = personaOf(e.type).mind;
+    const prey = this.asPrey(target);
     const slots = partyAttackSlots(!!def.ranged, this.players.size);
-    const free = def.elite || this.attackersOn(target.id, def.ranged) < slots;
-    if (e.cool <= 0 && free && los) {
-      const idx = this.chooseAttack(e, def, dist);
+    const desperate = mind === 'hunter' && prey.maxHp > 0 && prey.hp / prey.maxHp < 0.35;
+    const free = def.elite || def.boss || desperate || this.attackersOn(target.id, def.ranged) < slots;
+    if (e.cool <= 0 && free && los && canCommitAttack(prey)) {
+      const idx = this.chooseAttack(e, def, dist, target);
       if (idx >= 0) {
         this.beginAttack(e, def, idx, target);
         return;
       }
     }
 
-    if (def.ranged) {
-      e.state = EState.Circle;
-      if (!los || gap > def.preferred + 2) {
-        this.moveEnemy(e, def, tx, tz, speed, dt);
-      } else if (gap < def.preferred - 5) {
-        this.moveEnemy(e, def, -tx, -tz, speed * 0.8, dt);
-      } else {
-        this.moveEnemy(e, def, -tz * e.side, tx * e.side, speed * 0.45, dt);
-        if (this.rng.chance(0.02)) e.side = -e.side;
-      }
-      e.yaw = approachAngle(e.yaw, los ? faceYaw : yawOf(tx, tz), 8 * dt);
-      return;
-    }
-
     const wantAttack = e.cool <= 0.4 && free;
-    if (!los || wantAttack) {
-      e.state = EState.Chase;
-      const near = Math.min(...def.attacks.map((a) => ((a.phase ?? 0) <= e.phase && !a.minRange ? a.startRange : 99)));
-      if (!los || dist > near - 0.3) this.moveEnemy(e, def, tx, tz, speed, dt);
-    } else {
-      // Waiting for a turn: hold a ring around the target and strafe.
+    const charge = chargeWindow(def.attacks, e.phase);
+    const mode = steerMode(mind, {
+      dist,
+      gap,
+      preferred: def.preferred || 4.2,
+      cool: e.cool,
+      los,
+      wantAttack,
+      chargeMin: charge.min,
+      chargeMax: charge.max,
+    });
+    if (mode === 'flank') {
       e.state = EState.Circle;
-      const ring = 4.2 + (e.id % 3) * 0.9;
+      const at = flankPoint(prey);
+      const fx = at.x - e.x;
+      const fz = at.z - e.z;
+      if (Math.hypot(fx, fz) > 0.55) this.moveEnemy(e, def, fx, fz, speed * 1.05, dt);
+    } else if (mode === 'kite' || mode === 'backstep') {
+      e.state = EState.Circle;
+      this.moveEnemy(e, def, -tx, -tz, speed * (mode === 'backstep' ? 0.95 : 0.85), dt);
+    } else if (mode === 'circle') {
+      e.state = EState.Circle;
+      const ring = def.ranged ? def.preferred || 12 : 4.2 + (e.id % 3) * 0.9;
       if (gap > ring + 0.8) this.moveEnemy(e, def, tx, tz, speed, dt);
       else if (gap < ring - 0.8) this.moveEnemy(e, def, -tx, -tz, speed * 0.6, dt);
       else {
-        this.moveEnemy(e, def, -tz * e.side, tx * e.side, speed * 0.4, dt);
+        this.moveEnemy(e, def, -tz * e.side, tx * e.side, speed * 0.45, dt);
         if (this.rng.chance(0.015)) e.side = -e.side;
       }
+    } else if (mode === 'hold') {
+      e.state = EState.Idle;
+      this.moveEnemy(e, def, -tz * e.side, tx * e.side, speed * 0.12, dt);
+    } else {
+      e.state = EState.Chase;
+      const near = Math.min(...def.attacks.map((a) => ((a.phase ?? 0) <= e.phase && !a.minRange ? a.startRange : 99)));
+      if (!los || dist > near - 0.3) this.moveEnemy(e, def, tx, tz, speed, dt);
     }
     e.yaw = approachAngle(e.yaw, los ? faceYaw : yawOf(tx, tz), 9 * dt);
   }

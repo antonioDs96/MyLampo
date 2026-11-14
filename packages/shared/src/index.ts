@@ -3,6 +3,7 @@ export * from './math';
 export * from './types';
 export * from './heroes';
 export * from './enemies';
+export * from './enemyMind';
 export * from './layout';
 export * from './missions';
 export * from './lore';

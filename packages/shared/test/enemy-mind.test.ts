@@ -1,0 +1,225 @@
+import { describe, expect, it } from 'vitest';
+import {
+  Act,
+  ENEMIES,
+  ENEMY_IDS,
+  ENEMY_PERSONA,
+  EState,
+  HEROES,
+  World,
+  attackWeightMul,
+  isolationOf,
+  parseLayout,
+  personaOf,
+  preyScore,
+  steerMode,
+  type HunterView,
+  type PreyView,
+} from '../src';
+import { ARENA, makeWorld } from './helpers';
+
+function prey(partial: Partial<PreyView> & Pick<PreyView, 'id' | 'hero'>): PreyView {
+  return {
+    x: 0,
+    z: 0,
+    yaw: 0,
+    hp: HEROES[partial.hero].hp,
+    maxHp: HEROES[partial.hero].hp,
+    act: Act.Idle,
+    iframes: 0,
+    ...partial,
+  };
+}
+
+function hunter(partial: Partial<HunterView> = {}): HunterView {
+  return {
+    id: 1,
+    type: 'cultista',
+    x: 0,
+    z: 4,
+    yaw: 0,
+    target: '',
+    lastHitBy: '',
+    atk: 0,
+    cool: 0,
+    phase: 0,
+    ...partial,
+  };
+}
+
+describe('enemy personas', () => {
+  it('gives every enemy a mind and a counter-strategy', () => {
+    for (const id of ENEMY_IDS) {
+      const p = ENEMY_PERSONA[id];
+      expect(p, id).toBeDefined();
+      expect(p.strategy.length, id).toBeGreaterThan(12);
+      expect(ENEMIES[id], id).toBeDefined();
+    }
+  });
+
+  it('an assassin prefers the isolated caster over the tank in front of it', () => {
+    const persona = personaOf('ombra');
+    const h = hunter({ type: 'ombra', x: 0, z: 4 });
+    const tank = prey({ id: 'tank', hero: 'alexios', x: 0, z: 0 });
+    const mage = prey({ id: 'mage', hero: 'gabryel', x: 8, z: 0 });
+    const party = [tank, mage];
+    expect(preyScore(persona, h, mage, [], party)).toBeLessThan(preyScore(persona, h, tank, [], party));
+  });
+
+  it('a bully prefers the guardian it is supposed to lock', () => {
+    const persona = personaOf('coscritto_sole_nero');
+    const h = hunter({ type: 'coscritto_sole_nero', x: 0, z: 5 });
+    const tank = prey({ id: 'tank', hero: 'alexios', x: 1, z: 0 });
+    const bard = prey({ id: 'bard', hero: 'jusef', x: 0, z: 0 });
+    const party = [tank, bard];
+    expect(preyScore(persona, h, tank, [], party)).toBeLessThan(preyScore(persona, h, bard, [], party));
+  });
+
+  it('pack hunters pile onto the prey their mate already locked', () => {
+    const persona = personaOf('lupo_ombra');
+    const h = hunter({ type: 'lupo_ombra', x: 0, z: 6 });
+    const a = prey({ id: 'a', hero: 'jusef', x: 0, z: 0 });
+    const b = prey({ id: 'b', hero: 'alexios', x: 1, z: 0 });
+    const mate = hunter({ id: 2, type: 'lupo_ombra', target: 'a' });
+    expect(preyScore(persona, h, a, [mate], [a, b])).toBeLessThan(preyScore(persona, h, b, [mate], [a, b]));
+  });
+
+  it('a hunter goes after the wounded straggler', () => {
+    const persona = personaOf('mastino_guerra');
+    const h = hunter({ type: 'mastino_guerra', x: 0, z: 5 });
+    const healthy = prey({ id: 'full', hero: 'vyncent', x: 0, z: 0, hp: 125, maxHp: 125 });
+    const wounded = prey({ id: 'hurt', hero: 'albereth', x: 2, z: 0, hp: 20, maxHp: 95 });
+    const party = [healthy, wounded];
+    expect(isolationOf(wounded, party)).toBeGreaterThan(1);
+    expect(preyScore(persona, h, wounded, [], party)).toBeLessThan(preyScore(persona, h, healthy, [], party));
+  });
+
+  it('punishes a blocking hero with red attacks and a recovering hero with blue', () => {
+    const blue = ENEMIES.cultista.attacks[0]!;
+    const red = ENEMIES.cultista.attacks[1]!;
+    const block = { dist: 3.2, blocking: true, dodging: false, attacking: false, clustered: 1, behind: false, lastKind: '' as const };
+    expect(attackWeightMul('duelist', red, block)).toBeGreaterThan(attackWeightMul('duelist', blue, block));
+    const swing = { ...block, blocking: false, attacking: true };
+    expect(attackWeightMul('duelist', blue, swing)).toBeGreaterThan(attackWeightMul('duelist', red, swing));
+  });
+
+  it('a charger backs off when it is too close to unwind the gore', () => {
+    expect(
+      steerMode('charger', { dist: 4.1, gap: 3, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }),
+    ).toBe('backstep');
+    expect(
+      steerMode('assassin', { dist: 6, gap: 5, preferred: 0, cool: 1, los: true, wantAttack: false, chargeMin: 5, chargeMax: 14 }),
+    ).toBe('flank');
+    expect(
+      steerMode('sniper', { dist: 6, gap: 5, preferred: 13, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }),
+    ).toBe('kite');
+  });
+});
+
+function openWorld(): World {
+  return new World({
+    layout: parseLayout({
+      ...ARENA,
+      id: 'mind',
+      rows: [
+        '###############',
+        '#.............#',
+        '#.............#',
+        '#.............#',
+        '#......P......#',
+        '#.............#',
+        '#.............#',
+        '#.............#',
+        '#......E......#',
+        '#.............#',
+        '###############',
+      ],
+    }),
+    seed: 11,
+    introDelay: 0,
+  });
+}
+
+describe('enemy minds in the world', () => {
+  it('an ombra locks the caster, not the tank standing next to it', () => {
+    const world = openWorld();
+    const tank = world.addPlayer('tank', 'alexios', 0);
+    const mage = world.addPlayer('mage', 'gabryel', 1);
+    tank.x = 6;
+    tank.z = 4;
+    mage.x = 10;
+    mage.z = 4;
+    const e = world.spawnEnemy('ombra', 8, 8);
+    e.state = EState.Chase;
+    e.cool = 99;
+    e.retarget = 0;
+    world.step(0.05);
+    expect(e.target).toBe('mage');
+  });
+
+  it('wolves collapse onto the same prey', () => {
+    const world = openWorld();
+    const a = world.addPlayer('a', 'jusef', 0);
+    const b = world.addPlayer('b', 'rycard', 1);
+    a.x = 5;
+    a.z = 4;
+    b.x = 11;
+    b.z = 4;
+    const w1 = world.spawnEnemy('lupo_ombra', 5, 8);
+    const w2 = world.spawnEnemy('lupo_ombra', 6, 8);
+    for (const w of [w1, w2]) {
+      w.state = EState.Chase;
+      w.cool = 99;
+      w.retarget = 0;
+    }
+    world.step(0.05);
+    w2.retarget = 0;
+    world.step(0.05);
+    expect(w1.target).toBe(w2.target);
+    expect(w1.target).toBe('a');
+  });
+
+  it('a cultista throws the red thrust at a blocking Alexios', () => {
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'alexios', 0);
+    const e = world.spawnEnemy('cultista', p.x, p.z + 3.2);
+    e.state = EState.Chase;
+    e.cool = 0;
+    p.act = Act.Block;
+    let sawRed = false;
+    for (let i = 0; i < 40 && !sawRed; i++) {
+      p.act = Act.Block;
+      p.hp = HEROES.alexios.hp;
+      world.step(0.05);
+      if (e.state === EState.Windup && ENEMIES.cultista.attacks[e.atk]?.kind === 'red') sawRed = true;
+    }
+    expect(sawRed).toBe(true);
+  });
+
+  it('a cinghiale steps back to set up its charge', () => {
+    const world = openWorld();
+    const p = world.addPlayer('a', 'gabryel', 0);
+    p.x = 7;
+    p.z = 5;
+    const e = world.spawnEnemy('cinghiale_murge', p.x, p.z + 4.2);
+    e.state = EState.Chase;
+    e.cool = 0;
+    const before = Math.hypot(e.x - p.x, e.z - p.z);
+    for (let i = 0; i < 8; i++) {
+      p.hp = HEROES.gabryel.hp;
+      p.act = Act.Idle;
+      world.step(0.05);
+    }
+    expect(Math.hypot(e.x - p.x, e.z - p.z)).toBeGreaterThan(before);
+  });
+
+  it('an elite announces the strategy to beat it', () => {
+    const world = makeWorld();
+    world.addPlayer('a', 'jusef', 0);
+    world.events.length = 0;
+    world.spawnEnemy('inquisitore', 8, 8);
+    const hints = world.events.filter((ev) => ev.e === 'hint');
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toMatchObject({ e: 'hint', text: personaOf('inquisitore').strategy });
+  });
+});

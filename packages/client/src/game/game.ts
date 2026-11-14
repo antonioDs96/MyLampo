@@ -30,6 +30,7 @@ import {
   unpackEnemy,
   xpProgress,
   yawOf,
+  personaOf,
   buildHub,
   createProceduralRuntime,
   currentLayout,
@@ -1816,6 +1817,7 @@ export class Game {
       } else {
         const fallen = this.alliesLite.find((a) => a.downed && a.id !== me.id && Math.hypot(a.x - meX, a.z - meZ) <= TUNING.reviveRange);
         if (fallen) prompt = `Tieni premuto [F] per rialzare ${this.nameOf(fallen.id)}`;
+        else if (lock) prompt = personaOf(lock.type).strategy;
         else if (info.kind === 'hub' && this.nearTable(me)) prompt = '[F] Tavola del Consiglio — bacheca contratti';
         else if (info.kind === 'mission' && lobby?.objective?.includes('[F]')) prompt = lobby.objective;
         else if (info.kind === 'mission' && info.contractKind === 'GATHERING_RUN') prompt = '[F] Estrai risorsa (se vicino al nodo)';
