@@ -11,9 +11,11 @@ import { avgDice, getItem, rollDice } from '../src/itemsCatalog';
 import {
   awardPartyXp,
   emptyInventory,
+  sanitizeInventory,
   spawnKillLoot,
   stepLootPhysics,
   tryClaimDrop,
+  type GroundDrop,
 } from '../src/lootSystem';
 import { levelFromXp, xpToNext } from '../src/progress';
 
@@ -105,5 +107,45 @@ describe('loot system', () => {
     expect(claim.ok).toBe(true);
     expect(claim.sharedXp).toBeGreaterThan(0);
     expect(claim.bonusXp).toBeGreaterThan(0);
+  });
+
+  it('keeps equipment in the bag and does not eat a drop it cannot store', () => {
+    const inv = emptyInventory('fabyorn', { starter: true });
+    const sword: GroundDrop = {
+      dropId: 'd-sword',
+      kind: 'equipment',
+      x: 0,
+      z: 0,
+      vx: 0,
+      vz: 0,
+      vy: 0,
+      amount: 1,
+      itemId: 'longsword',
+      age: 0,
+      ttl: 120,
+    };
+    const claim = tryClaimDrop(sword, 'p', inv);
+    expect(claim.ok).toBe(true);
+    expect(inv.bag.map((i) => i.itemId)).toEqual(['longsword']);
+    expect(tryClaimDrop(sword, 'q', inv).ok).toBe(false);
+    expect(inv.bag).toHaveLength(1);
+
+    const bogus: GroundDrop = { ...sword, dropId: 'd-bogus', itemId: 'not_a_real_item', claimedBy: undefined };
+    expect(tryClaimDrop(bogus, 'p', inv).ok).toBe(false);
+    expect(bogus.claimedBy).toBeUndefined();
+    expect(inv.bag).toHaveLength(1);
+  });
+
+  it('restores saved loot without dropping the starter kit or unknown ids', () => {
+    const saved = sanitizeInventory('fabyorn', {
+      gold: 40,
+      bag: [
+        { uid: 'loot-sword', itemId: 'longsword', qty: 1 },
+        { uid: 'nope', itemId: 'void_blade', qty: 9 },
+      ],
+    });
+    expect(saved?.bag.map((i) => i.itemId)).toEqual(['longsword']);
+    expect(saved?.gold).toBe(40);
+    expect(saved?.mainHand).toBeNull();
   });
 });

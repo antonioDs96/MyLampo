@@ -217,7 +217,13 @@ export class World {
 
   // ---------------------------------------------------------------- players
 
-  addPlayer(id: string, hero: HeroId, slot: number, level = 1, opts?: { starterGear?: boolean }): PlayerState {
+  addPlayer(
+    id: string,
+    hero: HeroId,
+    slot: number,
+    level = 1,
+    opts?: { starterGear?: boolean; inventory?: HeroInventory },
+  ): PlayerState {
     const spawns = this.layout.playerSpawns;
     const s = spawns[slot % spawns.length]!;
     const vitals = scaledHeroVitals(HEROES[hero], level);
@@ -238,7 +244,10 @@ export class World {
         heals: 0,
       });
     }
-    if (!this.inventories.has(id) || this.inventories.get(id)!.hero !== hero) {
+    const carried = opts?.inventory?.hero === hero ? opts.inventory : undefined;
+    if (carried) {
+      this.inventories.set(id, carried);
+    } else if (!this.inventories.has(id) || this.inventories.get(id)!.hero !== hero) {
       const inv = emptyInventory(hero, { starter: !!opts?.starterGear });
       inv.pe = 0;
       this.inventories.set(id, inv);
@@ -263,6 +272,15 @@ export class World {
     this.liveStats.delete(id);
     this.skillBonusUntil.delete(id);
     this.vexation.delete(id);
+  }
+
+  /** Swap in a restored sheet and recompute the hero's live stats. */
+  installInventory(id: string, inv: HeroInventory): boolean {
+    const p = this.players.get(id);
+    if (!p || inv.hero !== p.hero) return false;
+    this.inventories.set(id, inv);
+    this.refreshLiveStats(id);
+    return true;
   }
 
   /** Sync PE book from client progress into the live inventory. */

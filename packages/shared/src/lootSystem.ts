@@ -3,7 +3,7 @@
  * Room authority owns drops; first claimer wins (anti-loot-race).
  */
 import type { AbilityId, MegabonkTomeId } from './dndMegabonkRules';
-import { abilityMod, HERO_DND_PROFILES } from './dndMegabonkRules';
+import { ABILITY_IDS, abilityMod, HERO_DND_PROFILES, MEGABONK_TOMES } from './dndMegabonkRules';
 import {
   getItem,
   makeInstance,
@@ -135,6 +135,179 @@ export function emptyInventory(hero: HeroId, opts?: { starter?: boolean }): Hero
     inv.belt[0] = makeInstance('potion_healing', 2);
   }
   return inv;
+}
+
+const TOME_IDS = new Set<string>(Object.keys(MEGABONK_TOMES));
+
+function cleanUid(raw: unknown, fallback: string): string {
+  const s = String(raw ?? '').slice(0, 40);
+  return /^[a-zA-Z0-9_-]+$/.test(s) ? s : fallback;
+}
+
+function cleanInst(raw: unknown, fallbackUid: string): ItemInstance | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const itemId = String(o.itemId ?? '');
+  if (!getItem(itemId)) return null;
+  const qty = Math.max(1, Math.min(99, Math.floor(Number(o.qty) || 1)));
+  return { uid: cleanUid(o.uid, fallbackUid), itemId, qty };
+}
+
+/** True when the sheet still holds something worth restoring (loot, gold, tomes, PE). */
+export function inventoryHasProgress(inv: HeroInventory): boolean {
+  if (inv.gold > 0 || inv.pe > 0 || inv.bag.length > 0 || inv.tomes.length > 0 || inv.asiPoints > 0) return true;
+  if (inv.pendingCards.length > 0 || inv.mainHand || inv.offHand || inv.armor || inv.relic) return true;
+  if (inv.belt.some(Boolean)) return true;
+  return Object.values(inv.asiSpends).some((n) => (n ?? 0) > 0);
+}
+
+/**
+ * Hub spawn mints this exact kit. World rebuilds must not treat it as earned loot,
+ * and a saved sheet may replace it. Any extra bag item, coin, tome or spent potion
+ * means the run has already diverged.
+ */
+export function isUntouchedStarter(inv: HeroInventory): boolean {
+  if (inv.bag.length > 0 || inv.tomes.length > 0 || inv.pendingCards.length > 0 || inv.relic) return false;
+  if (inv.asiPoints > 0 || Object.values(inv.asiSpends).some((n) => (n ?? 0) > 0)) return false;
+  const load = STARTER_LOADOUT[inv.hero];
+  if (!load) {
+    return inv.gold === 0 && !inv.mainHand && !inv.offHand && !inv.armor && inv.belt.every((s) => !s);
+  }
+  if (inv.gold !== 15) return false;
+  if (inv.mainHand?.itemId !== load.mainHand) return false;
+  if ((inv.offHand?.itemId ?? undefined) !== load.offHand) return false;
+  if ((inv.armor?.itemId ?? undefined) !== load.armor) return false;
+  const potion = inv.belt[0];
+  if (!potion || potion.itemId !== 'potion_healing' || potion.qty !== 2) return false;
+  return inv.belt.slice(1).every((s) => !s);
+}
+
+/** A partial blob (PE only) must not wipe the starter kit. A full saved sheet may. */
+function canReplaceStarter(saved: HeroInventory): boolean {
+  const load = STARTER_LOADOUT[saved.hero];
+  if (load?.mainHand && !saved.mainHand) return false;
+  if (load?.offHand && !saved.offHand) return false;
+  if (load?.armor && !saved.armor) return false;
+  return inventoryHasProgress(saved);
+}
+
+/**
+ * Fold a saved sheet into the live one.
+ * Equipped slots already filled stay; bag loot is added by uid so nothing already
+ * picked up this session is dropped and starter gear is not duplicated.
+ */
+export function absorbSavedLoot(into: HeroInventory, saved: HeroInventory): HeroInventory {
+  into.gold = Math.max(into.gold, saved.gold);
+  into.pe = Math.max(into.pe, saved.pe);
+  into.asiPoints = Math.max(into.asiPoints, saved.asiPoints);
+  for (const id of ABILITY_IDS) {
+    const n = Math.max(into.asiSpends[id] ?? 0, saved.asiSpends[id] ?? 0);
+    if (n > 0) into.asiSpends[id] = n;
+  }
+  for (const t of saved.tomes) if (!into.tomes.includes(t)) into.tomes.push(t);
+  if (!into.pendingCards.length && saved.pendingCards.length) into.pendingCards = [...saved.pendingCards];
+
+  const have = new Set<string>();
+  const note = (inst: ItemInstance | null | undefined) => {
+    if (inst) have.add(inst.uid);
+  };
+  note(into.mainHand);
+  note(into.offHand);
+  note(into.armor);
+  note(into.relic);
+  for (const s of into.belt) note(s);
+  for (const i of into.bag) note(i);
+
+  const give = (inst: ItemInstance | null | undefined): ItemInstance | null => {
+    if (!inst || have.has(inst.uid) || into.bag.length >= 40) return null;
+    have.add(inst.uid);
+    return inst;
+  };
+  if (!into.mainHand) into.mainHand = give(saved.mainHand);
+  if (!into.offHand) into.offHand = give(saved.offHand);
+  if (!into.armor) into.armor = give(saved.armor);
+  if (!into.relic) into.relic = give(saved.relic);
+  for (let i = 0; i < into.belt.length; i++) {
+    if (!into.belt[i]) into.belt[i] = give(saved.belt[i]);
+  }
+  for (const inst of saved.bag) {
+    const kept = give(inst);
+    if (kept) into.bag.push(kept);
+  }
+  return into;
+}
+
+/**
+ * Rebuild a client-sent sheet. Unknown item ids are dropped. Returns null when
+ * the payload isn't an object.
+ */
+export function sanitizeInventory(hero: HeroId, raw: unknown): HeroInventory | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const inv = emptyInventory(hero, { starter: false });
+  inv.gold = Math.max(0, Math.min(999_999, Math.floor(Number(o.gold) || 0)));
+  inv.pe = Math.max(0, Math.min(400_000, Math.floor(Number(o.pe) || 0)));
+  inv.asiPoints = Math.max(0, Math.min(40, Math.floor(Number(o.asiPoints) || 0)));
+  inv.mainHand = cleanInst(o.mainHand, `mh_${hero}`);
+  inv.offHand = cleanInst(o.offHand, `oh_${hero}`);
+  inv.armor = cleanInst(o.armor, `ar_${hero}`);
+  inv.relic = cleanInst(o.relic, `rl_${hero}`);
+  if (Array.isArray(o.belt)) {
+    for (let i = 0; i < 4; i++) inv.belt[i] = cleanInst(o.belt[i], `belt_${hero}_${i}`);
+  }
+  const seen = new Set<string>();
+  const claim = (inst: ItemInstance | null): inst is ItemInstance => {
+    if (!inst || seen.has(inst.uid)) return false;
+    seen.add(inst.uid);
+    return true;
+  };
+  if (!claim(inv.mainHand)) inv.mainHand = null;
+  if (!claim(inv.offHand)) inv.offHand = null;
+  if (!claim(inv.armor)) inv.armor = null;
+  if (!claim(inv.relic)) inv.relic = null;
+  for (let i = 0; i < 4; i++) if (!claim(inv.belt[i]!)) inv.belt[i] = null;
+  if (Array.isArray(o.bag)) {
+    for (const rawItem of o.bag) {
+      if (inv.bag.length >= 40) break;
+      const inst = cleanInst(rawItem, `bag_${hero}_${inv.bag.length}`);
+      if (claim(inst)) inv.bag.push(inst);
+    }
+  }
+  if (Array.isArray(o.tomes)) {
+    for (const t of o.tomes) {
+      if (inv.tomes.length >= 24) break;
+      if (typeof t === 'string' && TOME_IDS.has(t)) inv.tomes.push(t as MegabonkTomeId);
+    }
+  }
+  if (o.asiSpends && typeof o.asiSpends === 'object') {
+    for (const id of ABILITY_IDS) {
+      const n = Math.floor(Number((o.asiSpends as Record<string, unknown>)[id]) || 0);
+      if (n > 0) inv.asiSpends[id] = Math.min(20, n);
+    }
+  }
+  if (Array.isArray(o.pendingCards)) {
+    for (const t of o.pendingCards) {
+      if (inv.pendingCards.length >= 3) break;
+      if (typeof t === 'string' && TOME_IDS.has(t) && !inv.pendingCards.includes(t as MegabonkTomeId)) {
+        inv.pendingCards.push(t as MegabonkTomeId);
+      }
+    }
+  }
+  return inv;
+}
+
+/**
+ * Apply a saved sheet without deleting gear the hero already carries.
+ * An untouched starter kit is replaced by a complete save; a partial save is merged in.
+ */
+export function restoreSavedGear(current: HeroInventory | undefined, saved: HeroInventory): HeroInventory {
+  if (!inventoryHasProgress(saved)) return current ?? saved;
+  if (!current) {
+    if (canReplaceStarter(saved)) return saved;
+    return absorbSavedLoot(emptyInventory(saved.hero, { starter: true }), saved);
+  }
+  if (isUntouchedStarter(current) && canReplaceStarter(saved)) return saved;
+  return absorbSavedLoot(current, saved);
 }
 
 /** Challenge rating proxy from enemy def (no CR field yet). */
@@ -362,6 +535,10 @@ export function tryClaimDrop(
 ): LootClaimResult {
   if (drop.claimedBy) return { ok: false, reason: 'already_claimed' };
   drop.claimedBy = playerId;
+  const reject = (reason: string): LootClaimResult => {
+    drop.claimedBy = undefined;
+    return { ok: false, reason };
+  };
 
   if (drop.kind === 'gem') {
     const shared = drop.amount;
@@ -379,9 +556,9 @@ export function tryClaimDrop(
     return { ok: true, gold: drop.amount, toast: `+${drop.amount} mo` };
   }
 
-  if (!drop.itemId) return { ok: false, reason: 'empty' };
+  if (!drop.itemId) return reject('empty');
   const def = getItem(drop.itemId);
-  if (!def) return { ok: false, reason: 'unknown_item' };
+  if (!def) return reject('unknown_item');
 
   // Arena instant pickups
   if (def.kind === 'arena') {

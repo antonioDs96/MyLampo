@@ -152,8 +152,8 @@ export type ClientMsg =
   | { t: 'hub' }
   | { t: 'ping'; at: number }
   | { t: 'rtt'; ms: number }
-  /** Sync local hero XP book (heroId → total xp). */
-  | { t: 'progress'; xp: Record<string, number> }
+  /** Sync local hero XP book (heroId → total xp) and the saved inventory sheets. */
+  | { t: 'progress'; xp: Record<string, number>; gear?: Record<string, unknown> }
   /** Use consumable in belt slot 0–3. */
   | { t: 'useBelt'; slot: number }
   /** Pick Megabonk level-up card 0–2. */

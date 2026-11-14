@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Act, HEROES, HERO_IDS, MAX_PLAYERS, MISSIONS, type HeroId } from '@malampu/shared';
+import { Act, HEROES, HERO_IDS, MAX_PLAYERS, MISSIONS, type GroundDrop, type HeroId } from '@malampu/shared';
 import { Party } from './party';
 
 const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
@@ -196,5 +196,129 @@ describe('missions played by bots', () => {
     party.host.onMessage('bot1', { t: 'hero', hero: 'rycard' });
     expect(party.errors.at(-1)).toMatch(/taverna/);
     expect(party.lobby.players[0]!.hero).toBe('anthon');
+  });
+});
+
+describe('loot stays in the inventory', () => {
+  it('keeps picked-up gear across the next stage, the hub and a hero swap', () => {
+    const party = new Party(7);
+    const id = party.add('fabyorn');
+    party.host.onMessage(id, { t: 'mission', id: 'kaza' });
+    party.host.onMessage(id, { t: 'start' });
+    expect(party.host.phase).toBe('mission');
+
+    const world = party.host.world;
+    const hero = world.players.get(id)!;
+    const drop: GroundDrop = {
+      dropId: 'd-loot',
+      kind: 'equipment',
+      x: hero.x,
+      z: hero.z,
+      vx: 0,
+      vz: 0,
+      vy: 0,
+      amount: 1,
+      itemId: 'longsword',
+      age: 0,
+      ttl: 120,
+    };
+    world.loot.push(drop);
+    for (let i = 0; i < 3; i++) party.tick(false);
+
+    const looted = world.getInventory(id)!;
+    expect(looted.bag.some((i) => i.itemId === 'longsword')).toBe(true);
+    looted.gold = 55;
+    looted.tomes.push('fortuna');
+
+    world.waveState = 'done';
+    party.run(5);
+    expect(party.host.stage).toBe(1);
+    expect(party.host.phase).toBe('mission');
+
+    const staged = party.host.world.getInventory(id)!;
+    expect(staged.bag.some((i) => i.itemId === 'longsword')).toBe(true);
+    expect(staged.gold).toBe(55);
+    expect(staged.tomes).toContain('fortuna');
+    expect(staged.mainHand?.itemId).toBe('greatsword');
+
+    party.host.onMessage(id, { t: 'hub' });
+    expect(party.host.phase).toBe('hub');
+    const hub = party.host.world.getInventory(id)!;
+    expect(hub.bag.some((i) => i.itemId === 'longsword')).toBe(true);
+    expect(hub.gold).toBe(55);
+    expect(hub.tomes).toContain('fortuna');
+
+    party.host.onMessage(id, { t: 'hero', hero: 'anthon' });
+    expect(party.host.world.getInventory(id)!.hero).toBe('anthon');
+    expect(party.host.world.getInventory(id)!.bag.some((i) => i.itemId === 'longsword')).toBe(false);
+    party.host.onMessage(id, { t: 'hero', hero: 'fabyorn' });
+    const back = party.host.world.getInventory(id)!;
+    expect(back.hero).toBe('fabyorn');
+    expect(back.bag.some((i) => i.itemId === 'longsword')).toBe(true);
+    expect(back.gold).toBe(55);
+    expect(back.tomes).toContain('fortuna');
+  });
+
+  it('restores a saved sheet onto the starter kit and will not drop session loot', () => {
+    const party = new Party(3);
+    const id = party.add('fabyorn');
+    party.host.onMessage(id, {
+      t: 'progress',
+      xp: { fabyorn: 0 },
+      gear: {
+        fabyorn: {
+          gold: 40,
+          bag: [{ uid: 'loot-sword', itemId: 'longsword', qty: 1 }],
+        },
+      },
+    });
+    const restored = party.host.world.getInventory(id)!;
+    expect(restored.mainHand?.itemId).toBe('greatsword');
+    expect(restored.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
+    expect(restored.gold).toBe(40);
+
+    restored.bag.push({ uid: 'session-mace', itemId: 'mace', qty: 1 });
+    restored.gold = 90;
+    party.host.onMessage(id, {
+      t: 'progress',
+      xp: { fabyorn: 0 },
+      gear: {
+        fabyorn: {
+          gold: 10,
+          mainHand: { uid: 'old-axe', itemId: 'greataxe', qty: 1 },
+          bag: [{ uid: 'old-dagger', itemId: 'dagger', qty: 1 }],
+        },
+      },
+    });
+    const live = party.host.world.getInventory(id)!;
+    expect(live.mainHand?.itemId).toBe('greatsword');
+    expect(live.gold).toBe(90);
+    expect(live.bag.map((i) => i.uid).sort()).toEqual(['loot-sword', 'old-dagger', 'session-mace']);
+  });
+
+  it('applies a saved sheet received before the hero is chosen, and ignores an empty one', () => {
+    const party = new Party(11);
+    expect(party.host.join('late', 'Late')).toBe(true);
+    party.host.onMessage('late', {
+      t: 'progress',
+      xp: { fabyorn: 0 },
+      gear: {
+        fabyorn: { gold: 40, bag: [{ uid: 'loot-sword', itemId: 'longsword', qty: 1 }] },
+        jusef: {},
+      },
+    });
+    party.host.onMessage('late', { t: 'hero', hero: 'fabyorn' });
+    const inv = party.host.world.getInventory('late')!;
+    expect(inv.mainHand?.itemId).toBe('greatsword');
+    expect(inv.armor?.itemId).toBe('hide');
+    expect(inv.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
+    expect(inv.gold).toBe(40);
+
+    party.host.onMessage('late', { t: 'hero', hero: '' });
+    party.host.onMessage('late', { t: 'hero', hero: 'jusef' });
+    const jusef = party.host.world.getInventory('late')!;
+    expect(jusef.hero).toBe('jusef');
+    expect(jusef.mainHand?.itemId).toBe('rapier');
+    expect(jusef.gold).toBe(15);
   });
 });

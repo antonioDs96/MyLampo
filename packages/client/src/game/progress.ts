@@ -1,6 +1,7 @@
-import { HERO_IDS, type HeroId } from '@malampu/shared';
+import { HERO_IDS, type HeroId, type HeroInventory } from '@malampu/shared';
 
 const KEY = 'malampu.progress.v1';
+const GEAR_KEY = 'malampu.gear.v1';
 
 export type ProgressBook = Partial<Record<HeroId, number>>;
 
@@ -23,6 +24,30 @@ export function loadProgress(): ProgressBook {
 export function saveProgress(book: ProgressBook): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(book));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+/** Saved sheets, keyed by hero. Unknown shapes are ignored on the server. */
+export function loadGear(): Record<string, unknown> {
+  try {
+    const raw = localStorage.getItem(GEAR_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** Remember the sheet so a reload doesn't mint a fresh starter kit over the loot. */
+export function saveGear(hero: HeroId, inv: HeroInventory): void {
+  try {
+    const all = loadGear();
+    all[hero] = inv;
+    localStorage.setItem(GEAR_KEY, JSON.stringify(all));
   } catch {
     /* private mode / quota */
   }

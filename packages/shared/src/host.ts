@@ -5,7 +5,7 @@
  */
 import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
 import { HEROES, isHeroId } from './heroes';
-import { CELL, collide, nearestFloor, parseLayout } from './layout';
+import { collide, nearestFloor, parseLayout } from './layout';
 import { HUB_LINES } from './lore';
 import { MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
 import { clonePlayer, neutralCmd } from './player';
@@ -22,8 +22,9 @@ import {
   type Snapshot,
   type WorldInfo,
 } from './protocol';
+import { inventoryHasProgress, restoreSavedGear, sanitizeInventory, type HeroInventory } from './lootSystem';
 import { awardXp, levelFromXp } from './progress';
-import { Act, EState, type HeroId, type InputCmd } from './types';
+import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
 import { World, type PlayerStats } from './world';
 import {
   ALL_HUBS,
@@ -114,6 +115,12 @@ export class GameHost {
   private gateArmAt = 0;
   /** Solo / offline UI pause — freezes sim clock without dropping the world. */
   private paused = false;
+  /**
+   * Inventory lives on the hero, not on the current World. A new stage, zone or
+   * tavern used to mint a fresh starter kit and the loot picked up in the previous
+   * room vanished from the sheet.
+   */
+  private readonly stash = new Map<string, Map<HeroId, HeroInventory>>();
 
   constructor(io: HostIO, code: string, seed: number) {
     this.io = io;
@@ -168,6 +175,7 @@ export class GameHost {
 
   leave(id: string): void {
     if (!this.clients.delete(id)) return;
+    this.stash.delete(id);
     this.world.removePlayer(id);
     if (this.hostId === id) this.hostId = this.clients.keys().next().value ?? '';
     this.sendLobby();
@@ -281,7 +289,7 @@ export class GameHost {
         break;
       }
       case 'progress':
-        this.mergeProgress(c, msg.xp);
+        this.mergeProgress(c, msg.xp, msg.gear);
         break;
       case 'useBelt':
         if (this.world.useBelt(id, Number(msg.slot) | 0)) this.sendInv(id);
@@ -306,20 +314,68 @@ export class GameHost {
     this.io.send(id, { t: 'inv', id, inv });
   }
 
-  private mergeProgress(c: Client, raw: unknown): void {
-    if (!raw || typeof raw !== 'object') return;
-    const next = { ...c.xp };
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (!isHeroId(k)) continue;
-      const n = Number(v);
-      if (!Number.isFinite(n) || n < 0) continue;
-      // Take the higher total so offline gains and server awards never regress.
-      next[k] = Math.max(next[k] ?? 0, Math.floor(n));
+  private mergeProgress(c: Client, raw: unknown, gearRaw?: unknown): void {
+    if (raw && typeof raw === 'object') {
+      const next = { ...c.xp };
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (!isHeroId(k)) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) continue;
+        // Take the higher total so offline gains and server awards never regress.
+        next[k] = Math.max(next[k] ?? 0, Math.floor(n));
+      }
+      c.xp = next;
     }
-    c.xp = next;
+    if (gearRaw && typeof gearRaw === 'object' && !Array.isArray(gearRaw)) {
+      for (const [k, v] of Object.entries(gearRaw as Record<string, unknown>)) {
+        if (!isHeroId(k)) continue;
+        const saved = sanitizeInventory(k, v);
+        if (saved) this.adoptGear(c.id, k, saved);
+      }
+    }
     if (c.hero) this.world.syncPe(c.id, c.xp[c.hero] ?? 0);
     this.sendLobby();
     this.sendInv(c.id);
+  }
+
+  private putStash(id: string, hero: HeroId, inv: HeroInventory): void {
+    let book = this.stash.get(id);
+    if (!book) this.stash.set(id, (book = new Map()));
+    book.set(hero, inv);
+  }
+
+  /** Remember every sheet currently in a world before that world is discarded. */
+  private captureWorldInventories(world: World | undefined): void {
+    if (!world) return;
+    for (const [id, inv] of world.inventories) this.putStash(id, inv.hero, inv);
+  }
+
+  /**
+   * Put the hero's sheet into a world. A brand-new hero gets the starter kit;
+   * anyone who already looted keeps that same sheet across rooms and the tavern.
+   */
+  private placeHero(world: World, c: Client, hero: HeroId): PlayerState {
+    const kept = this.stash.get(c.id)?.get(hero);
+    const p = world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero), {
+      starterGear: !kept,
+      inventory: kept,
+    });
+    world.syncPe(c.id, c.xp[hero] ?? 0);
+    const inv = world.getInventory(c.id);
+    if (inv) this.putStash(c.id, hero, inv);
+    return p;
+  }
+
+  /** Fold a saved sheet into the live one. Never deletes gear already in hand. */
+  private adoptGear(id: string, hero: HeroId, saved: HeroInventory): void {
+    // An empty blob must not occupy the stash, or the next spawn skips the starter kit.
+    if (!inventoryHasProgress(saved)) return;
+    const player = this.world.players.get(id);
+    const live = player?.hero === hero ? this.world.getInventory(id) : undefined;
+    const current = live ?? this.stash.get(id)?.get(hero);
+    const next = restoreSavedGear(current, saved);
+    if (live) this.world.installInventory(id, next);
+    this.putStash(id, hero, next);
   }
 
   private levelOf(c: Client, hero: HeroId | ''): number {
@@ -328,9 +384,9 @@ export class GameHost {
   }
 
   private spawnHero(c: Client, hero: HeroId): void {
+    this.captureWorldInventories(this.world);
     this.world.removePlayer(c.id);
-    this.world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero), { starterGear: true });
-    this.world.syncPe(c.id, c.xp[hero] ?? 0);
+    this.placeHero(this.world, c, hero);
     this.sendInv(c.id);
   }
 
@@ -396,6 +452,7 @@ export class GameHost {
   }
 
   private loadHub(): void {
+    this.captureWorldInventories(this.world);
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     this.proc = null;
     const hubMap = buildHub(this.hubId);
@@ -458,6 +515,7 @@ export class GameHost {
     const rt = this.proc;
     if (!rt) return;
     const old = this.world;
+    this.captureWorldInventories(old);
     const layout = currentLayout(rt);
     const waves = wavesForZone(rt);
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
@@ -469,7 +527,7 @@ export class GameHost {
     });
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
-      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero), { starterGear: !carry });
+      const p = this.placeHero(world, c, c.hero);
       const prev = carry ? old.players.get(c.id) : undefined;
       if (prev && !fresh) {
         const keep = clonePlayer(prev);
@@ -481,11 +539,6 @@ export class GameHost {
       if (carry) {
         const st = old.stats.get(c.id);
         if (st) world.stats.set(c.id, st);
-        const inv = old.getInventory(c.id);
-        if (inv) {
-          world.inventories.set(c.id, inv);
-          this.sendInv(c.id);
-        }
       }
     }
     const zone = layout;
@@ -493,6 +546,7 @@ export class GameHost {
     const hint = waves[0]?.hint;
     if (hint) world.events.push({ e: 'say', who: 'Carlos', text: hint });
     this.world = world;
+    for (const c of this.clients.values()) this.sendInv(c.id);
     this.stage = rt.zoneIndex;
     this.announce({
       wid: ++this.wid,
@@ -519,6 +573,7 @@ export class GameHost {
     const mission = this.mission();
     const def = mission.stages[stage]!;
     const old = this.world;
+    this.captureWorldInventories(old);
     const mutation = !!def.mutation && carry;
     this.stage = stage;
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
@@ -535,7 +590,7 @@ export class GameHost {
     });
     for (const c of this.clients.values()) {
       if (!c.hero) continue;
-      const p = world.addPlayer(c.id, c.hero, this.slotOf(c.id), this.levelOf(c, c.hero), { starterGear: true });
+      const p = this.placeHero(world, c, c.hero);
       const prev = carry ? old.players.get(c.id) : undefined;
       if (prev && !fresh) {
         const keep = clonePlayer(prev);
@@ -558,6 +613,7 @@ export class GameHost {
     }
     for (const line of def.intro ?? []) world.events.push({ e: 'say', who: line.who, text: line.text });
     this.world = world;
+    for (const c of this.clients.values()) this.sendInv(c.id);
     this.announce({
       wid: ++this.wid,
       kind: 'mission',

@@ -67,7 +67,7 @@ import { ChaseCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
 import { Input, type InputFrame } from './input';
 import { ENEMY_LOOKS, HERO_LOOKS, type RGB } from './looks';
-import { loadProgress, mergeProgress, type ProgressBook } from './progress';
+import { loadGear, loadProgress, mergeProgress, saveGear, type ProgressBook } from './progress';
 import { Vfx } from './vfx';
 
 const BLUE: RGB = [0.25, 0.65, 1];
@@ -277,7 +277,11 @@ export class Game {
     this.lastPing = 0;
     this.rtt = 0;
     this.progress = loadProgress();
-    this.send({ t: 'progress', xp: this.progress as Record<string, number> });
+    this.sendProgress();
+  }
+
+  private sendProgress(): void {
+    this.send({ t: 'progress', xp: this.progress as Record<string, number>, gear: loadGear() });
   }
 
   private leave(reason: string): void {
@@ -341,6 +345,7 @@ export class Game {
     const hero = this.myHero();
     if (hero) {
       this.progress = mergeProgress(this.progress, hero, inv.pe);
+      saveGear(hero, inv);
       if (this.sheet.isOpen) this.sheet.render(hero, inv);
       if (inv.pendingCards.length) {
         this.hud.showLevelCards(
@@ -432,7 +437,7 @@ export class Game {
         break;
       case 'xp': {
         this.progress = mergeProgress(this.progress, msg.hero, msg.xp);
-        this.send({ t: 'progress', xp: this.progress as Record<string, number> });
+        this.sendProgress();
         this.hud.setXp(msg.xp, true);
         const hero = HEROES[msg.hero];
         if (msg.level > msg.prevLevel) {
