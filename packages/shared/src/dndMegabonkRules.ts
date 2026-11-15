@@ -234,11 +234,11 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     clazz: 'Bardo / Monaco della Danza',
     hitDie: 8,
     primaries: ['DES', 'CAR'],
-    scores: { FOR: 10, DES: 16, COS: 12, INT: 13, SAG: 14, CAR: 15 },
+    scores: { FOR: 10, DES: 17, COS: 11, INT: 13, SAG: 14, CAR: 15 },
     saveProf: ['DES', 'CAR'],
     skills: ['Acrobazia', 'Intrattenere', 'Intuizione', 'Inganno', 'Furtività', 'Percezione'],
     mastery: ['Intuizione', 'Intrattenere'],
-    notes: 'Danza della Memoria. La schivata è una piroetta. Intolleranza al lattosio: le pozioni di guarigione curano a metà. Legame con Anthon.',
+    notes: 'Skirmisher CC: immunità ai slow, piroetta, lattosio ½ cura, vincolo +12% con Anthon.',
   },
 };
 
