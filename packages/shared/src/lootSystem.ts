@@ -2,6 +2,7 @@
  * Megabonk-style loot: magnetic XP gems, gold coins, equipment orbs & arena pickups.
  * Room authority owns drops; first claimer wins (anti-loot-race).
  */
+import { PROGRESS_EPOCH } from './arcadeKits';
 import type { AbilityId, MegabonkTomeId } from './dndMegabonkRules';
 import { ABILITY_IDS, abilityMod, HERO_DND_PROFILES, MEGABONK_TOMES } from './dndMegabonkRules';
 import {
@@ -78,6 +79,8 @@ export interface HeroInventory {
   pendingCards: MegabonkTomeId[];
   /** Run XP (PE) total for D&D table. */
   pe: number;
+  /** When below PROGRESS_EPOCH, PE / ASI / tomes are wiped on load. */
+  progressEpoch: number;
 }
 
 export interface LootClaimResult {
@@ -126,6 +129,7 @@ export function emptyInventory(hero: HeroId, opts?: { starter?: boolean }): Hero
     asiPoints: 0,
     pendingCards: [],
     pe: 0,
+    progressEpoch: PROGRESS_EPOCH,
   };
   if (opts?.starter) {
     const load = STARTER_LOADOUT[hero];
@@ -198,6 +202,7 @@ function canReplaceStarter(saved: HeroInventory): boolean {
  */
 export function absorbSavedLoot(into: HeroInventory, saved: HeroInventory): HeroInventory {
   into.gold = Math.max(into.gold, saved.gold);
+  into.progressEpoch = Math.max(into.progressEpoch, saved.progressEpoch, PROGRESS_EPOCH);
   into.pe = Math.max(into.pe, saved.pe);
   into.asiPoints = Math.max(into.asiPoints, saved.asiPoints);
   for (const id of ABILITY_IDS) {
@@ -292,6 +297,17 @@ export function sanitizeInventory(hero: HeroId, raw: unknown): HeroInventory | n
         inv.pendingCards.push(t as MegabonkTomeId);
       }
     }
+  }
+  const epoch = Math.floor(Number(o.progressEpoch) || 0);
+  inv.progressEpoch = Math.max(epoch, 0);
+  if (inv.progressEpoch < PROGRESS_EPOCH) {
+    // Arcade roster reset: wipe career level progress, keep gear / gold.
+    inv.pe = 0;
+    inv.asiPoints = 0;
+    inv.asiSpends = {};
+    inv.tomes = [];
+    inv.pendingCards = [];
+    inv.progressEpoch = PROGRESS_EPOCH;
   }
   return inv;
 }

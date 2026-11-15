@@ -1,17 +1,14 @@
 /**
- * Unified D&D 5.2.1 character sheet + inventory modal (I / P).
+ * Hero sheet + inventory: arcade roster stats, gear, bag.
  */
 import {
-  ABILITY_IDS,
-  ABILITY_LABELS,
-  computeHeroStats,
-  HERO_DND_PROFILES,
+  ARCADE_KITS,
   HEROES,
   MASTERY_LABELS,
   RARITY_COLORS,
   RARITY_LABELS,
-  SRD_LEGAL_FOOTER,
   compareItems,
+  computeHeroStats,
   getItem,
   xpProgress,
   type AbilityId,
@@ -57,10 +54,8 @@ export class CharacterSheet {
           }),
         ),
         this.body,
-        h('div', { class: 'sheet-legal', text: SRD_LEGAL_FOOTER }),
       ),
     );
-    // Allow clicking inside
     this.root.style.pointerEvents = 'auto';
     parent.append(this.root);
   }
@@ -82,7 +77,7 @@ export class CharacterSheet {
     this.heroId = heroId;
     this.inv = inv;
     const hero = HEROES[heroId];
-    const profile = HERO_DND_PROFILES[heroId];
+    const kit = ARCADE_KITS[heroId];
     const xp = xpProgress(inv.pe);
     const live = computeHeroStats(
       heroId,
@@ -99,41 +94,36 @@ export class CharacterSheet {
       { baseHp: hero.hp, baseStamina: hero.stamina, asiSpends: inv.asiSpends },
     );
 
+    const resourceLabel = kit.resourceKind === 'mana' ? 'Mana' : 'Vigore';
+
     const left = h(
       'div',
-      { class: 'sheet-col sheet-dnd' },
+      { class: 'sheet-col sheet-arcade-kit' },
       h('div', { class: 'sheet-hero-name', text: hero.name }),
-      h('div', { class: 'sheet-sub', text: `${profile.species} · ${profile.clazz}` }),
+      h('div', { class: 'sheet-sub', text: hero.role }),
       h(
         'div',
         { class: 'sheet-meta' },
         meta('Livello', String(xp.level)),
         meta('PE', `${xp.into} / ${xp.need || '—'} (${xp.total})`),
-        meta('Competenza', `+${live.proficiency}`),
-        meta('CA', String(live.ac)),
-        meta('Iniziativa', signed(live.initiative)),
-        meta('Velocità', `${(hero.speed * live.moveSpeedMul).toFixed(1)} m/s`),
-        meta('Dado Vita', `d${live.hitDie}`),
-        meta('Percezione', String(live.passivePerception)),
+        meta('Vita', String(kit.hp)),
+        meta(resourceLabel, String(kit.resource)),
+        meta('Armatura', String(kit.armor)),
+        meta('Danno Fisico', String(kit.phys)),
+        meta('Danno Speciale', String(kit.special)),
+        meta('Velocità', `${kit.movePct}%`),
+        meta('Vel. Attacco', `${kit.attackMul.toFixed(1)}×`),
+        meta('Crit %', `${kit.critChance}%`),
+        meta('Crit Mult', `${kit.critMult.toFixed(1)}×`),
+        meta('Area', String(kit.area)),
+        meta('Knockback', String(kit.knockback)),
       ),
-      h('div', { class: 'sheet-section', text: 'Caratteristiche' }),
-      h(
-        'div',
-        { class: 'sheet-abilities' },
-        ...ABILITY_IDS.map((id) => abilityRow(id, live.scores[id]!, live.mods[id]!, inv.asiPoints > 0, () => this.onAction({ t: 'asi', ability: id }))),
-      ),
-      inv.asiPoints > 0
-        ? h('div', { class: 'sheet-asi', text: `Punti Aumento Caratteristica: ${inv.asiPoints}` })
-        : null,
-      h('div', { class: 'sheet-section', text: 'Tiri Salvezza' }),
-      h('div', { class: 'sheet-list', text: profile.saveProf.map((s) => `${s} ${signed(live.mods[s]! + live.proficiency)}`).join(' · ') }),
-      h('div', { class: 'sheet-section', text: 'Abilità / Maestria' }),
-      h(
-        'div',
-        { class: 'sheet-list', text: profile.skills.map((s) => (profile.mastery.includes(s) ? `★ ${s}` : s)).join(', ') },
-      ),
-      h('div', { class: 'sheet-section', text: 'Note' }),
-      h('div', { class: 'sheet-list', text: profile.notes }),
+      h('div', { class: 'sheet-section', text: 'Passiva' }),
+      h('div', { class: 'sheet-list', text: hero.passive }),
+      h('div', { class: 'sheet-section', text: 'Abilità' }),
+      h('div', { class: 'sheet-list', text: `${hero.ability.name} — ${hero.ability.desc}` }),
+      h('div', { class: 'sheet-section', text: 'Suprema' }),
+      h('div', { class: 'sheet-list', text: `${hero.ult.name} — ${hero.ult.desc}` }),
     );
 
     const masteryLabel =
@@ -166,22 +156,20 @@ export class CharacterSheet {
           ),
         ),
       ),
-      h('div', { class: 'sheet-section', text: 'Statistiche Arcade (Megabonk)' }),
+      h('div', { class: 'sheet-section', text: 'Bonus da Equip / Run' }),
       h(
         'div',
         { class: 'sheet-arcade' },
         meta('Danno J', `×${live.lightDmgMul.toFixed(2)}`),
         meta('Danno K', `×${live.heavyDmgMul.toFixed(2)}`),
         meta('Padronanza', masteryLabel),
-        meta('Attack Speed', `${Math.round((live.attackSpeedMul - 1) * 100)}%`),
-        meta('Area Size', `${Math.round((live.areaMul - 1) * 100)}%`),
-        meta('Knockback', `${Math.round((live.knockbackMul - 1) * 100)}%`),
-        meta('Postura', `${Math.round((live.postureMul - 1) * 100)}%`),
+        meta('Attack Speed', pct(live.attackSpeedMul)),
+        meta('Area Size', pct(live.areaMul)),
+        meta('Knockback', pct(live.knockbackMul)),
+        meta('Postura', pct(live.postureMul)),
         meta('Magnete', `${live.pickupRadius.toFixed(1)} m`),
       ),
-      inv.tomes.length
-        ? h('div', { class: 'sheet-tomes', text: `Tomi: ${inv.tomes.join(', ')}` })
-        : null,
+      inv.tomes.length ? h('div', { class: 'sheet-tomes', text: `Tomi: ${inv.tomes.join(', ')}` }) : null,
     );
 
     const right = h(
@@ -255,22 +243,8 @@ function meta(k: string, v: string): HTMLElement {
   return h('div', { class: 'sheet-kv' }, h('span', { text: k }), h('b', { text: v }));
 }
 
-function signed(n: number): string {
-  return n >= 0 ? `+${n}` : String(n);
-}
-
-function abilityRow(id: AbilityId, score: number, mod: number, canSpend: boolean, onPlus: () => void): HTMLElement {
-  return h(
-    'div',
-    { class: 'sheet-ability' },
-    h('div', { class: 'sheet-ability-id', text: id }),
-    h('div', { class: 'sheet-ability-name', text: ABILITY_LABELS[id] }),
-    h('div', { class: 'sheet-ability-score', text: String(score) }),
-    h('div', { class: 'sheet-ability-mod', text: signed(mod) }),
-    canSpend
-      ? h('button', { class: 'sheet-plus', text: '+', onclick: onPlus, title: 'Spendi punto ASI' })
-      : h('span', { class: 'sheet-plus off', text: '+' }),
-  );
+function pct(mul: number): string {
+  return `${Math.round((mul - 1) * 100)}%`;
 }
 
 function slotCard(label: string, inst: ItemInstance | null): HTMLElement {
