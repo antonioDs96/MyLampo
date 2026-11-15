@@ -131,14 +131,33 @@ export class Menus {
 
   // ---------------------------------------------------------------- loading and title
 
+  /** Brutal eclipse mark: Salento landscape behind, veiled goddess sigil in front. */
+  private eclipseMark(): HTMLElement {
+    const img = new Image();
+    img.className = 'logo-sigil';
+    img.alt = '';
+    img.decoding = 'async';
+    img.src = '/brand/sigil.png';
+    return h('div', { class: 'logo-eclipse', attrs: { 'aria-hidden': 'true' } }, img);
+  }
+
+  private brandBlock(compact = false): HTMLElement {
+    return h(
+      'div',
+      { class: `logo${compact ? ' logo-compact' : ''}` },
+      this.eclipseMark(),
+      h('div', { class: 'logo-copy' }, h('h1', { text: 'MALAMPU' }), h('h2', { text: "L'Eclissi della Dea Velata" })),
+    );
+  }
+
   loading(progress: number, text: string): void {
     if (this.panel !== 'loading') {
       this.show(
         'loading',
         h(
           'div',
-          { class: 'loading' },
-          h('div', { class: 'logo' }, h('div', { class: 'logo-eclipse' }), h('h1', { text: 'MALAMPU' }), h('h2', { text: "L'Eclissi della Dea Velata" })),
+          { class: 'loading brutal-stage' },
+          this.brandBlock(true),
           h('div', { class: 'bar load' }, h('i')),
           h('div', { class: 'load-text' }),
         ),
@@ -195,33 +214,39 @@ export class Menus {
       'title',
       h(
         'div',
-        { class: 'title' },
-        h('div', { class: 'logo' }, h('div', { class: 'logo-eclipse' }), h('h1', { text: 'MALAMPU' }), h('h2', { text: "L'Eclissi della Dea Velata" })),
+        { class: 'title brutal-stage' },
+        h('h1', { class: 'title-wordmark', text: 'MALAMPU' }),
+        h('p', { class: 'title-sub', text: "L'Eclissi della Dea Velata" }),
+        h(
+          'div',
+          { class: 'title-stage' },
+          this.eclipseMark(),
+          h(
+            'div',
+            { class: `card form ${busy ? 'is-busy' : ''}` },
+            h('label', { text: 'Come ti chiami?' }),
+            name,
+            h('button', {
+              class: 'btn primary',
+              text: 'Entra nella taverna pubblica',
+              onclick: () => !busy && this.actions.joinPublic(read()),
+            }),
+            h('p', {
+              class: 'note',
+              text: `Sempre aperta (codice ${PUBLIC_ROOM_ID}): ti unisci a chi è già dentro. Se è piena se ne apre un’altra.`,
+            }),
+            h('div', { class: 'or', text: 'oppure' }),
+            h('button', { class: 'btn', text: 'Crea una stanza privata', onclick: () => !busy && this.actions.create(read()) }),
+            h('div', { class: 'row' }, code, h('button', { class: 'btn', text: 'Entra con il codice', onclick: () => !busy && join() })),
+            h('button', { class: 'btn ghost', text: 'Gioca da solo (senza server)', onclick: () => !busy && this.actions.solo(read()) }),
+            this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
+            this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
+          ),
+        ),
         h('p', {
           class: 'tagline',
           text: "L'Ordine del Sole Nero vuole spegnere ogni voce del Salento. Otto reietti, una taverna e una mappa: la Compagnia combatte insieme, mai l'uno contro l'altro.",
         }),
-        h(
-          'div',
-          { class: `card form ${busy ? 'is-busy' : ''}` },
-          h('label', { text: 'Come ti chiami?' }),
-          name,
-          h('button', {
-            class: 'btn primary',
-            text: 'Entra nella taverna pubblica',
-            onclick: () => !busy && this.actions.joinPublic(read()),
-          }),
-          h('p', {
-            class: 'note',
-            text: `Sempre aperta (codice ${PUBLIC_ROOM_ID}): ti unisci a chi è già dentro. Se è piena se ne apre un’altra.`,
-          }),
-          h('div', { class: 'or', text: 'oppure' }),
-          h('button', { class: 'btn', text: 'Crea una stanza privata', onclick: () => !busy && this.actions.create(read()) }),
-          h('div', { class: 'row' }, code, h('button', { class: 'btn', text: 'Entra con il codice', onclick: () => !busy && join() })),
-          h('button', { class: 'btn ghost', text: 'Gioca da solo (senza server)', onclick: () => !busy && this.actions.solo(read()) }),
-          this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
-          this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
-        ),
         h('p', { class: 'foot', text: 'Fino a 9 giocatori · tastiera, gamepad o comandi touch · modelli KayKit (CC0)' }),
       ),
     );
