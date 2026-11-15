@@ -76,9 +76,13 @@ function endpoint(): string {
   return location.origin;
 }
 
-function describe(err: unknown): string {
+function describe(err: unknown, pub = false): string {
   const text = err instanceof Error ? err.message : String(err);
-  if (/not found|invalid|no rooms|locked|full/i.test(text)) return 'Stanza non trovata o al completo. Controlla il codice.';
+  if (/not found|invalid|no rooms|locked|full/i.test(text)) {
+    return pub
+      ? 'La taverna pubblica non è raggiungibile adesso. Riprova tra poco.'
+      : 'Stanza non trovata o al completo. Controlla il codice.';
+  }
   return 'Impossibile raggiungere il server. Riprova tra poco, oppure gioca in solitaria.';
 }
 
@@ -99,14 +103,18 @@ export class RemoteConnection implements Connection {
     room.onError((_code: number, message?: string) => console.warn('room error', message));
   }
 
-  /** Creates a new room, or joins the one with the given code. */
-  static async open(name: string, code: string | null): Promise<RemoteConnection> {
+  /** Creates a private room, joins one by code, or walks into the public tavern. */
+  static async open(name: string, code: string | null, pub = false): Promise<RemoteConnection> {
     const client = new Client(endpoint());
     try {
-      const room = code ? await client.joinById(code.trim().toUpperCase(), { name }) : await client.create('malampu', { name });
+      const room = code
+        ? await client.joinById(code.trim().toUpperCase(), { name })
+        : pub
+          ? await client.joinOrCreate('malampu', { name, public: true })
+          : await client.create('malampu', { name });
       return new RemoteConnection(room as Room);
     } catch (err) {
-      throw new Error(describe(err), { cause: err });
+      throw new Error(describe(err, pub), { cause: err });
     }
   }
 

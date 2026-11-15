@@ -7,6 +7,7 @@ import { Client, type Room } from '@colyseus/sdk';
 import {
   EState,
   MAX_PLAYERS,
+  PUBLIC_ROOM_ID,
   HERO_IDS,
   packCmds,
   unpackEnemy,
@@ -70,6 +71,10 @@ class NetBot {
 
   static async join(client: Client, code: string, name: string): Promise<NetBot> {
     return new NetBot(await client.joinById(code, { name }));
+  }
+
+  static async joinPublic(client: Client, name: string): Promise<NetBot> {
+    return new NetBot(await client.joinOrCreate(ROOM_NAME, { name, public: true }));
   }
 
   get code(): string {
@@ -164,6 +169,87 @@ describe('rooms', () => {
     await expect(client.joinById(bots[0]!.code, { name: 'In più' })).rejects.toThrow();
     expect(bots[0]!.lobby!.players).toHaveLength(MAX_PLAYERS);
     await Promise.all(bots.map((b) => b.leave()));
+  });
+});
+
+describe('public tavern', () => {
+  it('is already open, and a private room is not offered as the tavern', async () => {
+    const priv = await NetBot.create(client, 'Segreta');
+    await until('private lobby', () => priv.lobby !== null);
+    expect(priv.lobby!.public).toBe(false);
+    expect(priv.code).not.toBe(PUBLIC_ROOM_ID);
+
+    const pub = await NetBot.joinPublic(client, 'Anna');
+    await until('public lobby', () => pub.id !== '' && pub.lobby !== null && pub.world !== null);
+    expect(pub.code).toBe(PUBLIC_ROOM_ID);
+    expect(pub.lobby!.public).toBe(true);
+    expect(pub.lobby!.code).toBe(PUBLIC_ROOM_ID);
+    expect(pub.world!.kind).toBe('hub');
+
+    const byCode = await NetBot.join(client, PUBLIC_ROOM_ID, 'Bruno');
+    await until('both in the tavern', () => pub.lobby!.players.length === 2 && byCode.lobby?.players.length === 2);
+
+    await priv.leave();
+    await pub.leave();
+    await byCode.leave();
+  });
+
+  it('stays open after the last player leaves, and the next company finds the hub', async () => {
+    const a = await NetBot.joinPublic(client, 'Anna');
+    await until('welcome', () => a.id !== '');
+    a.send({ t: 'hero', hero: 'alexios' });
+    await until('hero', () => a.lobby?.players.some((p) => p.hero === 'alexios') === true);
+    a.send({ t: 'start' });
+    await until('mission', () => a.world?.kind === 'mission');
+    await a.leave();
+
+    const b = await NetBot.joinPublic(client, 'Bruno');
+    await until('hub again', () => b.lobby?.phase === 'hub' && b.world?.kind === 'hub' && b.code === PUBLIC_ROOM_ID);
+    expect(b.lobby!.players.map((p) => p.name)).toEqual(['Bruno']);
+    await b.leave();
+
+    await sleep(200);
+    const c = await NetBot.join(client, PUBLIC_ROOM_ID, 'Carla');
+    await until('still there', () => c.lobby?.phase === 'hub');
+    await c.leave();
+  });
+
+  it('lets a newcomer step into a fight, and opens another tavern when this one is full', async () => {
+    const host = await NetBot.joinPublic(client, 'Anna');
+    await until('welcome', () => host.id !== '');
+    host.send({ t: 'hero', hero: 'alexios' });
+    await until('hero', () => host.lobby?.players[0]?.hero === 'alexios');
+    host.send({ t: 'start' });
+    await until('mission', () => host.world?.kind === 'mission');
+
+    const late = await NetBot.joinPublic(client, 'Nemo');
+    await until('same room', () => late.code === PUBLIC_ROOM_ID && late.world?.kind === 'mission');
+    late.send({ t: 'hero', hero: 'jusef' });
+    await until('in the fight', () => late.snap?.p.some((p) => p.id === late.id) === true);
+    expect(late.lobby!.public).toBe(true);
+
+    await late.leave();
+    const fillers = [host];
+    for (let i = fillers.length + 1; i <= MAX_PLAYERS; i++) {
+      fillers.push(await NetBot.join(client, PUBLIC_ROOM_ID, `P${i}`));
+    }
+    await until('full tavern', () => host.lobby?.players.length === MAX_PLAYERS);
+    await expect(client.joinById(PUBLIC_ROOM_ID, { name: 'Pieno' })).rejects.toThrow();
+
+    const overflow = await NetBot.joinPublic(client, 'Oltre');
+    await until('overflow lobby', () => overflow.lobby !== null);
+    expect(overflow.code).not.toBe(PUBLIC_ROOM_ID);
+    expect(overflow.lobby!.public).toBe(true);
+    expect(overflow.world!.kind).toBe('hub');
+
+    await overflow.leave();
+    await sleep(300);
+    await expect(client.joinById(overflow.code, { name: 'Tardi' })).rejects.toThrow();
+
+    await Promise.all(fillers.map((b) => b.leave()));
+    const back = await NetBot.joinPublic(client, 'Dopo');
+    await until('anchor again', () => back.code === PUBLIC_ROOM_ID && back.lobby?.phase === 'hub');
+    await back.leave();
   });
 });
 

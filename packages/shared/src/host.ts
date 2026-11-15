@@ -100,6 +100,8 @@ export class GameHost {
   world!: World;
   info!: WorldInfo;
   hostId = '';
+  /** Strangers may join, and the client labels the room as the public tavern. */
+  readonly isPublic: boolean;
   /** Active regional hub. */
   hubId: HubId = 'badiscar';
   /** Contracts currently on the board. */
@@ -132,10 +134,11 @@ export class GameHost {
   /** Server-owned sheets. Absent in tests that only care about one room. */
   private readonly archive?: GearArchive;
 
-  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive) {
+  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive, isPublic = false) {
     this.io = io;
     this.archive = archive;
     this.code = code;
+    this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
     this.refreshContracts();
     this.loadHub();
@@ -536,6 +539,11 @@ export class GameHost {
     }
     c.hero = raw;
     if (this.phase === 'hub') this.spawnHero(c, raw);
+    else if (this.phase === 'mission') {
+      // Drop-in: the public tavern (and any room that shares a code) is already fighting.
+      this.spawnHero(c, raw);
+      this.world.events.push({ e: 'say', who: 'Carlos', text: `${c.name} scende in campo.` });
+    }
     this.sendLobby();
   }
 
@@ -762,6 +770,7 @@ export class GameHost {
     const s: LobbyState = {
       code: this.code,
       host: this.hostId,
+      public: this.isPublic,
       phase: this.phase,
       mission: this.missionId,
       stage: this.stage,

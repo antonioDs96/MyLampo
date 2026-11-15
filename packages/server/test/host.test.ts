@@ -48,6 +48,20 @@ describe('lobby', () => {
     expect(party.host.phase).toBe('mission');
   });
 
+  it('drops a late hero into a mission that has already started', () => {
+    const party = new Party();
+    party.add('alexios');
+    party.host.onMessage(party.host.hostId, { t: 'start' });
+    expect(party.host.phase).toBe('mission');
+
+    expect(party.host.join('late', 'Nemo')).toBe(true);
+    party.host.onMessage('late', { t: 'hero', hero: 'jusef' });
+    party.run(0.2);
+
+    expect(party.snap!.p.map((p) => p.id)).toContain('late');
+    expect(party.lobby.players.find((p) => p.id === 'late')?.hero).toBe('jusef');
+  });
+
   it('hands the room to the next player when the host leaves', () => {
     const party = new Party();
     party.add('alexios');

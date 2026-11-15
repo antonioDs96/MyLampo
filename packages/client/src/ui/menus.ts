@@ -6,6 +6,7 @@ import {
   HERO_IDS,
   HUB_META,
   MISSIONS,
+  PUBLIC_ROOM_ID,
   REGIONS,
   arenaPlays,
   biomeTrafficLight,
@@ -24,6 +25,8 @@ import { h, portrait, svg } from './dom';
 export interface MenuActions {
   create(name: string): void;
   join(name: string, code: string): void;
+  /** Walk into the tavern the server keeps open. */
+  joinPublic(name: string): void;
   solo(name: string): void;
   pickHero(id: HeroId): void;
   releaseHero(): void;
@@ -205,7 +208,7 @@ export class Menus {
       if (e.key === 'Enter') join();
     });
     name.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') (this.code ? join : () => this.actions.create(read()))();
+      if (e.key === 'Enter') (this.code ? join : () => this.actions.joinPublic(read()))();
     });
     this.show(
       'title',
@@ -223,7 +226,17 @@ export class Menus {
             { class: `card form ${busy ? 'is-busy' : ''}` },
             h('label', { text: 'Come ti chiami?' }),
             name,
-            h('button', { class: 'btn primary', text: 'Crea una stanza', onclick: () => !busy && this.actions.create(read()) }),
+            h('button', {
+              class: 'btn primary',
+              text: 'Entra nella taverna pubblica',
+              onclick: () => !busy && this.actions.joinPublic(read()),
+            }),
+            h('p', {
+              class: 'note',
+              text: `Sempre aperta (codice ${PUBLIC_ROOM_ID}): ti unisci a chi è già dentro. Se è piena se ne apre un’altra.`,
+            }),
+            h('div', { class: 'or', text: 'oppure' }),
+            h('button', { class: 'btn', text: 'Crea una stanza privata', onclick: () => !busy && this.actions.create(read()) }),
             h('div', { class: 'row' }, code, h('button', { class: 'btn', text: 'Entra con il codice', onclick: () => !busy && join() })),
             h('button', { class: 'btn ghost', text: 'Gioca da solo (senza server)', onclick: () => !busy && this.actions.solo(read()) }),
             this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
@@ -310,7 +323,9 @@ export class Menus {
           {},
           h('h2', { text: 'La Compagnia' }),
           h('p', {
-            text: 'Scegli o cambia eroe in taverna ([C]). Ogni eroe può appartenere a un solo giocatore; i PE salgono giocando nel tuo stile.',
+            text: inHub
+              ? 'Scegli o cambia eroe in taverna ([C]). Ogni eroe può appartenere a un solo giocatore; i PE salgono giocando nel tuo stile.'
+              : 'La spedizione è già in corso. Scegli un eroe libero ed entra in campo.',
           }),
         ),
         h('div', { class: 'hero-grid' }, ...cards),
@@ -319,7 +334,7 @@ export class Menus {
           {},
           h('button', {
             class: `btn primary ${mine ? '' : 'disabled'}`,
-            text: mine ? 'Entra nella taverna' : 'Scegli un eroe per continuare',
+            text: mine ? (inHub ? 'Entra nella taverna' : 'Entra in campo') : 'Scegli un eroe per continuare',
             onclick: () => {
               if (!mine) return;
               this.actions.sound('ui');
@@ -719,7 +734,11 @@ export class Menus {
       box.append(
         h('div', {
           class: 'locked-note',
-          text: selectedId === mission.id ? `${hostName} ha scelto questa spedizione: si parte quando dà il via.` : `Solo ${hostName} (chi ha creato la stanza) sceglie la spedizione.`,
+          text: selectedId === mission.id
+            ? `${hostName} ha scelto questa spedizione: si parte quando dà il via.`
+            : this.lobby?.public
+              ? `Solo ${hostName} guida la spedizione: è il primo arrivato nella taverna.`
+              : `Solo ${hostName} guida la spedizione.`,
         }),
       );
     }
@@ -842,19 +861,33 @@ export class Menus {
             h('p', {}, h('b', { text: 'A terra: ' }), 'un compagno può rialzarti tenendo premuto F accanto a te. Se cadono tutti, la spedizione fallisce.'),
             offline
               ? h('p', { class: 'note', text: 'Stai giocando da solo, senza server.' })
-              : h(
-                  'p',
-                  { class: 'note' },
-                  `Stanza ${code} — invita gli amici con questo link: `,
-                  h('a', {
-                    text: link,
-                    attrs: { href: link },
-                    onclick: (e) => {
-                      e.preventDefault();
-                      void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
-                    },
-                  }),
-                ),
+              : this.lobby?.public
+                ? h(
+                    'p',
+                    { class: 'note' },
+                    `Taverna pubblica ${code}. Chiunque può entrare dal titolo, senza codice. Il primo arrivato guida la spedizione. Link diretto: `,
+                    h('a', {
+                      text: link,
+                      attrs: { href: link },
+                      onclick: (e) => {
+                        e.preventDefault();
+                        void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
+                      },
+                    }),
+                  )
+                : h(
+                    'p',
+                    { class: 'note' },
+                    `Stanza ${code} — invita gli amici con questo link: `,
+                    h('a', {
+                      text: link,
+                      attrs: { href: link },
+                      onclick: (e) => {
+                        e.preventDefault();
+                        void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
+                      },
+                    }),
+                  ),
           ),
         ),
         h(

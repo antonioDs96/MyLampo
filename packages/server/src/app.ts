@@ -2,11 +2,11 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { isHeroId, isProfileId, type HeroId, type HeroInventory } from '@malampu/shared';
+import { isHeroId, isProfileId, PUBLIC_ROOM_ID, type HeroId, type HeroInventory } from '@malampu/shared';
 import compression from 'compression';
 import express from 'express';
 import { defaultGearFile, FileGearStore } from './gearStore';
-import { MalampuRoom, ROOM_NAME } from './room';
+import { closePublicRooms, ensurePublicRoom, MalampuRoom, openPublicRooms, ROOM_NAME } from './room';
 
 export interface AppOptions {
   port: number;
@@ -46,15 +46,23 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
     },
   });
 
-  server.define(ROOM_NAME, MalampuRoom, { archive });
+  // `public` is the only field joinOrCreate matches on, so a private room
+  // (created without it) is never offered to someone walking into the tavern.
+  openPublicRooms();
+  server.define(ROOM_NAME, MalampuRoom, { archive }).filterBy(['public']);
   await server.listen(options.port);
+  await ensurePublicRoom();
   if (!options.quiet) {
     console.log(`Malampu in ascolto sulla porta ${options.port}${staticDir ? ` (client da ${staticDir})` : ' (solo server di gioco)'}`);
+    console.log(`Taverna pubblica ${PUBLIC_ROOM_ID} pronta.`);
   }
 
   return {
     port: options.port,
-    stop: () => server.gracefullyShutdown(false),
+    stop: async () => {
+      closePublicRooms();
+      await server.gracefullyShutdown(false);
+    },
   };
 }
 
