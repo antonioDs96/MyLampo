@@ -78,6 +78,28 @@ export const TUNING = {
   ultExecute: 14,
 
   backstabArc: 110,
+  /** Albereth backstab damage multiplier (+100% from roster balance). */
+  alberethBackstabMul: 2,
+  /** Albereth satyr elusion: chance to ignore a melee/projectile hit. */
+  alberethElusion: 0.15,
+  /** Albereth nearby-ally move haste (power fed to PS.Haste). */
+  alberethAuraHaste: 0.06,
+  alberethAuraRange: 7,
+  /** Vyncent native melee lifesteal outside Forma Licantropa. */
+  vyncentLifesteal: 0.1,
+  /** Fabyorn berserker threshold (fraction of max HP). */
+  fabyornLowHp: 0.4,
+  fabyornLowHpDmgMul: 1.2,
+  fabyornLowHpTakenMul: 0.85,
+  fabyornLowHpRate: 0.18,
+  /** Rycard: bonus damage starts past this distance, up to rycardDistanceBonusMax. */
+  rycardDistanceBonusStart: 8,
+  rycardDistanceBonusSpan: 20,
+  rycardDistanceBonusMax: 0.35,
+  /** Anthon blink arrival: chaos trail burst. */
+  anthonTrailDmg: 12,
+  anthonTrailPoise: 8,
+  anthonTrailR: 2.4,
   brokenDamageMul: 1.4,
   markedDamageMul: 1.3,
   frozenDamageMul: 1.25,

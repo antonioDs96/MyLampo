@@ -1030,6 +1030,17 @@ export class Game {
         this.audio.play('hitHeavy', 0.55);
         this.shakeNear(x, z, 0.35);
         break;
+      case 'elusion':
+        vfx.puff(x, 0.7, z, 5, [0.7, 0.45, 0.95], 0.55, 1.4);
+        vfx.implode(x, z, 1.4, VIOLET, 0.2);
+        this.audio.play('pdodge', 0.45);
+        break;
+      case 'trail_chaos':
+        vfx.flash(x, 1.1, z, r * 0.7, VIOLET, 0.22);
+        vfx.shockwave(x, z, r, VIOLET, 0.3);
+        vfx.burst(x, 0.9, z, 18, [0.75, 0.35, 1], { speed: 7, life: 0.4, stretch: 0.05, gravity: 8 });
+        this.audio.play('pop', 0.55);
+        break;
     }
   }
 

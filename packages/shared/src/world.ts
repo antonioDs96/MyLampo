@@ -420,6 +420,7 @@ export class World {
           break;
         case 'dodge':
           this.lateDodge(p);
+          if (p.hero === 'anthon' && p.blink) this.anthonTrail(p);
           break;
         case 'block':
           this.lateBlock(p);
@@ -628,9 +629,20 @@ export class World {
       } else if (p.hero === 'albereth') {
         const toPlayer = yawOf(p.x - e.x, p.z - e.z);
         if (Math.abs(angleDiff(toPlayer, e.yaw)) > TUNING.backstabArc * RAD) {
-          mul *= 1.6;
+          mul *= TUNING.alberethBackstabMul;
           crit = 1;
         }
+      }
+      if (p.hero === 'rycard') {
+        const dist = Math.hypot(p.x - e.x, p.z - e.z);
+        if (dist > TUNING.rycardDistanceBonusStart) {
+          const t = Math.min(1, (dist - TUNING.rycardDistanceBonusStart) / TUNING.rycardDistanceBonusSpan);
+          mul *= 1 + TUNING.rycardDistanceBonusMax * t;
+        }
+      }
+      if (p.hero === 'fabyorn') {
+        const max = p.maxHp || HEROES.fabyorn.hp;
+        if (max > 0 && p.hp / max <= TUNING.fabyornLowHp) mul *= TUNING.fabyornLowHpDmgMul;
       }
       if (this.vexation.get(p.id)) {
         mul *= 1.15;
@@ -694,7 +706,10 @@ export class World {
       const st = this.stats.get(p.id);
       if (st) st.dmg += amount;
       p.ult = Math.min(100, p.ult + amount * TUNING.ultPerDamage * (p.hero === 'vyncent' ? 1.4 : 1));
-      if (hasStatus(p.st, PS.Wolf)) this.heal(p, amount * 0.12, false, p.id);
+      if (p.hero === 'vyncent') {
+        const steal = hasStatus(p.st, PS.Wolf) ? 0.12 : TUNING.vyncentLifesteal;
+        this.heal(p, amount * steal, false, p.id);
+      }
     }
     const kill = e.hp <= 0;
     this.events.push({
@@ -937,11 +952,11 @@ export class World {
         break;
       }
       case 'canto': {
-        for (const a of this.alliesNear(p.x, p.z, 9)) {
-          addStatus(a.st, PS.Regen, T(4), HEROES[a.hero].hp * 0.08);
+        for (const a of this.alliesNear(p.x, p.z, 12)) {
+          addStatus(a.st, PS.Regen, T(4), HEROES[a.hero].hp * 0.09);
           removeStatus(a.st, PS.Slow);
         }
-        cast(id, 9);
+        cast(id, 12);
         break;
       }
       case 'balzo': {
@@ -956,7 +971,7 @@ export class World {
           e.target = p.id;
           addStatus(e.st, ES.Taunted, 5, 0);
         }
-        addStatus(p.st, PS.Guard, T(5), 0.4);
+        addStatus(p.st, PS.Guard, T(5), 0.45);
         cast(id, 10);
         break;
       }
@@ -985,8 +1000,8 @@ export class World {
         break;
       }
       case 'bolla': {
-        this.addZone('bubble', p.x, p.z, 6.5, 9, p.id, 0);
-        cast(id, 6.5);
+        this.addZone('bubble', p.x, p.z, 7.2, 9, p.id, 0);
+        cast(id, 7.2);
         break;
       }
       case 'ondata': {
@@ -1090,7 +1105,7 @@ export class World {
         for (const a of this.players.values()) {
           if (a.act === Act.Downed) continue;
           if (this.pvp && a.id !== p.id) continue;
-          this.heal(a, (a.maxHp || HEROES[a.hero].hp) * 0.4, true, p.id);
+          this.heal(a, (a.maxHp || HEROES[a.hero].hp) * 0.48, true, p.id);
           removeStatus(a.st, PS.Silence);
           removeStatus(a.st, PS.Slow);
         }
@@ -1163,6 +1178,10 @@ export class World {
       if (p.act === Act.Dodge && p.t <= T(TUNING.perfectDodge)) this.perfectDodge(p);
       return 'dodged';
     }
+    if (p.hero === 'albereth' && this.rng.next() < TUNING.alberethElusion) {
+      this.events.push({ e: 'fx', what: 'elusion', x: p.x, z: p.z, r: 1.2 });
+      return 'dodged';
+    }
     if (p.act === Act.Block && this.canGuard(p, spec, true)) {
       const parryWindow = TUNING.perfectParry + (this.liveOf(p.id)?.perfectParryBonus ?? 0);
       if (!spec.red && p.t <= T(parryWindow)) {
@@ -1174,6 +1193,14 @@ export class World {
     }
     this.pending.push({ pid: p.id, spec, until: this.time + this.graceFor(p.id) });
     return 'pending';
+  }
+
+  /** Anthon blink arrival: brief chaos burst around the landing spot. */
+  private anthonTrail(p: PlayerState): void {
+    for (const e of this.enemiesNear(p.x, p.z, TUNING.anthonTrailR)) {
+      this.damageEnemy(e, TUNING.anthonTrailDmg, TUNING.anthonTrailPoise, p, { kb: 2 });
+    }
+    this.events.push({ e: 'fx', what: 'trail_chaos', x: p.x, z: p.z, r: TUNING.anthonTrailR });
   }
 
   private canGuard(p: PlayerState, spec: HitSpec, checkFacing: boolean): boolean {
@@ -1231,7 +1258,7 @@ export class World {
     if (st) st.parries++;
     this.events.push({ e: 'parry', id: p.id, x: p.x, z: p.z, enemy: spec.src });
     if (p.hero === 'jusef') {
-      for (const a of this.alliesNear(p.x, p.z, 9)) this.heal(a, 6, true, p.id);
+      for (const a of this.alliesNear(p.x, p.z, 12)) this.heal(a, 7, true, p.id);
     }
     const e = this.enemies.find((x) => x.id === spec.src);
     if (e && this.hittable(e) && e.state !== EState.Broken) {
@@ -1368,6 +1395,10 @@ export class World {
     const guard = getStatus(p.st, PS.Guard);
     if (guard) dmg *= 1 - guard.p;
     if (hasStatus(p.st, PS.Bubble)) dmg *= 0.5;
+    if (p.hero === 'fabyorn') {
+      const max = p.maxHp || HEROES.fabyorn.hp;
+      if (max > 0 && p.hp / max <= TUNING.fabyornLowHp) dmg *= TUNING.fabyornLowHpTakenMul;
+    }
     const amount = Math.max(1, Math.round(dmg));
     p.hp -= amount;
     if (this.safe) p.hp = Math.max(1, p.hp);
@@ -2446,6 +2477,13 @@ export class World {
   private stepHeroRegen(dt: number): void {
     for (const p of this.players.values()) {
       if (p.act === Act.Downed) continue;
+      // Albereth satyr pace: mild haste aura for nearby allies.
+      if (p.hero === 'albereth') {
+        for (const a of this.alliesNear(p.x, p.z, TUNING.alberethAuraRange)) {
+          if (a.id === p.id) continue;
+          addStatus(a.st, PS.Haste, T(0.4), TUNING.alberethAuraHaste);
+        }
+      }
       const live = this.liveOf(p.id);
       const q = this.effectQueues.get(p.id);
       if (q) {
