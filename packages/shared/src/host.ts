@@ -3,6 +3,7 @@
  * Transport-agnostic: the Colyseus room wraps it on the server, and the offline mode
  * runs it in the browser through an in-memory loopback.
  */
+import { PROGRESS_EPOCH } from './arcadeKits';
 import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
 import type { GearArchive } from './gearArchive';
 import { isProfileId } from './gearArchive';
@@ -343,12 +344,19 @@ export class GameHost {
   private mergeProgress(c: Client, raw: unknown): void {
     if (raw && typeof raw === 'object') {
       const next = { ...c.xp };
+      const book = this.stash.get(c.id);
       for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
         if (!isHeroId(k)) continue;
         const n = Number(v);
         if (!Number.isFinite(n) || n < 0) continue;
-        // Take the higher total so offline gains and server awards never regress.
-        next[k] = Math.max(next[k] ?? 0, Math.floor(n));
+        const floor = Math.floor(n);
+        const saved = book?.get(k);
+        // After a progress-epoch wipe, ignore stale client PE above the sheet.
+        if (saved && saved.progressEpoch >= PROGRESS_EPOCH) {
+          next[k] = Math.max(next[k] ?? 0, Math.min(floor, saved.pe));
+        } else {
+          next[k] = Math.max(next[k] ?? 0, floor);
+        }
       }
       c.xp = next;
     }
@@ -365,7 +373,10 @@ export class GameHost {
     const sheets = this.archive.load(id);
     for (const hero of HERO_IDS) {
       const saved = sheets[hero];
-      if (saved) this.adoptGear(c.id, hero, saved);
+      if (!saved) continue;
+      this.adoptGear(c.id, hero, saved);
+      // Sheet PE is authoritative after epoch resets.
+      c.xp[hero] = saved.pe;
     }
     if (c.hero) this.sendInv(c.id);
   }

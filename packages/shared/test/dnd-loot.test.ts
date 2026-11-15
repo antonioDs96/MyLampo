@@ -154,4 +154,23 @@ describe('loot system', () => {
     expect(saved?.gold).toBe(40);
     expect(saved?.mainHand).toBeNull();
   });
+
+  it('wipes career PE when the progress epoch is stale', () => {
+    const wiped = sanitizeInventory('vyncent', {
+      gold: 15,
+      pe: 6447,
+      asiPoints: 2,
+      asiSpends: { FOR: 1 },
+      tomes: ['raffica'],
+      mainHand: { uid: 'axe', itemId: 'greataxe', qty: 1 },
+      progressEpoch: 1,
+    });
+    expect(wiped?.pe).toBe(0);
+    expect(wiped?.asiPoints).toBe(0);
+    expect(wiped?.asiSpends).toEqual({});
+    expect(wiped?.tomes).toEqual([]);
+    expect(wiped?.gold).toBe(15);
+    expect(wiped?.mainHand?.itemId).toBe('greataxe');
+    expect(wiped?.progressEpoch).toBe(2);
+  });
 });

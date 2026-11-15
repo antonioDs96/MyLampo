@@ -1,6 +1,7 @@
 import { HERO_IDS, isProfileId, type HeroId } from '@malampu/shared';
 
-const KEY = 'malampu.progress.v1';
+/** Bump the suffix when career PE is wiped server-side (PROGRESS_EPOCH). */
+const KEY = 'malampu.progress.v2';
 /** Who this browser is. The hero sheets themselves live on the game server. */
 const PROFILE_KEY = 'malampu.profile';
 

@@ -2,6 +2,7 @@ export * from './constants';
 export * from './math';
 export * from './types';
 export * from './heroes';
+export * from './arcadeKits';
 export * from './enemies';
 export * from './enemyMind';
 export * from './layout';
