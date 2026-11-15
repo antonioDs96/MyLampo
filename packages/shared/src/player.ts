@@ -435,6 +435,10 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
   let rate = 1;
   let silenced = isMonolithSilenceAt(ctx.layout, p.x, p.z);
   let bubble = false;
+  if (hero.id === 'fabyorn') {
+    const max = p.maxHp || hero.hp;
+    if (max > 0 && p.hp / max <= TUNING.fabyornLowHp) rate *= 1 + TUNING.fabyornLowHpRate;
+  }
   for (let i = p.st.length - 1; i >= 0; i--) {
     const s = p.st[i]!;
     s.t -= 1;

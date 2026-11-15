@@ -87,8 +87,8 @@ describe('enemy personas', () => {
   it('a hunter goes after the wounded straggler', () => {
     const persona = personaOf('mastino_guerra');
     const h = hunter({ type: 'mastino_guerra', x: 0, z: 5 });
-    const healthy = prey({ id: 'full', hero: 'vyncent', x: 0, z: 0, hp: 125, maxHp: 125 });
-    const wounded = prey({ id: 'hurt', hero: 'albereth', x: 2, z: 0, hp: 20, maxHp: 95 });
+    const healthy = prey({ id: 'full', hero: 'vyncent', x: 0, z: 0, hp: 140, maxHp: 140 });
+    const wounded = prey({ id: 'hurt', hero: 'albereth', x: 2, z: 0, hp: 20, maxHp: 85 });
     const party = [healthy, wounded];
     expect(isolationOf(wounded, party)).toBeGreaterThan(1);
     expect(preyScore(persona, h, wounded, [], party)).toBeLessThan(preyScore(persona, h, healthy, [], party));

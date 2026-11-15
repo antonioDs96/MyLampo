@@ -138,7 +138,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     saveProf: ['DES', 'CAR'],
     skills: ['Furtività', 'Inganno', 'Acrobazia', 'Persuasione', 'Intrattenere'],
     mastery: ['Furtività', 'Inganno'],
-    notes: 'Attacco Furtivo alle spalle.',
+    notes: 'Backstab ×2, elusione 15%, aura di passo agli alleati.',
   },
   jusef: {
     id: 'jusef',
@@ -150,7 +150,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     saveProf: ['DES', 'CAR'],
     skills: ['Persuasione', 'Intrattenere', 'Percezione', 'Storia', 'Intuizione'],
     mastery: ['Persuasione', 'Intrattenere'],
-    notes: 'Ispirazione Bardica su parata perfetta.',
+    notes: 'Contrappunto su parata; aura ampia; CDR sulle melodie.',
   },
   vyncent: {
     id: 'vyncent',
@@ -163,7 +163,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     skills: ['Atletica', 'Intimidire', 'Sopravvivenza', 'Percezione'],
     mastery: ['Atletica'],
     unarmoredDefense: true,
-    notes: 'Difesa senza armatura: 10 + mod(DES) + mod(COS).',
+    notes: 'Lifesteal nativo 10%; Difesa senza armatura 10+DES+COS.',
   },
   alexios: {
     id: 'alexios',
@@ -171,12 +171,12 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     clazz: 'Guerriero Baluardo',
     hitDie: 10,
     primaries: ['FOR', 'COS'],
-    scores: { FOR: 16, DES: 12, COS: 15, INT: 10, SAG: 11, CAR: 10 },
+    scores: { FOR: 17, DES: 10, COS: 16, INT: 10, SAG: 11, CAR: 10 },
     saveProf: ['FOR', 'COS'],
     skills: ['Atletica', 'Intimidire', 'Percezione', 'Storia'],
     mastery: ['Atletica'],
     fightingStyle: 'difesa',
-    notes: 'Stile Difesa +1 CA, alta resistenza postura.',
+    notes: 'Juggernaut: altissima vita/armatura, mobilità ridotta, aggro massimo.',
   },
   rycard: {
     id: 'rycard',
@@ -189,7 +189,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     skills: ['Percezione', 'Sopravvivenza', 'Natura', 'Stealth', 'Atletica'],
     mastery: ['Percezione'],
     fightingStyle: 'tiro',
-    notes: 'Stile Tiro +2 attacco a distanza.',
+    notes: 'Danno bonus a distanza; marchio di squadra; blink etereo.',
   },
   fabyorn: {
     id: 'fabyorn',
@@ -202,7 +202,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     skills: ['Atletica', 'Intimidire', 'Sopravvivenza'],
     mastery: ['Atletica', 'Intimidire'],
     fightingStyle: 'armiPossenti',
-    notes: 'Armi Possenti a due mani.',
+    notes: 'Gelo caricato + furia sotto il 40% di vita.',
   },
   gabryel: {
     id: 'gabryel',
@@ -214,7 +214,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     saveProf: ['SAG', 'CAR'],
     skills: ['Religione', 'Arcano', 'Medicina', 'Intuizione', 'Persuasione'],
     mastery: ['Religione'],
-    notes: 'Bolla anti-Eclissi.',
+    notes: 'Bolla anti-Eclissi; cure potenziate; aura protettiva.',
   },
   anthon: {
     id: 'anthon',
@@ -226,7 +226,7 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     saveProf: ['COS', 'CAR'],
     skills: ['Arcano', 'Inganno', 'Intimidire', 'Persuasione'],
     mastery: ['Arcano'],
-    notes: 'Tabella d100/d10 Surge Magia Selvaggia.',
+    notes: 'Surge imprevedibile; blink con scia di etere.',
   },
   dalith: {
     id: 'dalith',
@@ -234,11 +234,11 @@ export const HERO_DND_PROFILES: Record<HeroId, HeroDndProfile> = {
     clazz: 'Bardo / Monaco della Danza',
     hitDie: 8,
     primaries: ['DES', 'CAR'],
-    scores: { FOR: 10, DES: 16, COS: 12, INT: 13, SAG: 14, CAR: 15 },
+    scores: { FOR: 10, DES: 17, COS: 11, INT: 13, SAG: 14, CAR: 15 },
     saveProf: ['DES', 'CAR'],
     skills: ['Acrobazia', 'Intrattenere', 'Intuizione', 'Inganno', 'Furtività', 'Percezione'],
     mastery: ['Intuizione', 'Intrattenere'],
-    notes: 'Danza della Memoria. La schivata è una piroetta. Intolleranza al lattosio: le pozioni di guarigione curano a metà. Legame con Anthon.',
+    notes: 'Skirmisher CC: immunità ai slow, piroetta, lattosio ½ cura, vincolo +12% con Anthon.',
   },
 };
 
