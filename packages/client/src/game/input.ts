@@ -1,4 +1,11 @@
 import { Btn } from '@malampu/shared';
+import {
+  clearPrimaryHold,
+  createPrimaryHold,
+  pressPrimaryHold,
+  releasePrimaryHold,
+  stepPrimaryHold,
+} from './primaryHold';
 import type { TouchControls } from './touch';
 
 export interface InputFrame {
@@ -48,6 +55,8 @@ export class Input {
 
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
+  /** Left click / touchpad: tap = light, hold = charged heavy (like right click). */
+  private readonly primaryHold = createPrimaryHold();
   private lookX = 0;
   private lookY = 0;
   private lockToggle = false;
@@ -83,6 +92,7 @@ export class Input {
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.mouseButtons = 0;
+      clearPrimaryHold(this.primaryHold);
     });
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.enabled || e.pointerType === 'touch' || this.touch?.shown) return;
@@ -94,15 +104,18 @@ export class Input {
         this.lockToggle = true;
       } else {
         this.mouseButtons |= 1 << e.button;
+        if (e.button === 0) pressPrimaryHold(this.primaryHold);
       }
       this.usingPad = false;
     });
     window.addEventListener('pointerup', (e) => {
       if (e.pointerType === 'touch') return;
+      if (e.button === 0) releasePrimaryHold(this.primaryHold);
       this.mouseButtons &= ~(1 << e.button);
     });
     window.addEventListener('pointercancel', (e) => {
       if (e.pointerType === 'touch') return;
+      if (e.button === 0) clearPrimaryHold(this.primaryHold);
       this.mouseButtons &= ~(1 << e.button);
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -125,7 +138,10 @@ export class Input {
         document.exitPointerLock();
         return;
       }
-      if (document.pointerLockElement !== canvas) this.mouseButtons = 0;
+      if (document.pointerLockElement !== canvas) {
+        this.mouseButtons = 0;
+        clearPrimaryHold(this.primaryHold);
+      }
     });
   }
 
@@ -163,6 +179,7 @@ export class Input {
     this.enabled = on;
     if (!on) {
       this.mouseButtons = 0;
+      clearPrimaryHold(this.primaryHold);
       this.lookX = 0;
       this.lookY = 0;
     }
@@ -203,7 +220,9 @@ export class Input {
     if (k.has('KeyD') || k.has('ArrowRight')) out.moveX += 1;
     if (k.has('KeyA') || k.has('ArrowLeft')) out.moveX -= 1;
     for (const code in KEY_BUTTONS) if (k.has(code)) out.buttons |= KEY_BUTTONS[code]!;
-    if (this.mouseButtons & 1) out.buttons |= Btn.Light;
+    // Primary: short tap = light, hold = charged heavy (touchpad-friendly).
+    // Right mouse button still maps straight to heavy.
+    out.buttons |= stepPrimaryHold(this.primaryHold, dt);
     if (this.mouseButtons & 4) out.buttons |= Btn.Heavy;
     out.lookX = this.lookX;
     out.lookY = this.lookY;

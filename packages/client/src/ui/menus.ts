@@ -58,7 +58,7 @@ const CONTROLS: [string, string, string][] = [
   ['Movimento', 'W A S D', 'Levetta sinistra'],
   ['Visuale', 'Mouse', 'Levetta destra'],
   ['Attacco leggero (combo) / spell a distanza', 'J / Clic sinistro', 'X / Quadrato'],
-  ['Attacco pesante (tieni premuto per caricare)', 'K / Clic destro', 'Y / Triangolo, RT'],
+  ['Attacco pesante (tieni premuto per caricare)', 'K / Clic destro / tieni premuto il sinistro (touchpad)', 'Y / Triangolo, RT'],
   ['Schivata (Anthon / Gabryel / Rycard: teletrasporto; altri: roll, teletrasporto a vigore alto)', 'Spazio', 'B / Cerchio'],
   ['Parata (premi all’ultimo istante per la parata perfetta)', 'Q (o Shift)', 'LB'],
   ['Aggancia bersaglio / cambia bersaglio', 'Tab o clic centrale / rotellina', 'R3 / croce direzionale'],
