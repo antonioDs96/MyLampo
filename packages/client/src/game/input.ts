@@ -58,6 +58,8 @@ export class Input {
   onPadStart: (() => void) | null = null;
   private padCycleHeld = false;
   private usingPad = false;
+  /** False once a menu asked for the cursor back. A late lock grant must not stick. */
+  private lockWanted = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -119,6 +121,10 @@ export class Input {
       { passive: false },
     );
     document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === canvas && !this.lockWanted) {
+        document.exitPointerLock();
+        return;
+      }
       if (document.pointerLockElement !== canvas) this.mouseButtons = 0;
     });
   }
@@ -133,16 +139,23 @@ export class Input {
   }
 
   requestLock(): void {
-    if (this.touch?.shown) return;
+    if (this.touch?.shown || !this.enabled) return;
+    this.lockWanted = true;
     try {
       const r = this.canvas.requestPointerLock() as unknown;
-      if (r instanceof Promise) r.catch(() => {});
+      if (r instanceof Promise) {
+        r.catch(() => {
+          if (document.pointerLockElement !== this.canvas) this.lockWanted = false;
+        });
+      }
     } catch {
       // Pointer lock is optional: the game stays playable with the keyboard.
+      this.lockWanted = false;
     }
   }
 
   releaseLock(): void {
+    this.lockWanted = false;
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
   }
 

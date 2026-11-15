@@ -264,6 +264,11 @@ export class Game {
       // Esc releases the mouse before the page sees the key: treat it as "pause".
       // Touch layout releases the lock on purpose, and must not open the pause menu.
       if (this.touch.shown) return;
+      // A lock granted while the roster or a menu is up swallows clicks until Esc.
+      if (this.input.pointerLocked && this.uiPaused) {
+        this.input.releaseLock();
+        return;
+      }
       if (!this.input.pointerLocked && this.input.enabled && this.info && document.hasFocus() && !this.input.script) this.openHelp();
     });
     window.addEventListener('pointerdown', () => this.audio.unlock(), { capture: true });
@@ -333,7 +338,9 @@ export class Game {
   }
 
   private syncInput(): void {
-    const on = !!this.info && !this.uiPaused;
+    // No hero yet means the roster is up, or about to be. Capturing the mouse
+    // in that window makes the cards ignore clicks until Esc.
+    const on = !!this.info && !this.uiPaused && !!this.myHero();
     const was = this.input.enabled;
     this.input.setEnabled(on);
     this.touch.setGameplay(on);
