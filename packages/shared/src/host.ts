@@ -37,6 +37,7 @@ import {
   TileType,
   buildHub,
   getZone,
+  hubIdFromRegion,
   tileAt,
   type HubId,
   zoneMapToLayout,
@@ -280,6 +281,9 @@ export class GameHost {
             }
           }
         }
+        break;
+      case 'dungeon':
+        if (id === this.hostId && this.phase === 'hub') this.startRegionDungeon(String(msg.region));
         break;
       case 'start':
         if (id === this.hostId && this.phase === 'hub') this.startMission();
@@ -611,6 +615,25 @@ export class GameHost {
       hubId: this.hubId,
       biome: meta.biome,
     });
+  }
+
+  /** Puts a vertical map on the council choices and leaves at once. */
+  private startRegionDungeon(regionId: string): void {
+    const missing = [...this.clients.values()].filter((c) => !c.hero);
+    if (missing.length > 0) {
+      this.io.broadcast({ t: 'error', text: `Manca ancora la scelta dell'eroe: ${missing.map((c) => c.name).join(', ')}.` });
+      return;
+    }
+    const hub = hubIdFromRegion(regionId);
+    if (hub !== this.hubId) {
+      this.hubId = hub;
+      this.refreshContracts();
+    }
+    const contract = this.contracts.find((c) => c.kind === 'BOSS_HUNT') ?? this.contracts[0];
+    if (!contract) return;
+    this.contractId = contract.id;
+    this.missionId = `proc:${contract.kind}`;
+    this.startMission();
   }
 
   private startMission(): void {

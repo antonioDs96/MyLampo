@@ -170,6 +170,8 @@ export type ClientMsg =
   | { t: 'hubSelect'; hubId: string }
   /** Select a procedural contract from the board. */
   | { t: 'contract'; id: string }
+  /** Start the elevation dungeon for a map region (mur, jugianel, badiscar, …). */
+  | { t: 'dungeon'; region: string }
   /** Capture/tramortire prompt [F] on a capture quest. */
   | { t: 'capture' };
 

@@ -250,6 +250,7 @@ export class Game {
       selectMission: (id) => this.send({ t: 'mission', id }),
       selectHub: (hubId) => this.send({ t: 'hubSelect', hubId }),
       selectContract: (id) => this.send({ t: 'contract', id }),
+      startDungeon: (regionId) => this.send({ t: 'dungeon', region: regionId }),
       startMission: () => this.send({ t: 'start' }),
       retry: () => this.send({ t: 'retry' }),
       toHub: () => this.send({ t: 'hub' }),

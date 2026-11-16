@@ -33,6 +33,8 @@ export interface MenuActions {
   selectMission(id: string): void;
   selectHub(hubId: HubId): void;
   selectContract(id: string): void;
+  /** Open the elevation dungeon tied to a region on the map. */
+  startDungeon(regionId: string): void;
   startMission(): void;
   retry(): void;
   toHub(): void;
@@ -48,6 +50,18 @@ export interface MenuActions {
 }
 
 export type Panel = 'none' | 'loading' | 'title' | 'heroes' | 'council' | 'results' | 'help' | 'bestiary';
+
+/** The three elevation maps, in the order the council offers them. */
+const DUNGEON_CHOICES: { hub: HubId; region: string; title: string; place: string }[] = [
+  { hub: 'mur', region: 'mur', title: 'Cortili di Mur', place: 'Quote +1 e +2 · scale e tetti' },
+  { hub: 'sanarica', region: 'jugianel', title: 'Selve di Jugianel', place: 'Piano e gradoni +1' },
+  { hub: 'badiscar', region: 'badiscar', title: 'Scogliere di Badiscar', place: 'Quote −1 e −2 · fosse e gole' },
+];
+
+function dungeonChoice(regionId: string): (typeof DUNGEON_CHOICES)[number] {
+  const hub = hubIdFromRegion(regionId);
+  return DUNGEON_CHOICES.find((d) => d.hub === hub) ?? DUNGEON_CHOICES[2]!;
+}
 
 const ROADS: [string, string][] = [
   ['malya', 'mur'], ['mur', 'minervin'], ['minervin', 'jugianel'], ['minervin', 'ujian'], ['ujian', 'otranth'],
@@ -390,7 +404,7 @@ export class Menus {
                 ? 'Arene boss e fosse dove vince l’ultimo che resta in piedi. Niente processioni: solo spettacolo.'
                 : this.councilTab === 'map'
                   ? 'Cronaca dell’Eclissi — le spedizioni leggendarie restano disponibili.'
-                  : 'Contratti procedurali della regione. Scegliete un hub, poi un contratto dalla bacheca.',
+                  : 'Le tre mappe con quote sono in cima. Un clic e si entra: niente varco da sbloccare.',
           }),
           tabs,
         ),
@@ -466,6 +480,30 @@ export class Menus {
         },
       });
     });
+    const readyNote = ready ? 'Entra in questa mappa' : 'Tutti devono scegliere un eroe';
+    const dungeonCards = DUNGEON_CHOICES.map((d) =>
+      h(
+        'article',
+        { class: 'prove-card contract chosen' },
+        h('div', { class: 'prove-tag', text: 'Mappa con quote' }),
+        h('h4', { text: d.title }),
+        h('div', { class: 'mission-place', text: d.place }),
+        host
+          ? h('button', {
+              class: 'btn primary',
+              text: readyNote,
+              onclick: () => {
+                if (!ready) {
+                  this.actions.sound('deny');
+                  return;
+                }
+                this.actions.sound('ui');
+                this.actions.startDungeon(d.region);
+              },
+            })
+          : h('div', { class: 'locked-note', text: `Solo ${hostName} apre la mappa.` }),
+      ),
+    );
     const contracts = lobby.contracts ?? [];
     const cards = contracts.map((c) => {
       const chosen = lobby.contractId === c.id;
@@ -481,18 +519,14 @@ export class Menus {
         host
           ? h('button', {
               class: `btn ${chosen ? 'primary' : 'ghost'}`,
-              text: !chosen ? 'Seleziona' : ready ? 'Partite dal varco / Avvia' : 'Tutti devono scegliere un eroe',
+              text: ready ? 'Entra' : 'Tutti devono scegliere un eroe',
               onclick: () => {
-                if (!chosen) {
-                  this.actions.sound('ui');
-                  this.actions.selectContract(c.id);
-                  return;
-                }
                 if (!ready) {
                   this.actions.sound('deny');
                   return;
                 }
                 this.actions.sound('ui');
+                this.actions.selectContract(c.id);
                 this.actions.startMission();
               },
             })
@@ -506,12 +540,11 @@ export class Menus {
       'div',
       { class: 'council-body proves' },
       h('div', { class: 'hub-row' }, ...hubs),
-      h('div', { class: 'prove-list' }, ...cards),
+      h('div', { class: 'prove-list' }, ...dungeonCards, ...cards),
     );
   }
 
   private mapPanel(host: boolean, hostName: string, ready: boolean, selected: ReturnType<typeof missionById>): HTMLElement {
-    const lobby = this.lobby!;
     const region = REGIONS.find((r) => r.id === this.region) ?? REGIONS[0]!;
     const mission = region.mission ? missionById(region.mission) : undefined;
     const byId = new Map(REGIONS.map((r) => [r.id, r]));
@@ -550,12 +583,8 @@ export class Menus {
       g.addEventListener('click', () => {
         this.actions.sound('ui');
         this.region = r.id;
-        if (host) {
-          const hub = hubIdFromRegion(r.id);
-          if (lobby.hubId !== hub) this.actions.selectHub(hub);
-          if (r.mission && lobby.mission !== r.mission) this.actions.selectMission(r.mission);
-          else this.openCouncil();
-        } else this.openCouncil();
+        this.councilTab = 'map';
+        this.openCouncil();
       });
       map.append(g);
     }
@@ -670,10 +699,25 @@ export class Menus {
       h('p', { text: region.lore }),
       h('p', { class: 'gov' }, h('b', { text: 'Governo: ' }), region.government),
     );
-    if (!mission) {
-      box.append(h('div', { class: 'locked-note', text: 'Nessuna spedizione pronta: questa regione si aprirà in un prossimo capitolo.' }));
-      return box;
-    }
+    const dungeon = dungeonChoice(region.id);
+    box.append(
+      h('div', { class: 'mission' }, h('h4', { text: dungeon.title }), h('div', { class: 'mission-place', text: dungeon.place })),
+      host
+        ? h('button', {
+            class: 'btn primary',
+            text: ready ? 'Entra in questa mappa' : 'Tutti devono scegliere un eroe',
+            onclick: () => {
+              if (!ready) {
+                this.actions.sound('deny');
+                return;
+              }
+              this.actions.sound('ui');
+              this.actions.startDungeon(region.id);
+            },
+          })
+        : h('div', { class: 'locked-note', text: `Solo ${hostName} apre la mappa.` }),
+    );
+    if (!mission) return box;
     box.append(
       h(
         'div',
@@ -689,8 +733,8 @@ export class Menus {
       const chosen = selectedId === mission.id;
       box.append(
         h('button', {
-          class: `btn primary ${ready && chosen ? '' : 'disabled'}`,
-          text: !chosen ? 'Seleziona questa spedizione' : ready ? 'Partite!' : 'Tutti devono scegliere un eroe',
+          class: 'btn ghost',
+          text: !chosen ? 'Spedizione classica, arena piatta' : ready ? 'Parti con la spedizione classica' : 'Tutti devono scegliere un eroe',
           onclick: () => {
             if (!chosen) {
               this.actions.selectMission(mission.id);
