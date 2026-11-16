@@ -21,16 +21,23 @@ import {
   clusterCount,
   flankPoint,
   isBehind,
+  familyOf,
+  isolationOf,
   personaOf,
   pickAttackIndex,
   preyScore,
   retargetWindow,
   steerMode,
+  sufferRead,
+  sufferSentence,
+  type AttackFamily,
   type HunterView,
   type MindHint,
   type PreyView,
+  type RoomOrder,
+  type SufferRead,
 } from './enemyMind';
-import { JEV_STEERS, jevEligible, legalAttackSnaps, type JevAdvisor, type JevHeroSnap, type JevSample } from './jevMind';
+import { jevEligible, legalAttackSnaps, type JevAdvisor, type RoomBrief } from './jevMind';
 import { HEROES, type AttackDef } from './heroes';
 import { getItem, rollDice } from './itemsCatalog';
 import {
@@ -148,6 +155,8 @@ interface HitSpec {
   slow?: number;
   /** Re-checked when the lag grace expires: the hit misses if this returns false. */
   still?: (p: PlayerState) => boolean;
+  /** Attack family, captured when the swing starts so a late hit still teaches the right lesson. */
+  family?: AttackFamily;
 }
 
 interface PendingHit {
@@ -237,6 +246,10 @@ export class World {
   private readonly seenPersona = new Set<EnemyTypeId>();
   /** Pre-placed dungeon foes. They patrol until a hero enters the vision cone. */
   private readonly garrison = new Set<number>();
+  /** Recent hits on each hero: what landed, what they stopped. */
+  private readonly suffer = new Map<string, { t: number; family: AttackFamily; landed: boolean }[]>();
+  /** Colour of the swing this foe committed last. */
+  private readonly lastSwing = new Map<number, 'blue' | 'red'>();
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
@@ -1219,10 +1232,12 @@ export class World {
     if (p.act === Act.Downed) return 'none';
     if (p.iframes > 0) {
       if (p.act === Act.Dodge && p.t <= T(TUNING.perfectDodge)) this.perfectDodge(p);
+      this.markSuffer(p.id, spec, false);
       return 'dodged';
     }
     if (p.hero === 'albereth' && this.rng.next() < TUNING.alberethElusion) {
       this.events.push({ e: 'fx', what: 'elusion', x: p.x, z: p.z, r: 1.2 });
+      this.markSuffer(p.id, spec, false);
       return 'dodged';
     }
     if (p.act === Act.Block && this.canGuard(p, spec, true)) {
@@ -1300,6 +1315,7 @@ export class World {
     const st = this.stats.get(p.id);
     if (st) st.parries++;
     this.events.push({ e: 'parry', id: p.id, x: p.x, z: p.z, enemy: spec.src });
+    this.markSuffer(p.id, spec, false);
     if (p.hero === 'jusef') {
       for (const a of this.alliesNear(p.x, p.z, 12)) this.heal(a, 7, true, p.id);
     }
@@ -1329,6 +1345,7 @@ export class World {
       const st = this.stats.get(p.id);
       if (st) st.taken += chip;
     }
+    this.markSuffer(p.id, spec, false);
     this.events.push({ e: 'block', id: p.id, x: p.x, z: p.z });
     if (p.stamina <= 0) {
       p.stamina = 0;
@@ -1470,6 +1487,7 @@ export class World {
       if (atk) atk.dmg += amount;
     }
     this.events.push({ e: 'phit', id: p.id, dmg: amount, x: p.x, z: p.z, red: spec.red });
+    this.markSuffer(p.id, spec, true);
     if (p.hp <= 0) {
       if (spec.by) {
         const atk = this.stats.get(spec.by);
@@ -1637,7 +1655,8 @@ export class World {
       !!p && p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth);
     if (hasStatus(e.st, ES.Taunted) && valid(current)) return current;
     const hint = this.mindHint(e);
-    if (!hint?.targetId && valid(current) && e.retarget > 0) return current;
+    const order = this.roomOrder();
+    if (!hint?.targetId && !order?.focusId && valid(current) && e.retarget > 0) return current;
     const persona = personaOf(e.type);
     e.retarget = retargetWindow(persona.mind) + this.rng.next() * 0.4;
     const party = this.alivePrey();
@@ -1651,7 +1670,7 @@ export class World {
     let bestScore = Infinity;
     for (const p of this.players.values()) {
       if (!valid(p)) continue;
-      const score = preyScore(persona, hunter, this.asPrey(p), pack, party, hint);
+      const score = preyScore(persona, hunter, this.asPrey(p), pack, party, hint, order ?? undefined);
       if (score < bestScore) {
         bestScore = score;
         best = p;
@@ -1687,7 +1706,8 @@ export class World {
         attacking: target.act === Act.Attack || target.act === Act.Heavy || target.act === Act.Charge,
         clustered: clusterCount(prey, party),
         behind: isBehind(e, prey),
-        lastKind: '',
+        lastKind: this.lastSwing.get(e.id) ?? '',
+        suffer: def.elite || def.boss || def.bar || this.roomOrder()?.punish ? this.sufferFor(target.id) : undefined,
       },
       e.atk,
       this.rng.next(),
@@ -1713,6 +1733,7 @@ export class World {
       this.events.push({ e: 'fx', what: 'appear', x: e.x, z: e.z, r: 1 });
     }
     e.yaw = yawOf(target.x - e.x, target.z - e.z);
+    this.lastSwing.set(e.id, atk.kind);
     this.setAim(e, atk, target);
   }
 
@@ -1805,6 +1826,7 @@ export class World {
           ox: cx,
           oz: cz,
           src: e.id,
+          family: familyOf(atk),
           slow: atk.slow,
           // Same radius as the strike — walking out of the slam must cancel the pending hit.
           still: (q) => Math.hypot(q.x - cx, q.z - cz) <= r + pad,
@@ -1833,6 +1855,7 @@ export class World {
         ox,
         oz,
         src: e.id,
+        family: familyOf(atk),
         slow: atk.slow,
         // Re-check the exact swing volume after lag forgiveness (was reach+1.1 — phantom hits).
         still: (q) => inMelee(q.x, q.z),
@@ -1931,44 +1954,62 @@ export class World {
     }
   }
 
-  /** Snapshot a decision point for Jev. The persona still acts this tick if no answer is cached. */
-  private considerJev(e: EnemyState, def: EnemyDef, target: PlayerState, dist: number, los: boolean): void {
-    if (!this.jev || this.safe || !jevEligible(def)) return;
-    if (e.state !== EState.Chase && e.state !== EState.Circle && e.state !== EState.Windup) return;
+  private markSuffer(id: string, spec: HitSpec, landed: boolean): void {
+    if (!spec.src || !spec.family) return;
+    const list = this.suffer.get(id) ?? [];
+    list.push({ t: this.time, family: spec.family, landed });
+    const fresh = list.filter((mark) => this.time - mark.t <= 6).slice(-8);
+    this.suffer.set(id, fresh);
+  }
+
+  private sufferFor(id: string): SufferRead | undefined {
+    const personal = sufferRead((this.suffer.get(id) ?? []).filter((mark) => this.time - mark.t <= 6));
+    if (personal.family || personal.resisted) return personal;
+    const punish = this.roomOrder()?.punish;
+    if (punish && punish !== 'mix') return { family: punish, resisted: '' };
+    return undefined;
+  }
+
+  private roomOrder(): RoomOrder | null {
+    return this.jev?.peekRoom?.(this.time) ?? null;
+  }
+
+  /** One picture of the fight. Jev answers for the room; grunts spend nothing on their own. */
+  private noteCaptain(): void {
+    if (!this.jev?.noteRoom || this.safe) return;
     const party = this.alivePrey().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (party.length === 0) return;
-    const heroes: JevHeroSnap[] = [];
-    for (let i = 0; i < party.length && i < 9; i++) {
-      const prey = party[i]!;
-      heroes.push({
+    const living = this.enemies.filter((e) => e.state !== EState.Dead && !ENEMIES[e.type].dummy);
+    if (living.length === 0) return;
+    const heroes = party.slice(0, 9).map((prey, i) => {
+      const read = sufferRead((this.suffer.get(prey.id) ?? []).filter((mark) => this.time - mark.t <= 6));
+      return {
         alias: `h${i}`,
         id: prey.id,
         hero: prey.hero,
         archetype: HEROES[prey.hero].archetype,
         hpFrac: prey.maxHp > 0 ? prey.hp / prey.maxHp : 1,
         act: this.actLabel(prey.act),
-        dist: Math.hypot(prey.x - e.x, prey.z - e.z),
-        blocking: prey.act === Act.Block,
-        clustered: clusterCount(prey, party),
+        isolated: isolationOf(prey, party) > 5,
+        suffers: sufferSentence(prey.hero, read),
+        read,
+      };
+    });
+    const elites = living
+      .filter((e) => jevEligible(ENEMIES[e.type]))
+      .slice(0, 3)
+      .map((e) => {
+        const target = this.players.get(e.target);
+        const dist = target ? Math.hypot(target.x - e.x, target.z - e.z) : 4;
+        return {
+          enemyId: e.id,
+          type: e.type,
+          name: ENEMIES[e.type].name,
+          attacks: legalAttackSnaps(ENEMIES[e.type].attacks, e.phase, dist),
+        };
       });
-    }
-    const focus = this.asPrey(target);
-    const sample: JevSample = {
-      enemyId: e.id,
-      type: e.type,
-      name: def.name,
-      mind: personaOf(e.type).mind,
-      rank: def.boss || def.bar ? 0 : def.elite ? 1 : 2,
-      phase: e.phase,
-      dist,
-      behind: isBehind(e, focus),
-      los,
-      hpFrac: e.maxHp > 0 ? e.hp / e.maxHp : 1,
-      heroes,
-      attacks: legalAttackSnaps(def.attacks, e.phase, dist),
-      steers: [...JEV_STEERS],
-    };
-    this.jev.note(sample);
+    const brief: RoomBrief = { heroes, elites };
+    this.jev.noteRoom(brief);
   }
 
   private stepEnemy(e: EnemyState, dt: number): void {
@@ -2063,17 +2104,6 @@ export class World {
     }
 
     if (e.state === EState.Windup) {
-      const windTarget = this.players.get(e.target);
-      if (windTarget && windTarget.act !== Act.Downed) {
-        const eye = standElevation(this.layout, e.x, e.z);
-        this.considerJev(
-          e,
-          def,
-          windTarget,
-          Math.hypot(windTarget.x - e.x, windTarget.z - e.z),
-          losClear(this.layout, e.x, e.z, windTarget.x, windTarget.z, eye),
-        );
-      }
       this.stepWindup(e, def, dt, slow);
       return;
     }
@@ -2135,7 +2165,6 @@ export class World {
       return;
     }
 
-    this.considerJev(e, def, target, dist, los);
     const mind = personaOf(e.type).mind;
     const prey = this.asPrey(target);
     const slots = partyAttackSlots(!!def.ranged, this.players.size);
@@ -2164,6 +2193,7 @@ export class World {
         chargeMax: charge.max,
       },
       this.mindHint(e),
+      this.roomOrder() ?? undefined,
     );
     if (mode === 'flank') {
       e.state = EState.Circle;
@@ -2388,6 +2418,7 @@ export class World {
           ox: sx,
           oz: sz,
           src: pr.src,
+          family: pr.owner ? undefined : 'shot',
           by: pr.owner || undefined,
         });
         if (res === 'parried') {
@@ -2699,6 +2730,7 @@ export class World {
     this.stepWaves(dt);
     this.stepLoot(dt);
     this.stepHeroRegen(dt);
+    this.noteCaptain();
     this.jev?.pump(this.time);
     if (this.enemies.some((e) => e.state === EState.Dead && e.t > CORPSE_TIME)) {
       this.enemies = this.enemies.filter((e) => !(e.state === EState.Dead && e.t > CORPSE_TIME));

@@ -3,10 +3,13 @@
  * The tick never waits on the network: a late or low-confidence answer is ignored and
  * the persona in enemyMind.ts keeps the fight going. A confident answer is a MindHint:
  * the mind still rejects anything outside range, phase or a downed hero.
- * Only elites and bosses are sent: the crowd keeps the local persona, which is what holds the bill down.
+ * The room asks once: who to break, which attack family they suffer, and how the pack moves.
+ * Elites still get one signature choice inside that same call. Grunts execute the order locally.
  */
 import type { EnemyAttackDef } from './enemies';
 import { ENEMIES } from './enemies';
+import type { AttackFamily, RoomOrder, SufferRead } from './enemyMind';
+import { sufferSentence } from './enemyMind';
 import type { SteerMode } from './enemyMind';
 import type { EnemyTypeId } from './types';
 
@@ -91,11 +94,50 @@ export interface JevRawAnswer {
   steerConfidence?: number;
 }
 
+export interface RoomHeroBrief {
+  alias: string;
+  id: string;
+  hero: string;
+  archetype: string;
+  hpFrac: number;
+  act: string;
+  isolated: boolean;
+  suffers: string;
+  read: SufferRead;
+}
+
+export interface RoomEliteBrief {
+  enemyId: number;
+  type: string;
+  name: string;
+  attacks: { id: string; note: string }[];
+}
+
+/** One picture of the fight. Jev answers once for the whole room. */
+export interface RoomBrief {
+  heroes: RoomHeroBrief[];
+  elites: RoomEliteBrief[];
+}
+
+export interface CaptainAnswer {
+  focusId: string | null;
+  focusConfidence: number;
+  punish: RoomOrder['punish'];
+  punishConfidence: number;
+  shape: RoomOrder['shape'];
+  shapeConfidence: number;
+  elites: JevRawAnswer[];
+}
+
 export interface JevAdvisor {
   /** Cached decision for this foe, or null when the persona should decide. */
   peek(enemyId: number, now: number): JevDecision | null;
   /** Latest tactical snapshot. Must not block or throw. */
   note(sample: JevSample): void;
+  /** Room-wide order, when the captain has answered. */
+  peekRoom?(now: number): RoomOrder | null;
+  /** One brief for the whole fight. Replaces per-grunt calls. */
+  noteRoom?(brief: RoomBrief): void;
   /** Send at most one in-flight batch. Called from the world step. */
   pump(now: number): void;
   /** Drop cached decisions when a new room is built (foe ids restart). */
@@ -381,12 +423,185 @@ function accept(sample: JevSample, raw: JevRawAnswer, now: number, minConfidence
   return { enemyId: sample.enemyId, attackId, wait, targetId, steer, until: now + ttl };
 }
 
+const FAMILIES: AttackFamily[] = ['blue', 'red', 'shot', 'blast', 'rush'];
+const SHAPES = ['surround', 'peel', 'hold'] as const;
+
+export function sanitizeRoomBrief(input: unknown): RoomBrief | null {
+  if (!input || typeof input !== 'object') return null;
+  const row = input as Record<string, unknown>;
+  const heroes: RoomHeroBrief[] = [];
+  if (Array.isArray(row.heroes)) {
+    for (const hero of row.heroes) {
+      if (!hero || typeof hero !== 'object' || heroes.length >= 9) continue;
+      const h = hero as Record<string, unknown>;
+      const alias = text(h.alias, 3);
+      const id = text(h.id, 64);
+      const heroName = text(h.hero, 24);
+      const archetype = text(h.archetype, 24);
+      const act = text(h.act, 16);
+      const suffers = text(h.suffers, 160);
+      const hpFrac = num(h.hpFrac, 0, 1);
+      if (!alias || !/^h\d$/.test(alias) || !id || !heroName || !archetype || !act || !suffers || hpFrac === undefined) continue;
+      const readRaw = h.read && typeof h.read === 'object' ? (h.read as Record<string, unknown>) : {};
+      const family = text(readRaw.family, 8);
+      const resisted = text(readRaw.resisted, 8);
+      heroes.push({
+        alias,
+        id,
+        hero: heroName,
+        archetype,
+        hpFrac,
+        act,
+        isolated: h.isolated === true,
+        suffers,
+        read: {
+          family: FAMILIES.includes(family as AttackFamily) ? (family as AttackFamily) : '',
+          resisted: FAMILIES.includes(resisted as AttackFamily) ? (resisted as AttackFamily) : '',
+        },
+      });
+    }
+  }
+  if (heroes.length === 0) return null;
+  const elites: RoomEliteBrief[] = [];
+  if (Array.isArray(row.elites)) {
+    for (const elite of row.elites) {
+      if (!elite || typeof elite !== 'object' || elites.length >= 3) continue;
+      const e = elite as Record<string, unknown>;
+      const enemyId = num(e.enemyId, 1, 1_000_000);
+      const type = text(e.type, 40);
+      const name = text(e.name, 48);
+      if (enemyId === undefined || !type || !(type in ENEMIES) || !name || !jevEligible(ENEMIES[type as EnemyTypeId])) continue;
+      const attacks: { id: string; note: string }[] = [];
+      if (Array.isArray(e.attacks)) {
+        for (const atk of e.attacks) {
+          if (!atk || typeof atk !== 'object' || attacks.length >= 8) continue;
+          const a = atk as Record<string, unknown>;
+          const id = text(a.id, 32);
+          const note = text(a.note, 160);
+          if (!id || !/^[a-z0-9_-]{1,32}$/.test(id) || !note) continue;
+          attacks.push({ id, note });
+        }
+      }
+      elites.push({ enemyId, type, name, attacks });
+    }
+  }
+  return { heroes, elites };
+}
+
+export function buildCaptainBody(brief: RoomBrief, model: string): {
+  model: string;
+  state: unknown;
+  questions: Record<string, unknown>;
+} {
+  const questions: Record<string, unknown> = {
+    punish: {
+      type: 'choice',
+      instructions: 'Which attack family should the room use more, because a hero suffers from it and fails to stop it?',
+      criteria: {
+        blue: 'Parryable melee. Use it when they are attacking and not guarding.',
+        red: 'Unblockable. Use more when they parry blues or suffer red.',
+        shot: 'Projectiles. Use more when they suffer shots or hide behind a guard.',
+        blast: 'Area attacks. Use more when heroes are clustered or suffer blasts.',
+        rush: 'Gap closers and teleports. Use more when they suffer rushes or stay at range.',
+        mix: 'No family is clearly hurting them. Keep the usual mix.',
+      },
+    },
+    shape: {
+      type: 'choice',
+      instructions: 'How should the pack move around the heroes?',
+      criteria: {
+        surround: 'Flank and surround the chosen hero. Assassins go behind.',
+        peel: 'One brute stays on the guardian. Everyone else hunts the back line.',
+        hold: 'Ranged foes keep their distance. Do not bunch up.',
+      },
+    },
+  };
+  if (brief.heroes.length > 1) {
+    const targets: Record<string, string> = {};
+    for (const hero of brief.heroes) {
+      targets[hero.alias] = `${hero.hero} (${hero.archetype}), hp ${hero.hpFrac.toFixed(2)}, ${hero.act}${hero.isolated ? ', isolated' : ''}. ${hero.suffers}`;
+    }
+    questions.focus = {
+      type: 'choice',
+      instructions: 'Which hero should the room try to break?',
+      criteria: targets,
+    };
+  }
+  for (const elite of brief.elites) {
+    const attacks: Record<string, string> = { wait: 'Do not start a signature attack yet.' };
+    for (const atk of elite.attacks) attacks[atk.id] = atk.note;
+    questions[`atk_${elite.enemyId}`] = {
+      type: 'choice',
+      instructions: `Which legal signature attack should ${elite.name} use, preferring the family the target suffers?`,
+      criteria: attacks,
+    };
+  }
+  return {
+    model,
+    state: {
+      task: 'You command the whole room. Prefer attack types a named hero already suffers from.',
+      heroes: brief.heroes.map((hero) => ({
+        alias: hero.alias,
+        hero: hero.hero,
+        note: sufferSentence(hero.hero, hero.read),
+      })),
+    },
+    questions,
+  };
+}
+
+export function readCaptain(brief: RoomBrief, body: unknown): CaptainAnswer {
+  const empty: CaptainAnswer = {
+    focusId: null,
+    focusConfidence: 0,
+    punish: null,
+    punishConfidence: 0,
+    shape: null,
+    shapeConfidence: 0,
+    elites: [],
+  };
+  if (!body || typeof body !== 'object') return empty;
+  const answers = (body as { answers?: unknown }).answers;
+  if (!answers || typeof answers !== 'object') return empty;
+  const bag = answers as Record<string, unknown>;
+  const focus = readChoice(bag, 'focus');
+  const punish = readChoice(bag, 'punish');
+  const shape = readChoice(bag, 'shape');
+  const hero = focus ? brief.heroes.find((h) => h.alias === focus.choice) : undefined;
+  const punishChoice = punish?.choice;
+  const shapeChoice = shape?.choice;
+  const elites: JevRawAnswer[] = [];
+  for (const elite of brief.elites) {
+    const attack = readChoice(bag, `atk_${elite.enemyId}`);
+    if (!attack) continue;
+    const raw: JevRawAnswer = { enemyId: elite.enemyId, attackConfidence: attack.confidence };
+    if (attack.choice === 'wait') raw.wait = true;
+    else if (elite.attacks.some((atk) => atk.id === attack.choice)) raw.attackId = attack.choice;
+    elites.push(raw);
+  }
+  return {
+    focusId: hero?.id ?? null,
+    focusConfidence: focus?.confidence ?? 0,
+    punish: punishChoice === 'mix' || FAMILIES.includes(punishChoice as AttackFamily) ? (punishChoice as RoomOrder['punish']) : null,
+    punishConfidence: punish?.confidence ?? 0,
+    shape: SHAPES.includes(shapeChoice as (typeof SHAPES)[number]) ? (shapeChoice as RoomOrder['shape']) : null,
+    shapeConfidence: shape?.confidence ?? 0,
+    elites,
+  };
+}
+
 export interface JevAdvisorOptions {
   transport: (samples: JevSample[]) => Promise<JevRawAnswer[]>;
+  /** One room-wide call. When set, the world asks this instead of every foe. */
+  roomTransport?: (brief: RoomBrief) => Promise<CaptainAnswer>;
   /** Below this, the persona keeps the decision. */
   minConfidence?: number;
   /** Seconds a accepted answer stays in force. */
   ttl?: number;
+  /** Seconds a room order stays in force. */
+  roomTtl?: number;
+  /** Minimum seconds between room orders. */
+  roomInterval?: number;
   /** Minimum seconds between asks for the same foe. */
   minInterval?: number;
   batch?: number;
@@ -395,12 +610,17 @@ export interface JevAdvisorOptions {
 export function createJevAdvisor(opts: JevAdvisorOptions): JevAdvisor {
   const minConfidence = opts.minConfidence ?? 0.5;
   const ttl = opts.ttl ?? 0.9;
+  const roomTtl = opts.roomTtl ?? 3;
+  const roomInterval = opts.roomInterval ?? 2.5;
   const minInterval = opts.minInterval ?? 0.7;
   const batch = opts.batch ?? 4;
   const pending = new Map<number, JevSample>();
   const cache = new Map<number, JevDecision>();
   const sig = new Map<number, string>();
   const asked = new Map<number, number>();
+  let roomBrief: RoomBrief | null = null;
+  let roomOrder: RoomOrder | null = null;
+  let roomAsked = -999;
   let now = 0;
   let busy = false;
   let dead = false;
@@ -430,8 +650,83 @@ export function createJevAdvisor(opts: JevAdvisorOptions): JevAdvisor {
       if (dead || sample.heroes.length === 0) return;
       pending.set(sample.enemyId, sample);
     },
+    peekRoom(at) {
+      if (!roomOrder || roomOrder.until <= at) {
+        roomOrder = null;
+        return null;
+      }
+      return roomOrder;
+    },
+    noteRoom(brief) {
+      if (dead || brief.heroes.length === 0) return;
+      roomBrief = brief;
+    },
     pump(at) {
       now = at;
+      if (!dead && !busy && at >= mute && opts.roomTransport && roomBrief && at - roomAsked >= roomInterval) {
+        const brief = roomBrief;
+        roomBrief = null;
+        roomAsked = at;
+        busy = true;
+        const ticket = generation;
+        let flight: Promise<CaptainAnswer>;
+        try {
+          flight = Promise.resolve(opts.roomTransport(brief));
+        } catch (err) {
+          busy = false;
+          if (err instanceof JevUnavailable && err.permanent) dead = true;
+          else mute = now + 8;
+          return;
+        }
+        void flight
+          .then((answer) => {
+            if (ticket !== generation) return;
+            const punish = answer.punishConfidence >= minConfidence ? answer.punish : null;
+            const shape = answer.shapeConfidence >= minConfidence ? answer.shape : null;
+            const focusId = answer.focusConfidence >= minConfidence ? answer.focusId : null;
+            if (punish || shape || focusId) roomOrder = { focusId, punish, shape, until: now + roomTtl };
+            for (const elite of brief.elites) {
+              const raw = answer.elites.find((row) => row.enemyId === elite.enemyId);
+              if (!raw) continue;
+              const sample: JevSample = {
+                enemyId: elite.enemyId,
+                type: elite.type,
+                name: elite.name,
+                mind: 'brute',
+                rank: 0,
+                phase: 0,
+                dist: 0,
+                behind: false,
+                los: true,
+                hpFrac: 1,
+                heroes: brief.heroes.map((hero) => ({
+                  alias: hero.alias,
+                  id: hero.id,
+                  hero: hero.hero,
+                  archetype: hero.archetype,
+                  hpFrac: hero.hpFrac,
+                  act: hero.act,
+                  dist: 0,
+                  blocking: false,
+                  clustered: 1,
+                })),
+                attacks: elite.attacks,
+                steers: ['chase'],
+              };
+              const decision = accept(sample, raw, now, minConfidence, ttl);
+              if (decision) cache.set(elite.enemyId, decision);
+            }
+          })
+          .catch((err: unknown) => {
+            if (ticket !== generation) return;
+            if (err instanceof JevUnavailable && err.permanent) dead = true;
+            else mute = now + 8;
+          })
+          .finally(() => {
+            if (ticket === generation) busy = false;
+          });
+        return;
+      }
       if (dead || busy || at < mute || pending.size === 0) return;
       const due: JevSample[] = [];
       for (const sample of pending.values()) {
@@ -479,6 +774,9 @@ export function createJevAdvisor(opts: JevAdvisorOptions): JevAdvisor {
       cache.clear();
       sig.clear();
       asked.clear();
+      roomBrief = null;
+      roomOrder = null;
+      roomAsked = -999;
       busy = false;
     },
   };

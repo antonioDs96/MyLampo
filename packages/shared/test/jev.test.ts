@@ -7,9 +7,11 @@ import {
   JevUnavailable,
   TUNING,
   World,
+  buildCaptainBody,
   buildSystemOneBody,
   createJevAdvisor,
   jevEligible,
+  sufferSentence,
   parseLayout,
   readJevAnswers,
   sanitizeJevSamples,
@@ -184,7 +186,7 @@ describe('jev decisions', () => {
     expect(jevEligible(ENEMIES.inquisitore)).toBe(true);
     expect(jevEligible(ENEMIES.klaus)).toBe(true);
 
-    const noted: string[] = [];
+    let elites: string[] = [];
     const world = new World({
       layout: parseLayout({
         id: 'bill',
@@ -195,7 +197,10 @@ describe('jev decisions', () => {
       seed: 1,
       jev: {
         peek: () => null,
-        note: (s) => noted.push(s.type),
+        note() {},
+        noteRoom: (brief) => {
+          elites = brief.elites.map((e) => e.type);
+        },
         pump() {},
         reset() {},
       },
@@ -208,7 +213,32 @@ describe('jev decisions', () => {
     grunt.cool = 99;
     elite.cool = 99;
     world.step(0.05);
-    expect(noted).toEqual(['inquisitore']);
+    expect(elites).toEqual(['inquisitore']);
+  });
+
+  it('tells the captain which family a hero suffers', () => {
+    const body = buildCaptainBody(
+      {
+        heroes: [
+          {
+            alias: 'h0',
+            id: 'a',
+            hero: 'vyncent',
+            archetype: 'striker',
+            hpFrac: 0.4,
+            act: 'block',
+            isolated: true,
+            suffers: sufferSentence('vyncent', { family: 'red', resisted: 'blue' }),
+            read: { family: 'red', resisted: 'blue' },
+          },
+        ],
+        elites: [],
+      },
+      'jev-latest',
+    );
+    const punish = body.questions.punish as { criteria: Record<string, string> };
+    expect(Object.keys(punish.criteria)).toContain('red');
+    expect(JSON.stringify(body.state)).toContain('suffers red');
   });
 });
 

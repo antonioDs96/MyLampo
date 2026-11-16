@@ -25,6 +25,66 @@ export type EnemyMind =
 
 export type SteerMode = 'chase' | 'kite' | 'flank' | 'backstep' | 'circle' | 'hold';
 
+/** The kind of attack a hero can learn to fear. */
+export type AttackFamily = 'blue' | 'red' | 'shot' | 'blast' | 'rush';
+
+export interface SufferRead {
+  /** Family that has actually been hurting this hero. */
+  family: AttackFamily | '';
+  /** Family this hero keeps stopping. */
+  resisted: AttackFamily | '';
+}
+
+export interface RoomOrder {
+  focusId: string | null;
+  punish: AttackFamily | 'mix' | null;
+  shape: 'surround' | 'peel' | 'hold' | null;
+  until: number;
+}
+
+export function familyOf(atk: { kind: 'blue' | 'red'; proj?: unknown; aoe?: number; special?: string; lunge: number }): AttackFamily {
+  if (atk.proj) return 'shot';
+  if (atk.aoe) return 'blast';
+  if (atk.special === 'teleport' || atk.lunge >= 8) return 'rush';
+  return atk.kind;
+}
+
+/** Two landed hits of one family, ahead of the others, mean "he suffers this — do more of it". */
+export function sufferRead(marks: { family: AttackFamily; landed: boolean }[]): SufferRead {
+  const land: Partial<Record<AttackFamily, number>> = {};
+  const stop: Partial<Record<AttackFamily, number>> = {};
+  for (const mark of marks) {
+    if (mark.landed) land[mark.family] = (land[mark.family] ?? 0) + 1;
+    else stop[mark.family] = (stop[mark.family] ?? 0) + 1;
+  }
+  let family: AttackFamily | '' = '';
+  let best = 2;
+  for (const key of Object.keys(land) as AttackFamily[]) {
+    const n = land[key] ?? 0;
+    if (n > best) {
+      best = n;
+      family = key;
+    }
+  }
+  let resisted: AttackFamily | '' = '';
+  let worst = 1;
+  for (const key of Object.keys(stop) as AttackFamily[]) {
+    const n = stop[key] ?? 0;
+    if (n > worst && n > (land[key] ?? 0)) {
+      worst = n;
+      resisted = key;
+    }
+  }
+  return { family, resisted };
+}
+
+export function sufferSentence(name: string, read: SufferRead): string {
+  if (read.family && read.resisted) return `${name} suffers ${read.family} and stops ${read.resisted}. Do more ${read.family}.`;
+  if (read.family) return `${name} suffers ${read.family}. Do more of that.`;
+  if (read.resisted) return `${name} stops ${read.resisted}. Use something else.`;
+  return `${name} has no clear weakness yet.`;
+}
+
 /** What Jev wants this foe to do. Empty fields leave that choice to the persona. */
 export interface MindHint {
   attackId: string | null;
@@ -141,6 +201,7 @@ export function preyScore(
   pack: HunterView[],
   party: PreyView[],
   hint?: MindHint,
+  order?: { focusId?: string | null; shape?: RoomOrder['shape'] },
 ): number {
   const hero = HEROES[prey.hero];
   const dist = Math.hypot(prey.x - hunter.x, prey.z - hunter.z);
@@ -149,6 +210,8 @@ export function preyScore(
   let s = dist;
 
   if (hint?.targetId === prey.id) s -= 1000;
+  const holdTank = order?.shape === 'peel' && (persona.mind === 'bully' || persona.mind === 'warden');
+  if (!holdTank && order?.focusId === prey.id) s -= 14;
   if (prey.id === hunter.target) s -= 3;
   if (prey.id === hunter.lastHitBy) s -= 3.5;
   if (persona.hunts.includes(hero.archetype)) s -= 7;
@@ -210,6 +273,8 @@ export interface AttackCtx {
   clustered: number;
   behind: boolean;
   lastKind: 'blue' | 'red' | '';
+  /** What this hero has been failing to stop. */
+  suffer?: SufferRead;
 }
 
 /** Multiplier applied to an attack's authored weight. 0 = never pick. */
@@ -269,6 +334,8 @@ export function attackWeightMul(mind: EnemyMind, atk: EnemyAttackDef, ctx: Attac
       if (atk.proj) m *= 0.5;
       break;
   }
+  if (mind !== 'dummy' && ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
+  if (mind !== 'dummy' && ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
   return m;
 }
 
@@ -289,7 +356,7 @@ export function pickAttackIndex(
     const a = attacks[i]!;
     if ((a.phase ?? 0) > phase) continue;
     if (dist > a.startRange || dist < (a.minRange ?? 0)) continue;
-    const lastKind = lastAtk >= 0 ? attacks[lastAtk]?.kind ?? '' : '';
+    const lastKind = ctx.lastKind || (lastAtk >= 0 ? attacks[lastAtk]?.kind ?? '' : '');
     const mul = attackWeightMul(mind, a, { ...ctx, lastKind });
     const w = Math.max(0, a.weight * mul);
     if (w <= 0) continue;
@@ -341,8 +408,11 @@ export function steerMode(
     chargeMax: number;
   },
   hint?: MindHint,
+  order?: { shape?: RoomOrder['shape'] },
 ): SteerMode {
   if (mind !== 'dummy' && hint?.steer) return hint.steer;
+  if (mind !== 'dummy' && order?.shape === 'surround' && (mind === 'assassin' || mind === 'hunter' || mind === 'pack')) return 'flank';
+  if (mind !== 'dummy' && order?.shape === 'hold' && (mind === 'sniper' || mind === 'priest')) return 'kite';
   switch (mind) {
     case 'dummy':
       return 'hold';
