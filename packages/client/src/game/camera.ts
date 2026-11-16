@@ -1,5 +1,5 @@
 import { FreeCamera, Plane, type Scene, Vector3 } from '@babylonjs/core';
-import { angleDiff, clamp, rayDistance, wrapAngle, yawOf, type Layout } from '@malampu/shared';
+import { angleDiff, clamp, ELEV_WALL, getCellElevation, rayDistance, standElevation, STEP_HEIGHT, wrapAngle, yawOf, type Layout } from '@malampu/shared';
 
 const PITCH_MIN = 0.08;
 const PITCH_MAX = 1.15;
@@ -77,10 +77,13 @@ export class ChaseCamera {
     const follow = 1 - Math.exp(-dt * 14);
     this.focus.x += (tx - this.focus.x) * follow;
     this.focus.z += (tz - this.focus.z) * follow;
+    const raw = layout ? getCellElevation(layout, tx, tz) : 0;
+    const feet = 1.6 + (raw === ELEV_WALL ? 0 : raw) * STEP_HEIGHT;
+    this.focus.y += (feet - this.focus.y) * follow;
 
     let lookX = this.focus.x;
     let lookZ = this.focus.z;
-    let lookY = 1.75;
+    let lookY = this.focus.y + 0.15;
     let dist = this.distance;
     if (lock) {
       const dx = lock.x - x;
@@ -117,7 +120,7 @@ export class ChaseCamera {
     // everything on the camera's side of a vertical plane just in front of the wall is hidden.
     let cut = back + 4;
     if (layout) {
-      const wall = rayDistance(layout, lookX, lookZ, -fx, -fz, back + 1.5);
+      const wall = rayDistance(layout, lookX, lookZ, -fx, -fz, back + 1.5, standElevation(layout, x, z));
       if (wall < back + 1.2) cut = Math.max(0.75, wall - 0.2);
     }
     this.cutDist = cut < this.cutDist ? cut : this.cutDist + (cut - this.cutDist) * (1 - Math.exp(-dt * 10));

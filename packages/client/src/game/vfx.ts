@@ -318,8 +318,8 @@ export class Vfx {
 
   // ---------------------------------------------------------------- immediate drawing (this frame only)
 
-  disc(x: number, z: number, r: number, c: RGB, a: number): void {
-    this.discs.flat(x, DECAL_Y, z, r, r, 0, c[0], c[1], c[2], a);
+  disc(x: number, z: number, r: number, c: RGB, a: number, y = DECAL_Y): void {
+    this.discs.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
   ring(x: number, z: number, r: number, c: RGB, a: number, y = DECAL_Y): void {
@@ -330,9 +330,9 @@ export class Vfx {
     this.glows.flat(x, DECAL_Y - 0.02, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
-  sector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number): void {
-    if (arcDeg >= 359) this.disc(x, z, r, c, a);
-    else this.sectorBatch(arcDeg).flat(x, DECAL_Y, z, r, r, yaw, c[0], c[1], c[2], a);
+  sector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number, y = DECAL_Y): void {
+    if (arcDeg >= 359) this.disc(x, z, r, c, a, y);
+    else this.sectorBatch(arcDeg).flat(x, y, z, r, r, yaw, c[0], c[1], c[2], a);
   }
 
   dome(x: number, z: number, r: number, c: RGB, a: number, dark = false): void {

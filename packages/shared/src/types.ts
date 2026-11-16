@@ -247,6 +247,8 @@ export interface Projectile {
   red: boolean;
   effect: string;
   hit: number[];
+  /** Terrace the shooter stood on. Authority-only: not part of the snapshot. */
+  eye: number;
 }
 
 export interface Zone {

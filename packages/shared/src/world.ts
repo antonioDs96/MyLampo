@@ -57,15 +57,19 @@ import {
 } from './partyScale';
 import {
   buildFlow,
+  canStep,
   collide,
   flowDirection,
-  isSolidAt,
+  highGroundMul,
   losClear,
+  meleeHeightBlocked,
   nearestFloor,
+  sightBlocked,
+  standElevation,
   type Layout,
   type Point,
 } from './layout';
-import { angleDiff, approachAngle, clamp, Rng, yawOf } from './math';
+import { angleDiff, approachAngle, clamp, Rng, wrapAngle, yawOf } from './math';
 import type { WaveDef } from './missions';
 import { BESTIARY_BY_ID, damageMultiplier } from './bestiaryCatalog';
 import { spawnBossRelicChest } from './bossLootSystem';
@@ -101,6 +105,14 @@ import {
 
 const T = (s: number): number => s * TICK_HZ;
 const RAD = Math.PI / 180;
+/** Idle garrison look this far, and only inside this half-angle of their facing. */
+const VISION_RANGE = 12;
+const VISION_HALF = 0.95;
+
+/** Ranged and magic heroes ignore the two-terrace melee cutoff. Their shots still stop on walls and higher ground. */
+function ignoresMeleeHeight(hero: HeroId): boolean {
+  return hero === 'rycard' || hero === 'gabryel' || hero === 'anthon';
+}
 const RING_SPEED = 10;
 const RING_MAX = 34;
 const SPAWN_TIME = 1.1;
@@ -218,6 +230,8 @@ export class World {
   private allies: AllyLite[] = [];
   /** First elite/boss of each type announces its counter-strategy. */
   private readonly seenPersona = new Set<EnemyTypeId>();
+  /** Pre-placed dungeon foes. They patrol until a hero enters the vision cone. */
+  private readonly garrison = new Set<number>();
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
@@ -234,6 +248,19 @@ export class World {
       this.waveTimer = opts.introDelay ?? 3;
     }
     for (const d of this.layout.dummySpawns) this.spawnEnemy('manichino', d.x, d.z);
+    for (const g of this.layout.placed) {
+      const e = this.spawnEnemy(g.type as EnemyTypeId, g.x, g.z);
+      e.state = EState.Idle;
+      e.yaw = g.yaw;
+      e.t = 0;
+      e.cool = this.rng.range(0.4, 1.8);
+      this.garrison.add(e.id);
+    }
+    // The dungeon is already inhabited: no wave queue, the room clears when the garrison falls.
+    if (this.layout.placed.length > 0 && this.waves.length === 0) {
+      this.waveState = 'fighting';
+      this.waveIdx = 0;
+    }
   }
 
   // ---------------------------------------------------------------- players
@@ -474,6 +501,7 @@ export class World {
       const radius = def.aoe * (full && def.charged === 'slam' ? 1.35 : 1) * areaMul;
       for (const e of this.enemies) {
         if (!this.hittable(e)) continue;
+        if (!ignoresMeleeHeight(p.hero) && meleeHeightBlocked(this.layout, p.x, p.z, e.x, e.z)) continue;
         const d = Math.hypot(e.x - cx, e.z - cz) - ENEMIES[e.type].radius;
         if (d > radius + TUNING.lagPad) continue;
         any = strike(e, def.dmg * mult * dmgMul, def.poise * mult * postureMul, def.kb * kbMul) || any;
@@ -481,6 +509,7 @@ export class World {
       if (this.pvp) {
         for (const q of this.players.values()) {
           if (q.id === p.id || q.act === Act.Downed) continue;
+          if (!ignoresMeleeHeight(p.hero) && meleeHeightBlocked(this.layout, p.x, p.z, q.x, q.z)) continue;
           const d = Math.hypot(q.x - cx, q.z - cz) - TUNING.playerRadius;
           if (d > radius + TUNING.lagPad) continue;
           any = hitRival(q, cx, cz) || any;
@@ -493,6 +522,7 @@ export class World {
       const hitIds: number[] = [];
       for (const e of this.enemies) {
         if (!this.hittable(e)) continue;
+        if (!ignoresMeleeHeight(p.hero) && meleeHeightBlocked(this.layout, p.x, p.z, e.x, e.z)) continue;
         const dx = e.x - p.x;
         const dz = e.z - p.z;
         const d = Math.hypot(dx, dz) - ENEMIES[e.type].radius;
@@ -508,6 +538,7 @@ export class World {
         if (primary) {
           for (const e of this.enemies) {
             if (e.id === primary.id || !this.hittable(e)) continue;
+            if (!ignoresMeleeHeight(p.hero) && meleeHeightBlocked(this.layout, p.x, p.z, e.x, e.z)) continue;
             if (Math.hypot(e.x - primary.x, e.z - primary.z) > 2.4) continue;
             strike(e, def.dmg * mult * dmgMul * 0.55, def.poise * mult * postureMul * 0.5, def.kb * kbMul * 0.7);
             break;
@@ -516,12 +547,15 @@ export class World {
       }
       // Mastery: Graffio — extra light nick
       if (mastery === 'graffio' && !heavy && any) {
-        const e = this.enemies.find((x) => hitIds.includes(x.id) && this.hittable(x));
+        const e = this.enemies.find(
+          (x) => hitIds.includes(x.id) && this.hittable(x) && (ignoresMeleeHeight(p.hero) || !meleeHeightBlocked(this.layout, p.x, p.z, x.x, x.z)),
+        );
         if (e) strike(e, Math.max(3, def.dmg * 0.35 * dmgMul), def.poise * 0.25 * postureMul, 1);
       }
       if (this.pvp) {
         for (const q of this.players.values()) {
           if (q.id === p.id || q.act === Act.Downed) continue;
+          if (!ignoresMeleeHeight(p.hero) && meleeHeightBlocked(this.layout, p.x, p.z, q.x, q.z)) continue;
           const dx = q.x - p.x;
           const dz = q.z - p.z;
           const d = Math.hypot(dx, dz) - TUNING.playerRadius;
@@ -546,7 +580,8 @@ export class World {
     const fx = Math.sin(p.yaw);
     const fz = Math.cos(p.yaw);
     let d = ahead;
-    while (d > 1 && isSolidAt(this.layout, p.x + fx * d, p.z + fz * d)) d -= 1;
+    const eye = standElevation(this.layout, p.x, p.z);
+    while (d > 1 && sightBlocked(this.layout, p.x + fx * d, p.z + fz * d, eye)) d -= 1;
     return { x: p.x + fx * d, z: p.z + fz * d };
   }
 
@@ -582,6 +617,7 @@ export class World {
         red: false,
         effect: heavy ? 'heavy' : '',
         hit: [],
+        eye: standElevation(this.layout, p.x, p.z),
       });
     }
   }
@@ -697,6 +733,7 @@ export class World {
       }
       mul *= srd;
     }
+    if (p) mul *= highGroundMul(this.layout, p.x, p.z, e.x, e.z);
     const amount = Math.max(1, Math.round(dmg * mul));
     e.hp -= amount;
     e.sinceHit = 0;
@@ -1303,6 +1340,7 @@ export class World {
    * Collision is solved after the free move so slamming into stone reads as a real impact.
    */
   private slideEnemy(e: EnemyState, def: EnemyDef, dt: number): void {
+    const feet = standElevation(this.layout, e.x, e.z);
     const speed = Math.hypot(e.kx, e.kz);
     e.x += e.kx * dt;
     e.z += e.kz * dt;
@@ -1324,7 +1362,7 @@ export class World {
     }
 
     const out = { x: e.x, z: e.z };
-    collide(this.layout, e.x, e.z, def.radius, out);
+    collide(this.layout, e.x, e.z, def.radius, out, feet);
     const pushX = out.x - e.x;
     const pushZ = out.z - e.z;
     const pushed = Math.hypot(pushX, pushZ);
@@ -1384,7 +1422,22 @@ export class World {
   }
 
   private applyHit(p: PlayerState, spec: HitSpec): void {
-    let dmg = spec.dmg * partyThreatMul(this.players.size);
+    let ax = spec.ox;
+    let az = spec.oz;
+    if (spec.src) {
+      const src = this.enemies.find((e) => e.id === spec.src);
+      if (src) {
+        ax = src.x;
+        az = src.z;
+      }
+    } else if (spec.by) {
+      const atk = this.players.get(spec.by);
+      if (atk) {
+        ax = atk.x;
+        az = atk.z;
+      }
+    }
+    let dmg = spec.dmg * partyThreatMul(this.players.size) * highGroundMul(this.layout, ax, az, p.x, p.z);
     const live = this.liveOf(p.id);
     if (live) dmg *= live.physDamageTakenMul;
     const weaken = this.fiaccare.get(spec.src);
@@ -1713,6 +1766,7 @@ export class World {
           red,
           effect: '',
           hit: [],
+          eye: standElevation(this.layout, e.x, e.z),
         });
       }
       return;
@@ -1727,6 +1781,7 @@ export class World {
       this.events.push({ e: 'ecast', id: e.id, what: 'slam', x: cx, z: cz, r });
       for (const p of this.players.values()) {
         const at = this.hitPos(p, tmp);
+        if (meleeHeightBlocked(this.layout, e.x, e.z, at.x, at.z)) continue;
         if (Math.hypot(at.x - cx, at.z - cz) > r + pad) continue;
         this.tryHitPlayer(p, {
           dmg: atk.dmg,
@@ -1754,6 +1809,7 @@ export class World {
     };
     for (const p of this.players.values()) {
       const at = this.hitPos(p, tmp);
+      if (meleeHeightBlocked(this.layout, e.x, e.z, at.x, at.z)) continue;
       if (!inMelee(at.x, at.z)) continue;
       this.tryHitPlayer(p, {
         dmg: atk.dmg,
@@ -1772,8 +1828,48 @@ export class World {
   private moveEnemy(e: EnemyState, def: EnemyDef, dx: number, dz: number, speed: number, dt: number): void {
     const d = Math.hypot(dx, dz);
     if (d < 1e-4) return;
-    e.x += (dx / d) * speed * dt;
-    e.z += (dz / d) * speed * dt;
+    const feet = standElevation(this.layout, e.x, e.z);
+    const nx = e.x + (dx / d) * speed * dt;
+    const nz = e.z + (dz / d) * speed * dt;
+    collide(this.layout, nx, nz, def.radius, tmp, feet);
+    e.x = tmp.x;
+    e.z = tmp.z;
+  }
+
+  /** Idle garrison: walk a short beat, then turn when the next terrace is illegal or the beat ends. */
+  private patrol(e: EnemyState, def: EnemyDef, dt: number): void {
+    const fx = Math.sin(e.yaw);
+    const fz = Math.cos(e.yaw);
+    const aheadX = e.x + fx * (def.radius + 0.35);
+    const aheadZ = e.z + fz * (def.radius + 0.35);
+    const feet = standElevation(this.layout, e.x, e.z);
+    const blocked = !canStep(feet, standElevation(this.layout, aheadX, aheadZ));
+    e.cool -= dt;
+    if (blocked || e.cool <= 0) {
+      e.yaw = wrapAngle(e.yaw + e.side * (Math.PI / 2));
+      e.cool = 1.8;
+      return;
+    }
+    this.moveEnemy(e, def, fx, fz, Math.max(0.8, def.speed * 0.35), dt);
+  }
+
+  /** First hero inside the facing cone with a clear line of sight, or none. */
+  private spotHero(e: EnemyState): PlayerState | undefined {
+    const eye = standElevation(this.layout, e.x, e.z);
+    let best: PlayerState | undefined;
+    let bestD = VISION_RANGE;
+    for (const p of this.players.values()) {
+      if (p.act === Act.Downed || hasStatus(p.st, PS.Stealth)) continue;
+      const dx = p.x - e.x;
+      const dz = p.z - e.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > bestD) continue;
+      if (Math.abs(angleDiff(yawOf(dx, dz), e.yaw)) > VISION_HALF) continue;
+      if (!losClear(this.layout, e.x, e.z, p.x, p.z, eye)) continue;
+      best = p;
+      bestD = dist;
+    }
+    return best;
   }
 
   private stepEnemy(e: EnemyState, dt: number): void {
@@ -1888,6 +1984,17 @@ export class World {
       return;
     }
 
+    if (this.garrison.has(e.id) && e.state === EState.Idle) {
+      this.patrol(e, def, dt);
+      const seen = this.spotHero(e);
+      if (!seen) return;
+      e.target = seen.id;
+      e.state = EState.Chase;
+      e.t = 0;
+      e.retarget = 2.5;
+      return;
+    }
+
     const target = this.pickTarget(e);
     if (!target) {
       e.state = EState.Idle;
@@ -1897,7 +2004,8 @@ export class World {
     const dz = target.z - e.z;
     const dist = Math.hypot(dx, dz);
     const gap = dist - def.radius - TUNING.playerRadius;
-    const los = losClear(this.layout, e.x, e.z, target.x, target.z);
+    const eye = standElevation(this.layout, e.x, e.z);
+    const los = losClear(this.layout, e.x, e.z, target.x, target.z, eye);
     const toward = tmp;
     if (los) {
       toward.x = dx / (dist || 1);
@@ -1998,8 +2106,13 @@ export class World {
           const gap = Math.hypot(target.x - e.x, target.z - e.z) - def.radius - TUNING.playerRadius - 0.3;
           allowed = Math.max(0, Math.min(step, gap));
         }
+        const ox = e.x;
+        const oz = e.z;
         e.x += Math.sin(e.yaw) * allowed;
         e.z += Math.cos(e.yaw) * allowed;
+        collide(this.layout, e.x, e.z, def.radius, tmp, standElevation(this.layout, ox, oz));
+        e.x = tmp.x;
+        e.z = tmp.z;
       }
     }
     const gapT = atk.hitGap ?? 0.7;
@@ -2046,6 +2159,7 @@ export class World {
     for (let i = 0; i < list.length; i++) {
       const a = list[i]!;
       if (a.state === EState.Dead) continue;
+      const feet = standElevation(this.layout, a.x, a.z);
       const da = ENEMIES[a.type];
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j]!;
@@ -2078,7 +2192,7 @@ export class World {
           a.z = p.z + (dz / d) * min;
         }
       }
-      collide(this.layout, a.x, a.z, da.radius, tmp);
+      collide(this.layout, a.x, a.z, da.radius, tmp, feet);
       a.x = tmp.x;
       a.z = tmp.z;
     }
@@ -2192,7 +2306,7 @@ export class World {
       } else {
         pr.x = ex;
         pr.z = ez;
-        if (isSolidAt(this.layout, ex, ez)) {
+        if (sightBlocked(this.layout, ex, ez, pr.eye)) {
           dead = true;
           if (pr.aoe > 0 && pr.owner) this.explode(pr, this.players.get(pr.owner) ?? null, 0);
         }
@@ -2285,9 +2399,11 @@ export class World {
             const dz = z.z - e.z;
             const d = Math.hypot(dx, dz);
             if (d > 0.6) {
+              const feet = standElevation(this.layout, e.x, e.z);
               const s = (Math.min(strength * dt, d - 0.5) * (def.elite ? 0.4 : 1)) / d;
-              e.x += dx * s;
-              e.z += dz * s;
+              collide(this.layout, e.x + dx * s, e.z + dz * s, def.radius, tmp, feet);
+              e.x = tmp.x;
+              e.z = tmp.z;
             }
           }
           if (this.pvp && owner) {
@@ -2297,9 +2413,11 @@ export class World {
               const dz = z.z - q.z;
               const d = Math.hypot(dx, dz);
               if (d > z.r * 1.25 || d <= 0.6) continue;
+              const feet = standElevation(this.layout, q.x, q.z);
               const s = Math.min(strength * dt * 0.85, d - 0.5) / d;
-              q.x += dx * s;
-              q.z += dz * s;
+              collide(this.layout, q.x + dx * s, q.z + dz * s, TUNING.playerRadius, tmp, feet);
+              q.x = tmp.x;
+              q.z = tmp.z;
             }
           }
           if (z.kind === 'blackhole') {

@@ -6,6 +6,7 @@ import {
   TileType,
   WEAPON_ARCHETYPES,
   buildBossWeaponDefs,
+  buildFlow,
   buildHub,
   createProceduralRuntime,
   currentLayout,
@@ -64,6 +65,51 @@ describe('hubs & zone generators', () => {
       void start;
       void TileType;
     }
+  });
+
+  it('builds step-legal chunks and a closed boss arena', () => {
+    const expectReachable = (layout: ReturnType<typeof zoneMapToLayout>) => {
+      const start = layout.playerSpawns[0]!;
+      const field = buildFlow(layout, start.x, start.z);
+      for (let i = 0; i < field.length; i++) {
+        if (!layout.solid[i]) expect(field[i], `${layout.def.id} cell ${i}`).toBeGreaterThanOrEqual(0);
+      }
+    };
+    const count = (layout: ReturnType<typeof zoneMapToLayout>, elev: number) => {
+      let n = 0;
+      for (let i = 0; i < layout.elev.length; i++) if (!layout.solid[i] && layout.elev[i] === elev) n++;
+      return n;
+    };
+    const urban = generateZoneCluster(makeMissionSeed('mur', 11), 'mur');
+    const wild = generateZoneCluster(makeMissionSeed('sanarica', 11), 'sanarica');
+    const coast = generateZoneCluster(makeMissionSeed('badiscar', 11), 'badiscar');
+    for (const zones of [urban, wild, coast]) {
+      expect(zones).toHaveLength(3);
+      expect(zones[2]!.name).toBe('Terminal_Boss_Arena');
+      expect(zones[2]!.placed.length).toBeGreaterThan(0);
+      expect(zones[2]!.bossSpawn).toBeTruthy();
+      for (const zone of zones) {
+        const layout = zoneMapToLayout(zone);
+        expectReachable(layout);
+        expect(layout.placed.length).toBeGreaterThan(0);
+        for (let x = 0; x < layout.w; x++) {
+          const south = (layout.h - 1) * layout.w + x;
+          if (!layout.solid[south]) expect(layout.elev[south]).toBe(0);
+        }
+      }
+      const boss = zoneMapToLayout(zones[2]!);
+      for (let x = 0; x < boss.w; x++) expect(boss.solid[x]).toBe(1);
+    }
+    const u = zoneMapToLayout(urban[0]!);
+    const wld = zoneMapToLayout(wild[0]!);
+    const c = zoneMapToLayout(coast[0]!);
+    expect(count(u, 2)).toBeGreaterThan(0);
+    expect(count(u, -2)).toBe(0);
+    expect(count(wld, 1)).toBeGreaterThan(0);
+    expect(count(wld, 2)).toBe(0);
+    expect(count(wld, -1)).toBe(0);
+    expect(count(c, -1) + count(c, -2)).toBeGreaterThan(0);
+    expect(count(c, 2)).toBe(0);
   });
 });
 
