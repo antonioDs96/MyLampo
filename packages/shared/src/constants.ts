@@ -112,11 +112,16 @@ export const TUNING = {
   flinchLimit: 3,
   resolveTime: 2.2,
 
-  maxMeleeAttackers: 3,
-  maxRangedAttackers: 2,
+  maxMeleeAttackers: 4,
+  maxRangedAttackers: 3,
 
-  /** Global enemy damage pressure. Intelligence, not raw numbers, should carry the fight. */
-  threatMul: 1.08,
+  /**
+   * Global enemy damage pressure. Minds still pick the punish;
+   * the room itself hits harder and from farther away.
+   */
+  threatMul: 1.25,
+  /** Solo max-HP multiplier. Party bonuses stack on top of this. */
+  hpMul: 1.25,
 
   /**
    * Extra difficulty per hero beyond the first.
@@ -124,18 +129,26 @@ export const TUNING = {
    */
   party: {
     /** Grunt max-HP bonus per extra hero. */
-    hpGrunt: 0.2,
+    hpGrunt: 0.25,
     /** Elite max-HP bonus per extra hero. */
-    hpElite: 0.65,
+    hpElite: 0.75,
     /** Boss (bar) max-HP bonus per extra hero. */
-    hpBoss: 1.0,
+    hpBoss: 1.25,
     /** Elite/boss stagger-bar bonus per extra hero. */
-    poiseElite: 0.5,
+    poiseElite: 0.75,
     /** Extra enemy damage fraction per extra hero (on top of threatMul). */
-    threatPer: 0.06,
+    threatPer: 0.125,
     /** +1 simultaneous attacker on a hero every N extra heroes. */
-    attackerEvery: 3,
+    attackerEvery: 2,
   },
+
+  /**
+   * Idle garrison vision (world units) and cone half-angle (radians).
+   * A spotted foe also wakes idle allies inside garrisonAlert.
+   */
+  garrisonVision: 36,
+  garrisonCone: 1.45,
+  garrisonAlert: 28,
 
   /** Knockback feel: impulse scale and per-tick decay (closer to 1 = slides longer). */
   knockMul: 3.15,

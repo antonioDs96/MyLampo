@@ -21,7 +21,7 @@ describe('partyScale helpers', () => {
     expect(waveEnemyCount(2, 1, 'grunt')).toBe(2);
     expect(waveEnemyCount(1, 1, 'elite')).toBe(1);
     expect(waveEnemyCount(1, 1, 'boss')).toBe(1);
-    expect(enemyHpMul(1, 'grunt')).toBe(1);
+    expect(enemyHpMul(1, 'grunt')).toBe(TUNING.hpMul);
     expect(partyThreatMul(1)).toBe(TUNING.threatMul);
     expect(partyAttackSlots(false, 1)).toBe(TUNING.maxMeleeAttackers);
   });
@@ -36,14 +36,14 @@ describe('partyScale helpers', () => {
   });
 
   it('raises HP, poise, threat and attacker slots with party size', () => {
-    expect(enemyHpMul(4, 'grunt')).toBeCloseTo(1 + TUNING.party.hpGrunt * 3);
-    expect(enemyHpMul(4, 'elite')).toBeCloseTo(1 + TUNING.party.hpElite * 3);
-    expect(enemyHpMul(4, 'boss')).toBeCloseTo(1 + TUNING.party.hpBoss * 3);
+    expect(enemyHpMul(4, 'grunt')).toBeCloseTo(TUNING.hpMul * (1 + TUNING.party.hpGrunt * 3));
+    expect(enemyHpMul(4, 'elite')).toBeCloseTo(TUNING.hpMul * (1 + TUNING.party.hpElite * 3));
+    expect(enemyHpMul(4, 'boss')).toBeCloseTo(TUNING.hpMul * (1 + TUNING.party.hpBoss * 3));
     expect(enemyPoiseMul(4, true)).toBeCloseTo(1 + TUNING.party.poiseElite * 3);
     expect(enemyPoiseMul(4, false)).toBe(1);
     expect(partyThreatMul(4)).toBeCloseTo(TUNING.threatMul * (1 + TUNING.party.threatPer * 3));
-    expect(partyAttackSlots(false, 4)).toBe(TUNING.maxMeleeAttackers + 1);
-    expect(partyAttackSlots(true, 7)).toBe(TUNING.maxRangedAttackers + 2);
+    expect(partyAttackSlots(false, 4)).toBe(TUNING.maxMeleeAttackers + Math.floor(3 / TUNING.party.attackerEvery));
+    expect(partyAttackSlots(true, 7)).toBe(TUNING.maxRangedAttackers + Math.floor(6 / TUNING.party.attackerEvery));
   });
 
   it('classifies enemy defs for scaling', () => {

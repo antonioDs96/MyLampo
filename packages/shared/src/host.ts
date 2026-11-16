@@ -30,7 +30,8 @@ import { emptyInventory, inventoryHasProgress, restoreSavedGear, type HeroInvent
 import { spawnBossRelicChest } from './bossLootSystem';
 import { awardXp, levelFromXp } from './progress';
 import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
-import { World, type PlayerStats } from './world';
+import type { JevAdvisor } from './jevMind';
+import { World, type PlayerStats, type WorldOpts } from './world';
 import {
   ALL_HUBS,
   HUB_META,
@@ -135,10 +136,13 @@ export class GameHost {
   private readonly pendingRelics = new Map<HeroId, ItemInstance[]>();
   /** Server-owned sheets. Absent in tests that only care about one room. */
   private readonly archive?: GearArchive;
+  /** Tactical Jev advisor. Absent when the server has no TypeSafe key. */
+  private readonly jev?: JevAdvisor;
 
-  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive, isPublic = false) {
+  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive, isPublic = false, jev?: JevAdvisor) {
     this.io = io;
     this.archive = archive;
+    this.jev = jev;
     this.code = code;
     this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
@@ -573,6 +577,12 @@ export class GameHost {
 
   // ---------------------------------------------------------------- worlds
 
+  /** New room, fresh foe ids: drop cached Jev answers before they latch onto the wrong body. */
+  private openWorld(opts: WorldOpts): World {
+    this.jev?.reset();
+    return new World({ ...opts, jev: this.jev });
+  }
+
   private mission(): MissionDef {
     return missionById(this.missionId) ?? MISSIONS[0]!;
   }
@@ -594,7 +604,7 @@ export class GameHost {
     this.proc = null;
     const hubMap = buildHub(this.hubId);
     const layout = zoneMapToLayout(hubMap);
-    this.world = new World({ layout, seed: this.seed, safe: true });
+    this.world = this.openWorld({ layout, seed: this.seed, safe: true });
     this.xpGain = {};
     this.gateArmAt = 0;
     for (const c of this.clients.values()) {
@@ -676,7 +686,7 @@ export class GameHost {
     const garrisoned = layout.placed.length > 0 && rt.contract.kind !== 'RAID_DEFENSE';
     const waves = garrisoned ? [] : wavesForZone(rt);
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    const world = new World({
+    const world = this.openWorld({
       layout,
       seed: this.seed,
       waves,
@@ -737,7 +747,7 @@ export class GameHost {
     const layout = parseLayout(def.layout);
     const mode: MissionMode = mission.mode ?? 'story';
     const arena = mode === 'arena';
-    const world = new World({
+    const world = this.openWorld({
       layout,
       seed: this.seed,
       waves: def.waves,

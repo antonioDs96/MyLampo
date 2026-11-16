@@ -25,9 +25,9 @@ export function waveEnemyCount(base: number, players: number, kind: Exclude<Enem
 export function enemyHpMul(players: number, kind: EnemyScaleKind): number {
   if (kind === 'dummy') return 1;
   const extra = partySize(players) - 1;
-  if (kind === 'boss') return 1 + TUNING.party.hpBoss * extra;
-  if (kind === 'elite') return 1 + TUNING.party.hpElite * extra;
-  return 1 + TUNING.party.hpGrunt * extra;
+  const party =
+    kind === 'boss' ? 1 + TUNING.party.hpBoss * extra : kind === 'elite' ? 1 + TUNING.party.hpElite * extra : 1 + TUNING.party.hpGrunt * extra;
+  return TUNING.hpMul * party;
 }
 
 /** Stagger-bar multiplier (elites / bosses only — grunts stay pin-able). */

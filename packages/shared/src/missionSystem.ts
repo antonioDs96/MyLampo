@@ -219,32 +219,32 @@ export function wavesForZone(rt: ProceduralMissionRuntime): WaveDef[] {
 
   if (kind === 'RAID_DEFENSE') {
     return [
-      { spawns: [[mobs[0]!, 4], [mobs[1]!, 3]], hint: 'Ondata 1 · Varco Nord' },
-      { spawns: [[mobs[2]!, 4], [elites[0]!, 1]], hint: 'Ondata 2 · Varchi Est e Ovest' },
-      { spawns: [[boss, 1], [mobs[3]!, 3], [elites[1]!, 1]], hint: `Ondata 3 · ${BOSS_NAMES[biome]}` },
+      { spawns: [[mobs[0]!, 6], [mobs[1]!, 5]], hint: 'Ondata 1 · Varco Nord' },
+      { spawns: [[mobs[2]!, 6], [elites[0]!, 2]], hint: 'Ondata 2 · Varchi Est e Ovest' },
+      { spawns: [[boss, 1], [mobs[3]!, 5], [elites[1]!, 2]], hint: `Ondata 3 · ${BOSS_NAMES[biome]}` },
     ];
   }
 
   if (kind === 'GATHERING_RUN') {
     return [
-      { spawns: [[mobs[rngPick(mobs, z)]!, 3], [mobs[(z + 1) % mobs.length]!, 2]], hint: `Estrai ${RESOURCE_NAMES[biome]} con [F]` },
-      { spawns: [[mobs[1]!, 3], [elites[0]!, 1]], hint: 'Difendi i portatori verso il varco' },
+      { spawns: [[mobs[rngPick(mobs, z)]!, 5], [mobs[(z + 1) % mobs.length]!, 4]], hint: `Estrai ${RESOURCE_NAMES[biome]} con [F]` },
+      { spawns: [[mobs[1]!, 5], [elites[0]!, 2]], hint: 'Difendi i portatori verso il varco' },
     ];
   }
 
   // Boss hunt / capture share patrol structure; boss appears late.
   if (z === 1) {
     return [
-      { spawns: [[mobs[0]!, 3]], hint: 'Tracce del boss… avanzate.' },
-      { spawns: [[mobs[1]!, 3], [mobs[2]!, 2]] },
-      { spawns: [[mobs[3]!, 2], [elites[0]!, 1]] },
+      { spawns: [[mobs[0]!, 5]], hint: 'Tracce del boss… avanzate.' },
+      { spawns: [[mobs[1]!, 5], [mobs[2]!, 4]] },
+      { spawns: [[mobs[3]!, 4], [elites[0]!, 2]] },
     ];
   }
   if (z === 2) {
     return [
-      { spawns: [[mobs[2]!, 3], [elites[0]!, 1]], hint: 'Il boss è vicino.' },
+      { spawns: [[mobs[2]!, 5], [elites[0]!, 2]], hint: 'Il boss è vicino.' },
       {
-        spawns: [[boss, 1], [mobs[4]!, 2]],
+        spawns: [[boss, 1], [mobs[4]!, 4]],
         hint: kind === 'CAPTURE_QUEST' ? 'Non uccidetelo: spezzatelo e tramortitelo.' : 'Sotto il 50% HP sfonderà la Zona 3.',
       },
     ];
@@ -252,7 +252,7 @@ export function wavesForZone(rt: ProceduralMissionRuntime): WaveDef[] {
   // Zone 3 boss lair
   return [
     {
-      spawns: [[boss, 1], [elites[1]!, 1]],
+      spawns: [[boss, 1], [elites[1]!, 2], [mobs[0]!, 4]],
       hint: kind === 'CAPTURE_QUEST' ? 'Sotto 15% HP + Spezzato → [F] Cattura' : 'Tana del Boss — finite il lavoro.',
     },
   ];

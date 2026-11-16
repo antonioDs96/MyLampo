@@ -249,17 +249,17 @@ export const MISSIONS: MissionDef[] = [
         ],
         waves: [
           {
-            spawns: [['cultista', 2]],
+            spawns: [['cultista', 4]],
             hint: 'J o clic sinistro: attacco leggero (ripeti per la combo). K o clic destro: attacco pesante, tieni premuto per caricarlo.',
           },
           {
-            spawns: [['cultista', 3]],
+            spawns: [['cultista', 5]],
             hint: 'Bagliore BLU: para con Q poco prima del colpo per una parata perfetta. Bagliore ROSSO: non si para, schiva con SPAZIO.',
           },
           {
             spawns: [
-              ['cultista', 2],
-              ['creatura', 2],
+              ['cultista', 4],
+              ['creatura', 3],
             ],
             hint: "Le creature instabili esplodono quando cadono: allontanati. Tab aggancia un bersaglio.",
             say: [{ who: 'Carlos', text: 'Quelle non sono dell\'Ordine. Sono ciò che l\'Eclissi fa alla gente di qui. Non restate vicini quando cadono.' }],
@@ -273,23 +273,23 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [
-              ['cultista', 3],
-              ['accolito', 1],
+              ['cultista', 5],
+              ['accolito', 2],
             ],
             hint: 'Riempi la barra gialla di un nemico per farlo barcollare, poi premi F per l\'esecuzione.',
           },
           {
             spawns: [
-              ['creatura', 3],
-              ['accolito', 2],
+              ['creatura', 5],
+              ['accolito', 3],
             ],
             hint: 'E: abilità distintiva. R: suprema, quando la barra è piena.',
           },
           {
             spawns: [
-              ['cultista', 4],
-              ['creatura', 2],
-              ['accolito', 1],
+              ['cultista', 6],
+              ['creatura', 4],
+              ['accolito', 2],
             ],
           },
         ],
@@ -305,14 +305,14 @@ export const MISSIONS: MissionDef[] = [
           {
             spawns: [
               ['inquisitore', 1],
-              ['cultista', 2],
+              ['cultista', 4],
             ],
           },
           {
             spawns: [
               ['inquisitore', 1],
-              ['creatura', 3],
-              ['accolito', 2],
+              ['creatura', 5],
+              ['accolito', 3],
             ],
             say: [{ who: 'Carlos', text: 'Un altro. Dariol dovrà farmi uno sconto sul vino.' }],
           },
@@ -343,15 +343,15 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [
-              ['ombra', 2],
-              ['cultista', 2],
+              ['ombra', 4],
+              ['cultista', 3],
             ],
             hint: "Le Ombre colpiscono in fretta e compaiono alle spalle: tieni d'occhio il bagliore rosso.",
           },
           {
             spawns: [
-              ['ombra', 3],
-              ['tessitrice', 1],
+              ['ombra', 5],
+              ['tessitrice', 2],
             ],
           },
         ],
@@ -364,15 +364,15 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [
-              ['ombra', 3],
-              ['tessitrice', 2],
+              ['ombra', 5],
+              ['tessitrice', 3],
             ],
           },
           {
             spawns: [
-              ['ombra', 3],
-              ['creatura', 3],
-              ['tessitrice', 1],
+              ['ombra', 5],
+              ['creatura', 5],
+              ['tessitrice', 2],
             ],
           },
         ],
@@ -385,15 +385,15 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [
-              ['ombra', 4],
-              ['tessitrice', 2],
+              ['ombra', 6],
+              ['tessitrice', 3],
             ],
           },
           {
             spawns: [
               ['inquisitore', 1],
-              ['ombra', 3],
-              ['tessitrice', 2],
+              ['ombra', 5],
+              ['tessitrice', 3],
             ],
             say: [{ who: 'Carlos', text: "Un Inquisitore, quaggiù? L'Ordine cerca la stessa cosa che cerchiamo noi." }],
           },
@@ -410,7 +410,7 @@ export const MISSIONS: MissionDef[] = [
           {
             spawns: [
               ['ombra_maggiore', 1],
-              ['ombra', 2],
+              ['ombra', 4],
             ],
           },
         ],
@@ -440,21 +440,21 @@ export const MISSIONS: MissionDef[] = [
         waves: [
           {
             spawns: [
-              ['cultista', 3],
-              ['accolito', 2],
+              ['cultista', 5],
+              ['accolito', 4],
             ],
           },
           {
             spawns: [
               ['inquisitore', 1],
-              ['cultista', 3],
-              ['accolito', 2],
+              ['cultista', 5],
+              ['accolito', 4],
             ],
           },
           {
             spawns: [
               ['inquisitore', 2],
-              ['accolito', 3],
+              ['accolito', 5],
             ],
           },
         ],
@@ -614,7 +614,7 @@ export const EXTRA_PLAYS: MissionDef[] = [
           { who: 'Carlos', text: "L'Eco non ha più stanze da spostare. Ha solo voi da spezzare." },
           { who: 'Carlos', text: 'Quando si spezza, non perdete tempo: l’esecuzione è la fine del caos.' },
         ],
-        waves: [{ spawns: [['ombra_maggiore', 1], ['ombra', 2]] }],
+        waves: [{ spawns: [['ombra_maggiore', 1], ['ombra', 4]] }],
       },
     ],
     victory: [{ who: 'Carlos', text: 'L’Eco si dissolve. Calem, da qualche parte, ha appena perso un segreto.' }],
@@ -634,7 +634,7 @@ export const EXTRA_PLAYS: MissionDef[] = [
         intro: [
           { who: 'Carlos', text: 'Due sole neri. Se ne lasciate uno solo vivo troppo a lungo, vi taglia a metà.' },
         ],
-        waves: [{ spawns: [['inquisitore', 2], ['cultista', 2]] }],
+        waves: [{ spawns: [['inquisitore', 2], ['cultista', 4]] }],
       },
     ],
     victory: [{ who: 'Carlos', text: 'L’Ordine ha perso due lame. Buon segno. Cattivo precedent.' }],

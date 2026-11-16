@@ -5,6 +5,7 @@ export * from './heroes';
 export * from './arcadeKits';
 export * from './enemies';
 export * from './enemyMind';
+export * from './jevMind';
 export * from './layout';
 export * from './missions';
 export * from './lore';

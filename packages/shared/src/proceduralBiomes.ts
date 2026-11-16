@@ -773,36 +773,57 @@ const CHUNK_WALL = 127;
 type Archetype = 'piazza' | 'corridoio' | 'strettoia' | 't' | 'l';
 const ARCHETYPES: Archetype[] = ['piazza', 'corridoio', 'strettoia', 't', 'l'];
 
+/** Eight walkable posts per chunk. A stitched room therefore fields sixteen foes. */
 const ARCH_SPOTS: Record<Archetype, [number, number][]> = {
   piazza: [
     [12, 6],
     [12, 18],
     [6, 12],
     [18, 12],
+    [9, 9],
+    [15, 9],
+    [9, 15],
+    [15, 15],
   ],
   corridoio: [
     [12, 6],
     [12, 18],
     [11, 12],
     [12, 12],
+    [10, 8],
+    [13, 16],
+    [11, 4],
+    [12, 20],
   ],
   strettoia: [
     [12, 6],
     [12, 18],
     [8, 12],
     [16, 12],
+    [11, 9],
+    [12, 15],
+    [6, 11],
+    [18, 12],
   ],
   t: [
     [12, 6],
     [12, 18],
     [18, 12],
     [6, 12],
+    [11, 10],
+    [12, 14],
+    [20, 11],
+    [16, 12],
   ],
   l: [
     [12, 18],
     [18, 12],
     [12, 6],
     [6, 12],
+    [11, 15],
+    [12, 3],
+    [16, 11],
+    [20, 12],
   ],
 };
 
@@ -1038,8 +1059,13 @@ export function buildTerminalBossArena(biome: BiomeId, hubId: HubId, tag: string
   zone.bossSpawn = cellPoint(12, 12);
   placeFoe(zone, 12, 12, boss);
   placeFoe(zone, 8, 12, elites[0] ?? mobs[0]!);
-  placeFoe(zone, 16, 12, mobs[1] ?? mobs[0]!);
-  placeFoe(zone, 12, 16, mobs[2] ?? mobs[0]!);
+  placeFoe(zone, 16, 12, elites[1] ?? mobs[1] ?? mobs[0]!);
+  placeFoe(zone, 12, 8, mobs[0]!);
+  placeFoe(zone, 12, 16, mobs[1] ?? mobs[0]!);
+  placeFoe(zone, 8, 8, mobs[2] ?? mobs[0]!);
+  placeFoe(zone, 16, 8, mobs[3] ?? mobs[0]!);
+  placeFoe(zone, 8, 16, mobs[4] ?? mobs[0]!);
+  placeFoe(zone, 16, 16, mobs[2] ?? mobs[0]!);
   for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(10 + (i % 4), CHUNK - 4 - Math.floor(i / 4)));
   zone.gates.push({ cx: 10, cz: CHUNK - 1, width: 4, facing: 's', unlocked: true, link: 'z2' });
   ensureConnectivity(zone);
