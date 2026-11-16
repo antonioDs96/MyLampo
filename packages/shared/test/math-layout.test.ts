@@ -4,14 +4,18 @@ import {
   angleDiff,
   approachAngle,
   buildFlow,
+  canStep,
   CELL,
   collide,
+  EState,
   flowDirection,
+  getCellElevation,
   HUB_LAYOUT,
   losClear,
   nearestFloor,
   parseLayout,
   Rng,
+  World,
   wrapAngle,
   yawOf,
 } from '../src';
@@ -92,6 +96,102 @@ describe('layout', () => {
     const dir = { x: 0, z: 0 };
     expect(flowDirection(maze, field, 4.5 * CELL, 1.5 * CELL, dir)).toBe(true);
     expect(dir.z).toBeGreaterThan(0.9);
+  });
+
+  it('reads five walkable terraces and keeps # impassable', () => {
+    const terraces = parseLayout({
+      id: 'terraces',
+      name: 'terraces',
+      theme: 'crypt',
+      rows: ['#####', '#=+.#', '#_..#', '#^+.#', '#####'],
+    });
+    expect(getCellElevation(terraces, 1.5 * CELL, 1.5 * CELL)).toBe(-2);
+    expect(getCellElevation(terraces, 2.5 * CELL, 1.5 * CELL)).toBe(2);
+    expect(getCellElevation(terraces, 1.5 * CELL, 2.5 * CELL)).toBe(-1);
+    expect(getCellElevation(terraces, 2.5 * CELL, 2.5 * CELL)).toBe(0);
+    expect(getCellElevation(terraces, 1.5 * CELL, 3.5 * CELL)).toBe(1);
+    expect(getCellElevation(terraces, 2.5 * CELL, 3.5 * CELL)).toBe(2);
+    expect(getCellElevation(terraces, 0.5 * CELL, 1.5 * CELL)).toBe(127);
+    expect(canStep(0, 1)).toBe(true);
+    expect(canStep(0, -1)).toBe(true);
+    expect(canStep(0, 2)).toBe(false);
+    expect(canStep(1, -1)).toBe(false);
+    expect(canStep(-2, -1)).toBe(true);
+  });
+
+  it('blocks a two-step cliff and allows a single step', () => {
+    const terraces = parseLayout({
+      id: 'steps',
+      name: 'steps',
+      theme: 'crypt',
+      rows: ['#####', '#.+.#', '#...#', '#####'],
+    });
+    const out = { x: 0, z: 0 };
+    // Standing on terrace 0, the +2 cell ahead is a solid obstacle.
+    collide(terraces, 2.5 * CELL, 1.5 * CELL, 0.6, out, 0);
+    expect(getCellElevation(terraces, out.x, out.z)).not.toBe(2);
+    const step = parseLayout({
+      id: 'onestep',
+      name: 'onestep',
+      theme: 'crypt',
+      rows: ['#####', '#.^.#' , '#...#', '#####'],
+    });
+    collide(step, 2.5 * CELL, 1.5 * CELL, 0.6, out, 0);
+    expect(getCellElevation(step, out.x, out.z)).toBe(1);
+  });
+
+  it('hides a hero behind a higher terrace and still sees one standing on it', () => {
+    const terraces = parseLayout({
+      id: 'sight',
+      name: 'sight',
+      theme: 'crypt',
+      rows: ['#######', '#.....#', '#..+..#', '#..^..#', '#.....#', '#######'],
+    });
+    const low = 4.5 * CELL;
+    const mid = 3.5 * CELL;
+    const high = 2.5 * CELL;
+    const x = 3.5 * CELL;
+    expect(losClear(terraces, x, low, x, 1.5 * CELL, 0)).toBe(false);
+    expect(losClear(terraces, x, high, x, low, 2)).toBe(true);
+    expect(losClear(terraces, x, mid, x, low, 1)).toBe(true);
+  });
+
+  it('pathing refuses a cliff and walks the step', () => {
+    const terraces = parseLayout({
+      id: 'flow',
+      name: 'flow',
+      theme: 'crypt',
+      rows: ['#######', '#.....#', '#..+..#', '#..^..#', '#.....#', '#######'],
+    });
+    const field = buildFlow(terraces, 1.5 * CELL, 4.5 * CELL);
+    const plus = 2 * 7 + 3;
+    const step = 3 * 7 + 3;
+    expect(field[step]).toBeGreaterThanOrEqual(0);
+    expect(field[plus]).toBeGreaterThan(field[step]!);
+    // The +2 cell is not a one-step neighbour of the terrace-0 cells beside it.
+    expect(field[2 * 7 + 2]).toBeGreaterThanOrEqual(0);
+    expect(Math.abs((terraces.elev[plus] ?? 0) - (terraces.elev[2 * 7 + 2] ?? 0))).toBeGreaterThan(1);
+  });
+
+  it('keeps a garrison idle until a hero enters the vision cone', () => {
+    const layout = parseLayout({
+      id: 'watch',
+      name: 'watch',
+      theme: 'crypt',
+      rows: ['#######', '#.....#', '#.....#', '#.....#', '#######'],
+    });
+    layout.placed.push({ type: 'cultista', x: 3.5 * CELL, z: 2.5 * CELL, yaw: 0 });
+    const world = new World({ layout, seed: 3 });
+    const foe = world.enemies.find((e) => e.type === 'cultista')!;
+    expect(foe.state).toBe(EState.Idle);
+    const hero = world.addPlayer('p', 'albereth', 0);
+    hero.x = 3.5 * CELL;
+    hero.z = 1.5 * CELL;
+    world.step(0.1);
+    expect(foe.state).toBe(EState.Idle);
+    hero.z = 3.5 * CELL;
+    world.step(0.1);
+    expect(foe.state).toBe(EState.Chase);
   });
 
   it('nearestFloor returns a walkable point', () => {

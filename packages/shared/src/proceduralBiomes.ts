@@ -2,8 +2,9 @@
  * Spatial architecture: tile rules (D&D 5.2.1), 3 fixed regional hubs,
  * and deterministic multi-zone procedural generators (mulberry32 via Rng).
  */
-import { CELL, parseLayout, type Layout, type LayoutDef, type Point, type PropDef, type Theme } from './layout';
-import { Rng } from './math';
+import { bossForBiome, elitesForBiome, mobsForBiome } from './bestiaryCatalog';
+import { CELL, parseLayout, type Layout, type LayoutDef, type PlacedFoe, type Point, type PropDef, type Theme } from './layout';
+import { Rng, yawOf } from './math';
 
 export type BiomeId = 'urban' | 'coastal' | 'wild';
 export type HubId = 'mur' | 'badiscar' | 'sanarica';
@@ -58,6 +59,10 @@ export interface ZoneMap {
   stations: StationDef[];
   gates: GateDef[];
   props: PropDef[];
+  /** Walkable terrace per cell. Walls stay 0; solidity is `tiles`. */
+  elev: Int8Array;
+  /** Foes standing in the dungeon when it is generated. */
+  placed: PlacedFoe[];
   isHub: boolean;
   combatDisabled: boolean;
   center: Point;
@@ -294,6 +299,8 @@ function emptyZone(
     stations: [],
     gates: [],
     props: [],
+    elev: new Int8Array(w * h),
+    placed: [],
     isHub,
     combatDisabled: isHub,
     center: { x: (w * CELL) / 2, z: (h * CELL) / 2 },
@@ -749,6 +756,296 @@ export function makeMissionSeed(hubId: HubId, roll?: number): string {
   return `${prefix}_${n}`;
 }
 
+function elevGlyph(e: number): string {
+  if (e <= -2) return '=';
+  if (e === -1) return '_';
+  if (e === 1) return '^';
+  if (e >= 2) return '+';
+  return '.';
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-size chunks. Every gate mouth is terrace 0 so two chunks can be stitched.
+// ---------------------------------------------------------------------------
+
+const CHUNK = 24;
+const CHUNK_WALL = 127;
+type Archetype = 'piazza' | 'corridoio' | 'strettoia' | 't' | 'l';
+const ARCHETYPES: Archetype[] = ['piazza', 'corridoio', 'strettoia', 't', 'l'];
+
+const ARCH_SPOTS: Record<Archetype, [number, number][]> = {
+  piazza: [
+    [12, 6],
+    [12, 18],
+    [6, 12],
+    [18, 12],
+  ],
+  corridoio: [
+    [12, 6],
+    [12, 18],
+    [11, 12],
+    [12, 12],
+  ],
+  strettoia: [
+    [12, 6],
+    [12, 18],
+    [8, 12],
+    [16, 12],
+  ],
+  t: [
+    [12, 6],
+    [12, 18],
+    [18, 12],
+    [6, 12],
+  ],
+  l: [
+    [12, 18],
+    [18, 12],
+    [12, 6],
+    [6, 12],
+  ],
+};
+
+function chunkAt(x: number, z: number): number {
+  return z * CHUNK + x;
+}
+
+function paintElev(g: Int8Array, x0: number, z0: number, x1: number, z1: number, v: number, w = CHUNK): void {
+  for (let z = z0; z <= z1; z++) {
+    for (let x = x0; x <= x1; x++) {
+      if (x < 0 || z < 0 || x >= w || z >= CHUNK) continue;
+      g[z * w + x] = v;
+    }
+  }
+}
+
+/** Four gate mouths, always terrace 0, plus the archetype's circulation. */
+function carveArchetype(kind: Archetype): Int8Array {
+  const g = new Int8Array(CHUNK * CHUNK);
+  g.fill(CHUNK_WALL);
+  paintElev(g, 10, 0, 13, 3, 0);
+  paintElev(g, 10, 20, 13, 23, 0);
+  paintElev(g, 0, 10, 3, 13, 0);
+  paintElev(g, 20, 10, 23, 13, 0);
+  if (kind === 'piazza') {
+    paintElev(g, 8, 1, 15, 22, 0);
+    paintElev(g, 1, 8, 22, 15, 0);
+  } else if (kind === 'corridoio') {
+    paintElev(g, 10, 0, 13, 23, 0);
+    paintElev(g, 0, 11, 23, 12, 0);
+  } else if (kind === 'strettoia') {
+    paintElev(g, 11, 4, 12, 19, 0);
+    paintElev(g, 4, 11, 19, 12, 0);
+  } else if (kind === 't') {
+    paintElev(g, 10, 0, 13, 23, 0);
+    paintElev(g, 14, 10, 23, 13, 0);
+    paintElev(g, 0, 11, 13, 12, 0);
+  } else {
+    paintElev(g, 10, 14, 13, 23, 0);
+    paintElev(g, 10, 10, 23, 13, 0);
+    paintElev(g, 10, 0, 13, 13, 0);
+    paintElev(g, 0, 11, 13, 12, 0);
+  }
+  return g;
+}
+
+function touches(g: Int8Array, x: number, z: number, w: number, value: number): boolean {
+  const dirs: [number, number][] = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  for (const [dx, dz] of dirs) {
+    const nx = x + dx;
+    const nz = z + dz;
+    if (nx < 0 || nz < 0 || nx >= w || nz >= CHUNK) continue;
+    if (g[nz * w + nx] === value) return true;
+  }
+  return false;
+}
+
+/**
+ * Leftover interior becomes the biome's terraces.
+ * A new terrace is only ever one step away from a path or from the previous terrace.
+ */
+function applyBiome(g: Int8Array, biome: BiomeId): void {
+  const path = new Uint8Array(g.length);
+  for (let i = 0; i < g.length; i++) if (g[i] === 0) path[i] = 1;
+  for (let z = 1; z < CHUNK - 1; z++) {
+    for (let x = 1; x < CHUNK - 1; x++) {
+      const i = chunkAt(x, z);
+      if (g[i] !== CHUNK_WALL) continue;
+      const step = touches(g, x, z, CHUNK, 0);
+      if (biome === 'coastal') g[i] = step ? -1 : -2;
+      else if (biome === 'wild') g[i] = 0;
+      else g[i] = step ? 1 : 2;
+    }
+  }
+  if (biome === 'urban') {
+    for (const [x, z] of [
+      [3, 3],
+      [18, 3],
+      [3, 18],
+      [18, 18],
+    ] as const) {
+      let tower = true;
+      for (let dz = 0; dz < 2 && tower; dz++) {
+        for (let dx = 0; dx < 2; dx++) if (g[chunkAt(x + dx, z + dz)] !== 2) tower = false;
+      }
+      if (!tower) continue;
+      for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) g[chunkAt(x + dx, z + dz)] = CHUNK_WALL;
+    }
+  }
+  if (biome === 'wild') {
+    for (const [x, z] of [
+      [4, 4],
+      [17, 4],
+      [4, 17],
+      [17, 17],
+    ] as const) {
+      for (let dz = 0; dz < 3; dz++) {
+        for (let dx = 0; dx < 3; dx++) {
+          const i = chunkAt(x + dx, z + dz);
+          if (!path[i]) g[i] = 1;
+        }
+      }
+    }
+  }
+}
+
+function stitchHorizontal(a: Int8Array, b: Int8Array): Int8Array {
+  const w = CHUNK * 2 - 1;
+  const out = new Int8Array(w * CHUNK);
+  out.fill(CHUNK_WALL);
+  for (let z = 0; z < CHUNK; z++) {
+    for (let x = 0; x < CHUNK; x++) out[z * w + x] = a[chunkAt(x, z)]!;
+    for (let x = 1; x < CHUNK; x++) out[z * w + (CHUNK - 1 + x)] = b[chunkAt(x, z)]!;
+  }
+  for (let z = 0; z < CHUNK; z++) {
+    out[z * w] = CHUNK_WALL;
+    out[z * w + w - 1] = CHUNK_WALL;
+  }
+  return out;
+}
+
+function bossGrid(biome: BiomeId): Int8Array {
+  const g = new Int8Array(CHUNK * CHUNK);
+  g.fill(CHUNK_WALL);
+  paintElev(g, 2, 2, 21, 21, 0);
+  paintElev(g, 10, 20, 13, 23, 0);
+  if (biome === 'urban') {
+    paintElev(g, 8, 8, 15, 15, 1);
+    paintElev(g, 10, 10, 13, 13, 2);
+  } else if (biome === 'coastal') {
+    paintElev(g, 8, 8, 15, 15, -1);
+    paintElev(g, 10, 10, 13, 13, -2);
+  } else {
+    paintElev(g, 10, 10, 13, 13, 1);
+  }
+  return g;
+}
+
+function gridToZone(
+  grid: Int8Array,
+  w: number,
+  h: number,
+  id: string,
+  name: string,
+  biome: BiomeId,
+  hubId: HubId,
+  zoneIndex: number,
+): ZoneMap {
+  const theme: Theme = biome === 'urban' ? 'alley' : 'crypt';
+  const zone = emptyZone(id, name, biome, theme, w, h, hubId, zoneIndex, false);
+  for (let i = 0; i < w * h; i++) {
+    const v = grid[i]!;
+    const x = i % w;
+    const z = (i - x) / w;
+    if (v === CHUNK_WALL) {
+      zone.tiles[i] = TileType.WALL_HIGH;
+      zone.elev[i] = 0;
+    } else {
+      const border = x === 0 || z === 0 || x === w - 1 || z === h - 1;
+      zone.tiles[i] = border ? TileType.GATE_SOCKET : TileType.FLOOR_NORMAL;
+      zone.elev[i] = v;
+    }
+  }
+  zone.center = cellPoint(Math.floor(w / 2), Math.floor(h / 2));
+  return zone;
+}
+
+function placeFoe(zone: ZoneMap, cx: number, cz: number, type: string): void {
+  if (cx < 0 || cz < 0 || cx >= zone.w || cz >= zone.h) return;
+  if (zone.tiles[idx(zone.w, cx, cz)] === TileType.WALL_HIGH) return;
+  const p = cellPoint(cx, cz);
+  zone.enemySpawns.push(p);
+  zone.placed.push({
+    type,
+    x: p.x,
+    z: p.z,
+    yaw: yawOf(zone.center.x - p.x, zone.center.z - p.z),
+  });
+}
+
+const PLACE_NAME: Record<BiomeId, string> = {
+  urban: 'Cortili di Mur',
+  wild: 'Selve di Jugianel',
+  coastal: 'Scogliere di Badiscar',
+};
+
+function buildStitchedChunks(rng: Rng, biome: BiomeId, hubId: HubId, zoneIndex: number, tag: string): ZoneMap {
+  const leftKind = ARCHETYPES[rng.int(ARCHETYPES.length)]!;
+  const rightKind = ARCHETYPES[rng.int(ARCHETYPES.length)]!;
+  const left = carveArchetype(leftKind);
+  const right = carveArchetype(rightKind);
+  applyBiome(left, biome);
+  applyBiome(right, biome);
+  const grid = stitchHorizontal(left, right);
+  const w = CHUNK * 2 - 1;
+  const zone = gridToZone(
+    grid,
+    w,
+    CHUNK,
+    `chunk_${biome}_${zoneIndex}_${tag}`,
+    `${PLACE_NAME[biome]} · ${leftKind}/${rightKind}`,
+    biome,
+    hubId,
+    zoneIndex,
+  );
+  const mobs = mobsForBiome(biome);
+  const spots: [number, number][] = [
+    ...ARCH_SPOTS[leftKind].map(([x, z]) => [x, z] as [number, number]),
+    ...ARCH_SPOTS[rightKind].map(([x, z]) => [x + CHUNK - 1, z] as [number, number]),
+  ];
+  spots.forEach(([x, z], i) => placeFoe(zone, x, z, mobs[i % mobs.length]!));
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(10 + (i % 4), CHUNK - 4 - Math.floor(i / 4)));
+  zone.gates.push(
+    { cx: 10, cz: CHUNK - 1, width: 4, facing: 's', unlocked: true, link: zoneIndex === 1 ? 'hub' : `z${zoneIndex - 1}` },
+    { cx: 10 + CHUNK - 1, cz: 0, width: 4, facing: 'n', unlocked: false, link: `z${zoneIndex + 1}` },
+  );
+  ensureConnectivity(zone);
+  return zone;
+}
+
+/** Last mouth of the dungeon: one entrance, no exit, the boss already in the room. */
+export function buildTerminalBossArena(biome: BiomeId, hubId: HubId, tag: string): ZoneMap {
+  const grid = bossGrid(biome);
+  const zone = gridToZone(grid, CHUNK, CHUNK, `terminal_boss_${tag}`, 'Terminal_Boss_Arena', biome, hubId, 3);
+  const boss = bossForBiome(biome);
+  const mobs = mobsForBiome(biome);
+  const elites = elitesForBiome(biome);
+  zone.bossSpawn = cellPoint(12, 12);
+  placeFoe(zone, 12, 12, boss);
+  placeFoe(zone, 8, 12, elites[0] ?? mobs[0]!);
+  placeFoe(zone, 16, 12, mobs[1] ?? mobs[0]!);
+  placeFoe(zone, 12, 16, mobs[2] ?? mobs[0]!);
+  for (let i = 0; i < 8; i++) zone.playerSpawns.push(cellPoint(10 + (i % 4), CHUNK - 4 - Math.floor(i / 4)));
+  zone.gates.push({ cx: 10, cz: CHUNK - 1, width: 4, facing: 's', unlocked: true, link: 'z2' });
+  ensureConnectivity(zone);
+  return zone;
+}
+
 export function generateZoneCluster(missionSeed: string, hubId: HubId): ZoneMap[] {
   const biome = biomeOfHub(hubId);
   const base = hashSeedString(missionSeed);
@@ -756,9 +1053,8 @@ export function generateZoneCluster(missionSeed: string, hubId: HubId): ZoneMap[
   for (let z = 1; z <= 3; z++) {
     const rng = new Rng((base + z * 9973) >>> 0);
     const tag = missionSeed.replace(/\W/g, '').slice(-8);
-    if (biome === 'urban') zones.push(generateUrbanZone(rng, hubId, z, tag));
-    else if (biome === 'coastal') zones.push(generateCoastalZone(rng, hubId, z, tag));
-    else zones.push(generateWildZone(rng, hubId, z, tag));
+    if (z === 3) zones.push(buildTerminalBossArena(biome, hubId, tag));
+    else zones.push(buildStitchedChunks(rng, biome, hubId, z, tag));
   }
   return zones;
 }
@@ -772,7 +1068,7 @@ export function zoneMapToLayout(zone: ZoneMap): Layout {
     for (let cx = 0; cx < zone.w; cx++) {
       const t = zone.tiles[idx(zone.w, cx, cz)]!;
       if (t === TileType.WALL_HIGH || t === TileType.HAZARD_CHASM) row += '#';
-      else row += '.';
+      else row += elevGlyph(zone.elev[idx(zone.w, cx, cz)] ?? 0);
     }
     rows.push(row);
   }
@@ -783,6 +1079,7 @@ export function zoneMapToLayout(zone: ZoneMap): Layout {
     rows,
   };
   const layout = parseLayout(def);
+  if (zone.placed.length) layout.placed = zone.placed.map((p) => ({ ...p }));
   // Overlay tile-aware solids: COVER_LOW / DESTRUCTIBLE are not wall-solid (props handle move).
   // HAZARD_CHASM stays solid for normal walking.
   layout.props = [...zone.props];

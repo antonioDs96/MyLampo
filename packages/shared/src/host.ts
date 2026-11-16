@@ -8,7 +8,7 @@ import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
 import type { GearArchive } from './gearArchive';
 import { isProfileId } from './gearArchive';
 import { HEROES, HERO_IDS, isHeroId } from './heroes';
-import { collide, nearestFloor, parseLayout } from './layout';
+import { collide, nearestFloor, parseLayout, standElevation } from './layout';
 import { HUB_LINES } from './lore';
 import { MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
 import { clonePlayer, neutralCmd } from './player';
@@ -650,7 +650,8 @@ export class GameHost {
     const old = this.world;
     this.captureWorldInventories(old);
     const layout = currentLayout(rt);
-    const waves = wavesForZone(rt);
+    const garrisoned = layout.placed.length > 0 && rt.contract.kind !== 'RAID_DEFENSE';
+    const waves = garrisoned ? [] : wavesForZone(rt);
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     const world = new World({
       layout,
@@ -676,7 +677,7 @@ export class GameHost {
     }
     const zone = layout;
     const zMap = getZone(zone);
-    const hint = waves[0]?.hint;
+    const hint = waves[0]?.hint ?? (garrisoned ? 'Il dungeon è già abitato. Se vi vedono, vi danno la caccia.' : undefined);
     if (hint) world.events.push({ e: 'say', who: 'Carlos', text: hint });
     this.world = world;
     for (const c of this.clients.values()) this.sendInv(c.id);
@@ -733,7 +734,7 @@ export class GameHost {
         p.cd = keep.cd;
         if (mutation) {
           const at = nearestFloor(layout, keep.x, keep.z);
-          collide(layout, at.x, at.z, 0.6, at);
+          collide(layout, at.x, at.z, 0.6, at, standElevation(layout, keep.x, keep.z));
           p.x = at.x;
           p.z = at.z;
           p.yaw = keep.yaw;

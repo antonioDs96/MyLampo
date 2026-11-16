@@ -17,8 +17,9 @@ import {
   Vector3,
   VertexData,
 } from '@babylonjs/core';
-import { CELL, isSolidCell, REGIONS, type Layout, type Theme } from '@malampu/shared';
+import { CELL, cellElevation, ELEV_WALL, getZone, isSolidCell, REGIONS, STEP_HEIGHT, type Layout, type Theme } from '@malampu/shared';
 import type { Assets } from './assets';
+import { EnvironmentManager, type ReliefBiome } from './environment';
 
 export const FLOOR_Y = 0.05;
 const WALL_H = 4;
@@ -43,6 +44,40 @@ interface ThemeDef {
   outdoor: boolean;
   pillarScale: number;
 }
+
+/** Chiaroscuro palettes. Terraces stay matte; skirts are darker so the step reads at a glance. */
+const RELIEF_PALETTE: Record<
+  ReliefBiome,
+  { floor: string; skirt: string; sun: [number, number, number]; hemi: [number, number, number]; fog: [number, number, number]; density: number; spec: [number, number, number] }
+> = {
+  urban: {
+    floor: '#6e675c',
+    skirt: '#2a2622',
+    sun: [0.62, 0.74, 0.98],
+    hemi: [0.45, 0.5, 0.62],
+    fog: [0.42, 0.4, 0.38],
+    density: 0.022,
+    spec: [0, 0, 0],
+  },
+  wild: {
+    floor: '#7c3d2c',
+    skirt: '#3a1a12',
+    sun: [0.55, 0.7, 0.85],
+    hemi: [0.28, 0.4, 0.32],
+    fog: [0.04, 0.1, 0.07],
+    density: 0.02,
+    spec: [0.04, 0.02, 0.02],
+  },
+  coastal: {
+    floor: '#2a3544',
+    skirt: '#12161c',
+    sun: [0.7, 0.78, 0.9],
+    hemi: [0.35, 0.42, 0.5],
+    fog: [0.5, 0.58, 0.62],
+    density: 0.018,
+    spec: [0.28, 0.34, 0.38],
+  },
+};
 
 const THEMES: Record<Theme, ThemeDef> = {
   tavern: {
@@ -198,6 +233,7 @@ export class Arena {
   private readonly lights: PointLight[] = [];
   private readonly breakables: { x: number; z: number; kind: string; nodes: TransformNode[] }[] = [];
   private clock = 0;
+  private surround: EnvironmentManager | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -211,8 +247,22 @@ export class Arena {
     const env = new Batch(assets);
     const mass = new Batch(assets);
     const solid = (cx: number, cz: number) => isSolidCell(layout, cx, cz);
+    const terrace = (cx: number, cz: number): number => {
+      const e = cellElevation(layout, cx, cz);
+      return e === ELEV_WALL ? 0 : e;
+    };
+    let hasRelief = false;
+    for (let i = 0; i < layout.elev.length; i++) {
+      if (!layout.solid[i] && layout.elev[i] !== 0) {
+        hasRelief = true;
+        break;
+      }
+    }
     // Per-cell floor meshes explode vertex count on procedural maps — use one ground plane instead.
-    const flatFloor = w * h > 280;
+    // Relief maps need a slab per terrace, so they take the cheap box path.
+    const flatFloor = w * h > 280 && !hasRelief;
+    const slabs = new Batch(assets);
+    const skirts = new Batch(assets);
 
     for (let cz = 0; cz < h; cz++) {
       for (let cx = 0; cx < w; cx++) {
@@ -224,18 +274,28 @@ export class Arena {
             !solid(cx - 1, cz - 1) || !solid(cx + 1, cz - 1) || !solid(cx - 1, cz + 1) || !solid(cx + 1, cz + 1);
           if (near) {
             const k = theme.mass[0] + (theme.mass[1] - theme.mass[0]) * hash(cx, cz, 5);
-            mass.addBox(x, 0, z, CELL, WALL_H * k - 0.08, CELL);
+            if (hasRelief) {
+              // From the abyss floor up past the highest terrace, so '#' reads as a true wall.
+              mass.addBox(x, -2 * STEP_HEIGHT, z, CELL, 2 * STEP_HEIGHT + 8 * k, CELL);
+            } else {
+              mass.addBox(x, 0, z, CELL, WALL_H * k - 0.08, CELL);
+            }
           }
           continue;
         }
-        if (!flatFloor) {
+        const elev = terrace(cx, cz);
+        const fy = elev * STEP_HEIGHT;
+        if (hasRelief) {
+          slabs.addBox(x, fy - 0.22, z, CELL * 0.992, 0.22, CELL * 0.992);
+        } else if (!flatFloor) {
           const r = hash(cx, cz, 1);
           const floor = theme.floor[Math.floor(r * theme.floor.length)]!;
           const turn = floor.includes('wood') ? 0 : Math.floor(hash(cx, cz, 2) * 4) * (Math.PI / 2);
-          env.add(floor, x, 0, z, turn);
+          env.add(floor, x, fy, z, turn);
         }
 
         // A wall on every edge that borders a solid cell, facing into the room.
+        // A darker skirt on every edge that drops to a lower terrace.
         const edges: [number, number, number, number, number][] = [
           [0, -1, x, cz * CELL, 0],
           [0, 1, x, (cz + 1) * CELL, Math.PI],
@@ -243,20 +303,37 @@ export class Arena {
           [1, 0, (cx + 1) * CELL, z, -Math.PI / 2],
         ];
         for (const [dx, dz, wx, wz, rot] of edges) {
-          if (!solid(cx + dx, cz + dz)) continue;
+          const nx = cx + dx;
+          const nz = cz + dz;
+          if (!solid(nx, nz)) {
+            if (!hasRelief) continue;
+            const other = terrace(nx, nz);
+            if (other >= elev) continue;
+            const drop = (elev - other) * STEP_HEIGHT;
+            const thin = dx === 0;
+            skirts.addBox(wx, other * STEP_HEIGHT, wz, thin ? CELL : 0.42, drop, thin ? 0.42 : CELL);
+            continue;
+          }
           const v = hash(cx * 4 + dx, cz * 4 + dz, 3);
           const variant = v < 0.45 ? theme.walls[0]! : theme.walls[Math.floor(hash(cx + dx * 7, cz + dz * 7, 4) * theme.walls.length)]!;
-          env.add(variant, wx, 0, wz, rot);
+          env.add(variant, wx, fy, wz, rot);
+          if (hasRelief && fy < 0) env.add(variant, wx, fy + WALL_H, wz, rot);
           const deco = hash(cx * 3 + dx, cz * 3 + dz, 6);
           const plain = variant === 'wall' || variant === 'wall_cracked';
           if (plain && deco < 0.2) {
             const banner = theme.banners[Math.floor(hash(cx, cz, 7) * theme.banners.length)]!;
-            env.add(banner, wx, 0, wz, rot);
+            env.add(banner, wx, fy, wz, rot);
           } else if (plain && deco < 0.42) {
             const fx = wx + Math.sin(rot) * 0.5;
             const fz = wz + Math.cos(rot) * 0.5;
-            env.add('torch_mounted', fx, 2.3, fz, rot);
-            this.flames.push({ x: fx + Math.sin(rot) * 0.35, y: 3.05, z: fz + Math.cos(rot) * 0.35, color: theme.torch, big: false });
+            env.add('torch_mounted', fx, fy + 2.3, fz, rot);
+            this.flames.push({
+              x: fx + Math.sin(rot) * 0.35,
+              y: fy + 3.05,
+              z: fz + Math.cos(rot) * 0.35,
+              color: theme.torch,
+              big: false,
+            });
           }
         }
       }
@@ -341,13 +418,40 @@ export class Arena {
     const envMat = new StandardMaterial('env', scene);
     envMat.diffuseTexture = assets.envTexture;
     envMat.specularColor = Color3.Black();
-    envMat.maxSimultaneousLights = 6;
+    envMat.maxSimultaneousLights = hasRelief ? 8 : 6;
     envMat.clipPlane = cutPlane;
     this.owned.push(envMat);
     const envMesh = env.build('arena', scene);
     if (envMesh) {
       envMesh.material = envMat;
       this.owned.push(envMesh);
+    }
+    const biome = getZone(layout)?.biome;
+    const palette = hasRelief ? RELIEF_PALETTE[biome ?? 'urban'] : null;
+    if (palette) {
+      const slabMat = new StandardMaterial('terraces', scene);
+      slabMat.diffuseColor = Color3.FromHexString(palette.floor);
+      slabMat.specularColor = new Color3(...palette.spec);
+      slabMat.specularPower = biome === 'coastal' ? 48 : 8;
+      slabMat.maxSimultaneousLights = 8;
+      slabMat.clipPlane = cutPlane;
+      const slabMesh = slabs.build('terraces', scene);
+      if (slabMesh) {
+        slabMesh.material = slabMat;
+        this.owned.push(slabMesh);
+      }
+      const skirtMat = new StandardMaterial('skirts', scene);
+      skirtMat.diffuseColor = Color3.FromHexString(palette.skirt);
+      skirtMat.specularColor = Color3.Black();
+      skirtMat.emissiveColor = Color3.FromHexString(palette.skirt).scale(0.35);
+      skirtMat.maxSimultaneousLights = 8;
+      skirtMat.clipPlane = cutPlane;
+      const skirtMesh = skirts.build('skirts', scene);
+      if (skirtMesh) {
+        skirtMesh.material = skirtMat;
+        this.owned.push(skirtMesh);
+      }
+      this.owned.push(slabMat, skirtMat);
     }
     if (flatFloor) {
       const ground = MeshBuilder.CreateGround('arenaFloor', { width: w * CELL, height: h * CELL, subdivisions: 1 }, scene);
@@ -397,7 +501,7 @@ export class Arena {
 
     // Catch-all ground so nothing shows through gaps between tiles.
     const ground = MeshBuilder.CreateGround('ground', { width: w * CELL + 80, height: h * CELL + 80 }, scene);
-    ground.position.set((w * CELL) / 2, -0.12, (h * CELL) / 2);
+    ground.position.set((w * CELL) / 2, hasRelief ? -2 * STEP_HEIGHT - 0.55 : -0.12, (h * CELL) / 2);
     const groundMat = massMat.clone('ground');
     groundMat.clipPlane = null;
     this.owned.push(groundMat);
@@ -407,8 +511,8 @@ export class Arena {
 
     scene.clearColor = new Color4(theme.clear[0], theme.clear[1], theme.clear[2], 1);
     scene.fogMode = 2; // exponential squared
-    scene.fogColor = new Color3(...theme.fog);
-    scene.fogDensity = theme.fogDensity;
+    scene.fogColor = palette ? new Color3(...palette.fog) : new Color3(...theme.fog);
+    scene.fogDensity = palette ? palette.density : theme.fogDensity;
     scene.ambientColor = new Color3(0.2, 0.2, 0.2);
 
     const hemi = new HemisphericLight('hemi', new Vector3(0.2, 1, 0.1), scene);
@@ -420,6 +524,14 @@ export class Arena {
     sun.diffuse = new Color3(...theme.sun);
     sun.intensity = theme.sunIntensity * 0.8;
     sun.specular = Color3.Black();
+    if (palette) {
+      hemi.diffuse = new Color3(...palette.hemi);
+      hemi.intensity = 0.28;
+      hemi.groundColor = Color3.FromHexString(palette.skirt);
+      sun.diffuse = new Color3(...palette.sun);
+      sun.intensity = 1.25;
+      sun.direction = new Vector3(0.42, -1, 0.18).normalize();
+    }
     this.owned.push(hemi, sun);
 
     // A few real lights where the fire is; the rest of the flames are only emissive.
@@ -432,6 +544,23 @@ export class Arena {
       light.range = f.big ? 26 : 16;
       this.lights.push(light);
       this.owned.push(light);
+    }
+
+    if (palette && biome) {
+      const zone = getZone(layout);
+      const warm: { x: number; z: number }[] = [{ x: layout.center.x, z: layout.center.z }];
+      for (const g of zone?.gates ?? []) warm.push({ x: (g.cx + g.width * 0.5) * CELL, z: (g.cz + 0.5) * CELL });
+      for (const spot of warm.slice(0, 4)) {
+        const lamp = new PointLight('lamp', new Vector3(spot.x, 2.4, spot.z), scene);
+        lamp.diffuse = new Color3(1, 0.58, 0.24);
+        lamp.specular = Color3.Black();
+        lamp.intensity = 1.35;
+        lamp.range = 18;
+        this.lights.push(lamp);
+        this.owned.push(lamp);
+      }
+      this.surround = new EnvironmentManager(scene, layout, assets, biome);
+      this.owned.push(this.surround);
     }
 
     if (theme.outdoor) this.addEclipse();
@@ -516,6 +645,7 @@ export class Arena {
 
   update(dt: number): void {
     this.clock += dt;
+    this.surround?.update(dt);
     for (let i = 0; i < this.lights.length; i++) {
       const base = i === 0 && this.flames.some((f) => f.big) ? 1.5 : 0.95;
       this.lights[i]!.intensity = base * (0.9 + Math.sin(this.clock * (9 + i * 2.3)) * 0.06 + Math.sin(this.clock * 23 + i) * 0.04);

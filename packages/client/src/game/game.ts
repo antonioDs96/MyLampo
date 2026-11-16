@@ -15,7 +15,11 @@ import {
   INTERP_DELAY_MS,
   lerp,
   lerpAngle,
+  ELEV_WALL,
+  getCellElevation,
   losClear,
+  standElevation,
+  STEP_HEIGHT,
   MAX_PLAYERS,
   EXTRA_PLAYS,
   MEGABONK_TOMES,
@@ -119,6 +123,8 @@ interface HeroView {
   x: number;
   z: number;
   yaw: number;
+  /** Smoothed visual feet height. NaN until the first placement. */
+  y: number;
   fullCharge: boolean;
   wolf: boolean;
   seen: boolean;
@@ -131,6 +137,8 @@ interface EnemyView {
   atk: number;
   seen: boolean;
   dustTimer: number;
+  /** Smoothed visual feet height. NaN until the first placement. */
+  y: number;
 }
 
 const FAIL_TEXT: Record<string, string> = {
@@ -1314,7 +1322,7 @@ export class Game {
       for (const e of latest.enemies.values()) {
         if (!usable(e)) continue;
         if (Math.hypot(e.x - me.x, e.z - me.z) > 34) continue;
-        if (!losClear(this.layout!, me.x, me.z, e.x, e.z)) continue;
+        if (!losClear(this.layout!, me.x, me.z, e.x, e.z, standElevation(this.layout!, me.x, me.z))) continue;
         out.push(e);
       }
       return out;
@@ -1371,7 +1379,7 @@ export class Game {
     }
     if (!hv) {
       const view = new CharacterView(this.scene, this.assets, HERO_LOOKS[hero], `hero:${id}`, this.shadow);
-      hv = { view, hero, act: Act.Idle, combo: 0, t: 0, x: 0, z: 0, yaw: 0, fullCharge: false, wolf: false, seen: true };
+      hv = { view, hero, act: Act.Idle, combo: 0, t: 0, x: 0, z: 0, yaw: 0, y: Number.NaN, fullCharge: false, wolf: false, seen: true };
       this.heroViews.set(id, hv);
     }
     hv.seen = true;
@@ -1473,7 +1481,7 @@ export class Game {
         let ev = this.enemyViews.get(ea.id);
         if (!ev) {
           const view = new CharacterView(this.scene, this.assets, ENEMY_LOOKS[ea.type], `enemy:${ea.id}`, this.shadow);
-          ev = { view, snap: shown, state: -1, atk: -1, seen: true, dustTimer: 0 };
+          ev = { view, snap: shown, state: -1, atk: -1, seen: true, dustTimer: 0, y: Number.NaN };
           this.enemyViews.set(ea.id, ev);
         }
         ev.seen = true;
@@ -1526,6 +1534,18 @@ export class Game {
     this.ambience(dt, meX, meZ);
   }
 
+  private groundY(x: number, z: number): number {
+    const raw = this.layout ? getCellElevation(this.layout, x, z) : 0;
+    return FLOOR_Y + (raw === ELEV_WALL ? 0 : raw) * STEP_HEIGHT;
+  }
+
+  /** Visual feet height. Snaps across teleports, eases across a single terrace. */
+  private smoothFeet(current: number, x: number, z: number, dt: number): number {
+    const goal = this.groundY(x, z);
+    if (!Number.isFinite(current) || Math.abs(goal - current) > 8) return goal;
+    return current + (goal - current) * (1 - Math.exp(-Math.min(dt, 0.05) * 10));
+  }
+
   private placeHero(hv: HeroView, p: PlayerState, x: number, z: number, yaw: number, dt: number, frozen: boolean, isMe: boolean): void {
     const view = hv.view;
     const vfx = this.vfx;
@@ -1533,7 +1553,8 @@ export class Game {
     const c = HERO_COLOR[p.hero];
     const pirouette = p.act === Act.Dodge && hero.dodge.kind === 'pirouette' && !p.blink;
     const spinU = pirouette ? Math.min(1, p.t / TICK_HZ / hero.dodge.dur) : 0;
-    view.root.position.set(x, FLOOR_Y + Math.sin(spinU * Math.PI) * 0.22, z);
+    hv.y = this.smoothFeet(hv.y, x, z, dt);
+    view.root.position.set(x, hv.y + Math.sin(spinU * Math.PI) * 0.22, z);
     view.root.rotation.y = yaw;
     view.trackMotion(dt);
 
@@ -1672,7 +1693,8 @@ export class Game {
     const view = ev.view;
     const vfx = this.vfx;
     const def = ENEMIES[e.type];
-    view.root.position.set(e.x, FLOOR_Y, e.z);
+    ev.y = this.smoothFeet(ev.y, e.x, e.z, dt);
+    view.root.position.set(e.x, ev.y, e.z);
     view.root.rotation.y = e.yaw;
     view.trackMotion(dt);
     const iced = enemyHas(e.st, ES.Frozen);
@@ -1748,18 +1770,20 @@ export class Game {
   /** Ground marker showing where an enemy attack will land, filling up as the strike approaches. */
   private telegraph(e: EnemySnap, radius: number, atk: EnemyAttackDef, k: number, c: RGB): void {
     const vfx = this.vfx;
+    const y = this.groundY(e.x, e.z) + 0.04;
     if (atk.proj || atk.special) {
-      vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5);
+      vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5, y);
       return;
     }
     if (atk.aoe) {
-      vfx.disc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4);
-      vfx.disc(e.ax, e.az, atk.aoe * k, c, 0.5);
+      const ay = this.groundY(e.ax, e.az) + 0.04;
+      vfx.disc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4, ay);
+      vfx.disc(e.ax, e.az, atk.aoe * k, c, 0.5, ay);
       return;
     }
     // Lunging attacks travel during the wind-up: the marker follows the enemy.
-    vfx.sector(e.x, e.z, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4);
-    vfx.sector(e.x, e.z, atk.reach * k, e.yaw, atk.arc, c, 0.45);
+    vfx.sector(e.x, e.z, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4, y);
+    vfx.sector(e.x, e.z, atk.reach * k, e.yaw, atk.arc, c, 0.45, y);
   }
 
   private enemyHud(ev: EnemyView, e: EnemySnap, dist: number): void {

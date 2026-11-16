@@ -4,7 +4,7 @@
  */
 import { DT, TICK_HZ, TUNING } from './constants';
 import { HEROES, type AbilityDef, type AttackDef, type HeroDef } from './heroes';
-import { collide, type Layout, type Point } from './layout';
+import { collide, standElevation, type Layout, type Point } from './layout';
 import { angleDiff, approachAngle, clamp, yawOf } from './math';
 import { isMonolithSilenceAt, moveSpeedMulAt } from './proceduralBiomes';
 import { Act, Btn, PS, type HeroId, type InputCmd, type PlayerState, type Status } from './types';
@@ -232,7 +232,14 @@ function startAttack(p: PlayerState, hero: HeroDef, heavy: boolean, cmd: InputCm
       const dz = e.z - p.z;
       const d = Math.hypot(dx, dz) || 1;
       const behind = e.r + TUNING.playerRadius + 0.5;
-      collide(ctx.layout, e.x + (dx / d) * behind, e.z + (dz / d) * behind, TUNING.playerRadius, tmp);
+      collide(
+        ctx.layout,
+        e.x + (dx / d) * behind,
+        e.z + (dz / d) * behind,
+        TUNING.playerRadius,
+        tmp,
+        standElevation(ctx.layout, p.x, p.z),
+      );
       p.x = tmp.x;
       p.z = tmp.z;
       p.yaw = yawOf(e.x - p.x, e.z - p.z);
@@ -280,7 +287,8 @@ function blinkAlong(p: PlayerState, ctx: StepCtx, dist: number): void {
   let x = p.x;
   let z = p.z;
   for (let i = 0; i < steps; i++) {
-    collide(ctx.layout, x + (p.dx * dist) / steps, z + (p.dz * dist) / steps, TUNING.playerRadius, tmp);
+    const feet = standElevation(ctx.layout, x, z);
+    collide(ctx.layout, x + (p.dx * dist) / steps, z + (p.dz * dist) / steps, TUNING.playerRadius, tmp, feet);
     x = tmp.x;
     z = tmp.z;
   }
@@ -420,7 +428,7 @@ function move(p: PlayerState, ctx: StepCtx, dx: number, dz: number, pushEnemies:
       }
     }
   }
-  collide(ctx.layout, x, z, TUNING.playerRadius, tmp);
+  collide(ctx.layout, x, z, TUNING.playerRadius, tmp, standElevation(ctx.layout, p.x, p.z));
   p.x = tmp.x;
   p.z = tmp.z;
 }
