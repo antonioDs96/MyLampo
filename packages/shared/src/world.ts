@@ -27,6 +27,7 @@ import {
   retargetWindow,
   steerMode,
   type HunterView,
+  type MindHint,
   type PreyView,
 } from './enemyMind';
 import { JEV_STEERS, legalAttackSnaps, type JevAdvisor, type JevHeroSnap, type JevSample } from './jevMind';
@@ -1623,18 +1624,20 @@ export class World {
     return out;
   }
 
+  /** Jev's latest answer, shaped for the persona. Null fields leave that choice to the mind. */
+  private mindHint(e: EnemyState): MindHint | undefined {
+    const advice = this.jev?.peek(e.id, this.time);
+    if (!advice) return undefined;
+    return { attackId: advice.attackId, wait: advice.wait, targetId: advice.targetId, steer: advice.steer };
+  }
+
   private pickTarget(e: EnemyState): PlayerState | undefined {
     const current = this.players.get(e.target);
     const valid = (p: PlayerState | undefined): p is PlayerState =>
       !!p && p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth);
     if (hasStatus(e.st, ES.Taunted) && valid(current)) return current;
-    const advisedId = this.jev?.peek(e.id, this.time)?.targetId;
-    const advised = advisedId ? this.players.get(advisedId) : undefined;
-    if (valid(advised)) {
-      e.target = advised.id;
-      return advised;
-    }
-    if (valid(current) && e.retarget > 0) return current;
+    const hint = this.mindHint(e);
+    if (!hint?.targetId && valid(current) && e.retarget > 0) return current;
     const persona = personaOf(e.type);
     e.retarget = retargetWindow(persona.mind) + this.rng.next() * 0.4;
     const party = this.alivePrey();
@@ -1648,7 +1651,7 @@ export class World {
     let bestScore = Infinity;
     for (const p of this.players.values()) {
       if (!valid(p)) continue;
-      const score = preyScore(persona, hunter, this.asPrey(p), pack, party);
+      const score = preyScore(persona, hunter, this.asPrey(p), pack, party, hint);
       if (score < bestScore) {
         bestScore = score;
         best = p;
@@ -1669,17 +1672,6 @@ export class World {
   }
 
   private chooseAttack(e: EnemyState, def: EnemyDef, d: number, target: PlayerState): number {
-    const advice = this.jev?.peek(e.id, this.time);
-    if (advice?.wait) return -1;
-    if (advice?.attackId) {
-      for (let i = 0; i < def.attacks.length; i++) {
-        const atk = def.attacks[i]!;
-        if (atk.id !== advice.attackId) continue;
-        if ((atk.phase ?? 0) > e.phase) break;
-        if (d > atk.startRange || d < (atk.minRange ?? 0)) break;
-        return i;
-      }
-    }
     const persona = personaOf(e.type);
     const prey = this.asPrey(target);
     const party = this.alivePrey();
@@ -1699,6 +1691,7 @@ export class World {
       },
       e.atk,
       this.rng.next(),
+      this.mindHint(e),
     );
   }
 
@@ -2158,17 +2151,20 @@ export class World {
 
     const wantAttack = e.cool <= 0.4 && free;
     const charge = chargeWindow(def.attacks, e.phase);
-    const advisedSteer = this.jev?.peek(e.id, this.time)?.steer;
-    const mode = advisedSteer ?? steerMode(mind, {
-      dist,
-      gap,
-      preferred: def.preferred || 4.2,
-      cool: e.cool,
-      los,
-      wantAttack,
-      chargeMin: charge.min,
-      chargeMax: charge.max,
-    });
+    const mode = steerMode(
+      mind,
+      {
+        dist,
+        gap,
+        preferred: def.preferred || 4.2,
+        cool: e.cool,
+        los,
+        wantAttack,
+        chargeMin: charge.min,
+        chargeMax: charge.max,
+      },
+      this.mindHint(e),
+    );
     if (mode === 'flank') {
       e.state = EState.Circle;
       const at = flankPoint(prey);

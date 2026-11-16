@@ -11,6 +11,7 @@ import {
   isolationOf,
   parseLayout,
   personaOf,
+  pickAttackIndex,
   preyScore,
   steerMode,
   type HunterView,
@@ -113,6 +114,34 @@ describe('enemy personas', () => {
     expect(
       steerMode('sniper', { dist: 6, gap: 5, preferred: 13, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }),
     ).toBe('kite');
+  });
+
+  it('follows a Jev hint when the choice is legal and ignores it when it is not', () => {
+    const persona = personaOf('ombra');
+    const h = hunter({ type: 'ombra', x: 0, z: 4 });
+    const tank = prey({ id: 'tank', hero: 'alexios', x: 0, z: 0 });
+    const mage = prey({ id: 'mage', hero: 'gabryel', x: 8, z: 0 });
+    const party = [tank, mage];
+    const hint = { attackId: 'fendente', wait: false, targetId: 'tank', steer: 'flank' as const };
+    expect(preyScore(persona, h, tank, [], party, hint)).toBeLessThan(preyScore(persona, h, mage, [], party, hint));
+
+    const block = { dist: 2.8, blocking: true, dodging: false, attacking: false, clustered: 1, behind: false, lastKind: '' as const };
+    const blue = pickAttackIndex('duelist', ENEMIES.cultista.attacks, 0, 2.8, block, -1, 0.99, hint);
+    expect(ENEMIES.cultista.attacks[blue]?.id).toBe('fendente');
+    expect(pickAttackIndex('duelist', ENEMIES.cultista.attacks, 0, 2.8, block, -1, 0.2, { ...hint, wait: true })).toBe(-1);
+
+    const tooFar = pickAttackIndex('duelist', ENEMIES.cultista.attacks, 0, 8, block, -1, 0.2, {
+      ...hint,
+      attackId: 'fendente',
+    });
+    expect(tooFar).toBe(-1);
+
+    expect(
+      steerMode('bully', { dist: 6, gap: 5, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }, hint),
+    ).toBe('flank');
+    expect(
+      steerMode('dummy', { dist: 2, gap: 1, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }, hint),
+    ).toBe('hold');
   });
 });
 

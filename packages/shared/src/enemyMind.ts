@@ -1,6 +1,9 @@
 /**
  * Each enemy type plays a character: who it hunts, how it moves, which attack it prefers.
  * Beating them is a read — not a DPS race. Scoring is deterministic so tests (and players) can trust it.
+ *
+ * A MindHint is Jev's latest legal choice. The mind still owns the rules: range, phase,
+ * downed heroes and the training dummy are never overridden. Without a hint, the persona decides alone.
  */
 import { HEROES, type Archetype } from './heroes';
 import { Act, type ActId, type EnemyTypeId, type HeroId } from './types';
@@ -21,6 +24,14 @@ export type EnemyMind =
   | 'warden';
 
 export type SteerMode = 'chase' | 'kite' | 'flank' | 'backstep' | 'circle' | 'hold';
+
+/** What Jev wants this foe to do. Empty fields leave that choice to the persona. */
+export interface MindHint {
+  attackId: string | null;
+  wait: boolean;
+  targetId: string | null;
+  steer: SteerMode | null;
+}
 
 export interface Persona {
   mind: EnemyMind;
@@ -122,14 +133,22 @@ export function clusterCount(prey: PreyView, party: PreyView[], radius = 3.4): n
   return n;
 }
 
-/** Lower is more attractive. */
-export function preyScore(persona: Persona, hunter: HunterView, prey: PreyView, pack: HunterView[], party: PreyView[]): number {
+/** Lower is more attractive. A Jev target is pulled in front of the persona's preference. */
+export function preyScore(
+  persona: Persona,
+  hunter: HunterView,
+  prey: PreyView,
+  pack: HunterView[],
+  party: PreyView[],
+  hint?: MindHint,
+): number {
   const hero = HEROES[prey.hero];
   const dist = Math.hypot(prey.x - hunter.x, prey.z - hunter.z);
   const hpFrac = prey.maxHp > 0 ? prey.hp / prey.maxHp : 1;
   const isolated = isolationOf(prey, party);
   let s = dist;
 
+  if (hint?.targetId === prey.id) s -= 1000;
   if (prey.id === hunter.target) s -= 3;
   if (prey.id === hunter.lastHitBy) s -= 3.5;
   if (persona.hunts.includes(hero.archetype)) s -= 7;
@@ -261,7 +280,9 @@ export function pickAttackIndex(
   ctx: AttackCtx,
   lastAtk: number,
   roll: number,
+  hint?: MindHint,
 ): number {
+  if (hint?.wait) return -1;
   let total = 0;
   const ok: { i: number; w: number }[] = [];
   for (let i = 0; i < attacks.length; i++) {
@@ -276,6 +297,10 @@ export function pickAttackIndex(
     total += w;
   }
   if (ok.length === 0) return -1;
+  if (hint?.attackId) {
+    const chosen = ok.find((o) => attacks[o.i]?.id === hint.attackId);
+    if (chosen) return chosen.i;
+  }
   let r = roll * total;
   for (const o of ok) {
     r -= o.w;
@@ -315,7 +340,9 @@ export function steerMode(
     chargeMin: number;
     chargeMax: number;
   },
+  hint?: MindHint,
 ): SteerMode {
+  if (mind !== 'dummy' && hint?.steer) return hint.steer;
   switch (mind) {
     case 'dummy':
       return 'hold';

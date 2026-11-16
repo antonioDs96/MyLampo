@@ -1,7 +1,8 @@
 /**
  * Jev (TypeSafe System One) picks among moves the simulation already considers legal.
  * The tick never waits on the network: a late or low-confidence answer is ignored and
- * the persona in enemyMind.ts keeps the fight going.
+ * the persona in enemyMind.ts keeps the fight going. A confident answer is a MindHint:
+ * the mind still rejects anything outside range, phase or a downed hero.
  */
 import type { EnemyAttackDef } from './enemies';
 import { ENEMIES } from './enemies';
