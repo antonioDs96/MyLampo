@@ -30,7 +30,7 @@ import {
   type MindHint,
   type PreyView,
 } from './enemyMind';
-import { JEV_STEERS, legalAttackSnaps, type JevAdvisor, type JevHeroSnap, type JevSample } from './jevMind';
+import { JEV_STEERS, jevEligible, legalAttackSnaps, type JevAdvisor, type JevHeroSnap, type JevSample } from './jevMind';
 import { HEROES, type AttackDef } from './heroes';
 import { getItem, rollDice } from './itemsCatalog';
 import {
@@ -1933,7 +1933,7 @@ export class World {
 
   /** Snapshot a decision point for Jev. The persona still acts this tick if no answer is cached. */
   private considerJev(e: EnemyState, def: EnemyDef, target: PlayerState, dist: number, los: boolean): void {
-    if (!this.jev || this.safe || def.dummy) return;
+    if (!this.jev || this.safe || !jevEligible(def)) return;
     if (e.state !== EState.Chase && e.state !== EState.Circle && e.state !== EState.Windup) return;
     const party = this.alivePrey().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (party.length === 0) return;

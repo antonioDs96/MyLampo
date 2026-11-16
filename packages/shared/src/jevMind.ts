@@ -3,6 +3,7 @@
  * The tick never waits on the network: a late or low-confidence answer is ignored and
  * the persona in enemyMind.ts keeps the fight going. A confident answer is a MindHint:
  * the mind still rejects anything outside range, phase or a downed hero.
+ * Only elites and bosses are sent: the crowd keeps the local persona, which is what holds the bill down.
  */
 import type { EnemyAttackDef } from './enemies';
 import { ENEMIES } from './enemies';
@@ -102,6 +103,12 @@ export interface JevAdvisor {
 }
 
 /** Thrown by a transport when Jev cannot answer. `permanent` stops further asks. */
+/** True for the few foes worth a paid decision. Grunts and the training dummy stay local. */
+export function jevEligible(def: { dummy?: boolean; elite?: boolean; boss?: boolean; bar?: boolean }): boolean {
+  if (def.dummy) return false;
+  return !!(def.elite || def.boss || def.bar);
+}
+
 export class JevUnavailable extends Error {
   constructor(readonly permanent: boolean) {
     super(permanent ? 'jev off' : 'jev unavailable');

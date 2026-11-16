@@ -9,6 +9,7 @@ import {
   World,
   buildSystemOneBody,
   createJevAdvisor,
+  jevEligible,
   parseLayout,
   readJevAnswers,
   sanitizeJevSamples,
@@ -174,6 +175,40 @@ describe('jev decisions', () => {
     advisor.pump(5);
     await Promise.resolve();
     expect(calls).toBe(1);
+  });
+
+  it('asks Jev only for elites and bosses', () => {
+    expect(jevEligible(ENEMIES.cultista)).toBe(false);
+    expect(jevEligible(ENEMIES.ombra)).toBe(false);
+    expect(jevEligible(ENEMIES.manichino)).toBe(false);
+    expect(jevEligible(ENEMIES.inquisitore)).toBe(true);
+    expect(jevEligible(ENEMIES.klaus)).toBe(true);
+
+    const noted: string[] = [];
+    const world = new World({
+      layout: parseLayout({
+        id: 'bill',
+        name: 'bill',
+        theme: 'crypt',
+        rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
+      }),
+      seed: 1,
+      jev: {
+        peek: () => null,
+        note: (s) => noted.push(s.type),
+        pump() {},
+        reset() {},
+      },
+    });
+    const hero = world.addPlayer('a', 'jusef', 0);
+    const grunt = world.spawnEnemy('cultista', hero.x, hero.z + 3);
+    const elite = world.spawnEnemy('inquisitore', hero.x + 2, hero.z + 3);
+    grunt.state = EState.Chase;
+    elite.state = EState.Chase;
+    grunt.cool = 99;
+    elite.cool = 99;
+    world.step(0.05);
+    expect(noted).toEqual(['inquisitore']);
   });
 });
 
