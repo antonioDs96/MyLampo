@@ -8,7 +8,9 @@ import {
   HEROES,
   World,
   attackWeightMul,
+  familyOf,
   isolationOf,
+  sufferRead,
   parseLayout,
   personaOf,
   pickAttackIndex,
@@ -142,6 +144,25 @@ describe('enemy personas', () => {
     expect(
       steerMode('dummy', { dist: 2, gap: 1, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }, hint),
     ).toBe('hold');
+  });
+
+  it('does more of the attack family a hero keeps failing to stop', () => {
+    expect(familyOf(ENEMIES.cultista.attacks[0]!)).toBe('blue');
+    expect(familyOf(ENEMIES.accolito.attacks[0]!)).toBe('shot');
+    const read = sufferRead([
+      { family: 'red', landed: true },
+      { family: 'red', landed: true },
+      { family: 'red', landed: true },
+      { family: 'blue', landed: false },
+      { family: 'blue', landed: false },
+    ]);
+    expect(read).toEqual({ family: 'red', resisted: 'blue' });
+    const plain = { dist: 3.2, blocking: false, dodging: false, attacking: false, clustered: 1, behind: false, lastKind: '' as const };
+    const open = { ...plain, suffer: read };
+    const red = ENEMIES.cultista.attacks[1]!;
+    const blue = ENEMIES.cultista.attacks[0]!;
+    expect(attackWeightMul('duelist', red, open)).toBeGreaterThan(attackWeightMul('duelist', red, plain));
+    expect(attackWeightMul('duelist', blue, open)).toBeLessThan(attackWeightMul('duelist', blue, plain));
   });
 });
 

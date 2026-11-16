@@ -5,13 +5,17 @@
 import express from 'express';
 import {
   JevUnavailable,
+  buildCaptainBody,
   buildSystemOneBody,
   createJevAdvisor,
+  readCaptain,
   readJevAnswers,
   sanitizeJevSamples,
+  sanitizeRoomBrief,
   type JevAdvisor,
   type JevRawAnswer,
   type JevSample,
+  type RoomBrief,
 } from '@malampu/shared';
 
 const WINDOW_MS = 1000;
@@ -60,10 +64,34 @@ export async function askJev(input: unknown): Promise<JevRawAnswer[]> {
   return readJevAnswers(samples, await res.json());
 }
 
+export async function askCaptain(input: unknown) {
+  const brief = sanitizeRoomBrief(input);
+  if (!brief) return readCaptain({ heroes: [], elites: [] }, {});
+  const cfg = endpoint();
+  if (!cfg) throw new JevUnavailable(true);
+  if (!allow()) return readCaptain(brief, {});
+  const res = await fetch(cfg.url, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${cfg.key}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildCaptainBody(brief, cfg.model)),
+    signal: AbortSignal.timeout(400),
+  });
+  if (res.status === 401 || res.status === 403) {
+    warnOnce(res.status);
+    throw new JevUnavailable(true);
+  }
+  if (!res.ok) throw new JevUnavailable(false);
+  return readCaptain(brief, await res.json());
+}
+
 export function createServerJevAdvisor(): JevAdvisor | undefined {
   if (!jevEnabled()) return undefined;
   return createJevAdvisor({
     transport: (samples: JevSample[]) => askJev(samples),
+    roomTransport: (brief: RoomBrief) => askCaptain(brief),
   });
 }
 
@@ -94,12 +122,23 @@ export function mountJevRoute(app: express.Application): void {
       res.status(503).json({ error: 'jev-off' });
       return;
     }
-    const samples = sanitizeJevSamples(req.body && typeof req.body === 'object' ? (req.body as { samples?: unknown }).samples : null);
-    if (samples.length === 0) {
-      res.status(400).json({ error: 'bad samples' });
-      return;
-    }
+    const body = req.body && typeof req.body === 'object' ? (req.body as { samples?: unknown; room?: unknown }) : {};
     try {
+      if (body.room) {
+        const brief = sanitizeRoomBrief(body.room);
+        if (!brief) {
+          res.status(400).json({ error: 'bad room' });
+          return;
+        }
+        const order = await askCaptain(brief);
+        res.json({ order });
+        return;
+      }
+      const samples = sanitizeJevSamples(body.samples);
+      if (samples.length === 0) {
+        res.status(400).json({ error: 'bad samples' });
+        return;
+      }
       const answers = await askJev(samples);
       res.json({ answers });
     } catch {
