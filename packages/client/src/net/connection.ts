@@ -1,5 +1,14 @@
 import { Client, type Room } from '@colyseus/sdk';
-import { GameHost, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
+import {
+  GameHost,
+  JevUnavailable,
+  createJevAdvisor,
+  type ClientMsg,
+  type GearArchive,
+  type JevAdvisor,
+  type JevRawAnswer,
+  type ServerMsg,
+} from '@malampu/shared';
 
 export interface Connection {
   /** True when the whole game runs inside this browser tab. */
@@ -16,6 +25,30 @@ export interface Connection {
 }
 
 const LOCAL_ID = 'solo';
+
+/** Solo sim lives in the tab. Decisions go to the game server, which holds the TypeSafe key. */
+function soloJev(): JevAdvisor {
+  return createJevAdvisor({
+    transport: async (samples) => {
+      let res: Response;
+      try {
+        res = await fetch(`${serverEndpoint()}/api/jev/tactic`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ samples }),
+          signal: AbortSignal.timeout(500),
+        });
+      } catch (err) {
+        const name = err instanceof Error ? err.name : '';
+        throw new JevUnavailable(name !== 'TimeoutError' && name !== 'AbortError');
+      }
+      if (res.status === 503 || res.status === 404) throw new JevUnavailable(true);
+      if (!res.ok) throw new JevUnavailable(false);
+      const body = (await res.json()) as { answers?: JevRawAnswer[] };
+      return Array.isArray(body.answers) ? body.answers : [];
+    },
+  });
+}
 
 /** Runs the same game host the server uses, in memory, for solo play without a server. */
 export class LocalConnection implements Connection {
@@ -35,6 +68,8 @@ export class LocalConnection implements Connection {
       'SOLO',
       (Math.random() * 0xffffffff) >>> 0,
       archive,
+      false,
+      soloJev(),
     );
     this.host.join(LOCAL_ID, name);
   }

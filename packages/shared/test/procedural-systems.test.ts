@@ -86,7 +86,9 @@ describe('hubs & zone generators', () => {
     for (const zones of [urban, wild, coast]) {
       expect(zones).toHaveLength(3);
       expect(zones[2]!.name).toBe('Terminal_Boss_Arena');
-      expect(zones[2]!.placed.length).toBeGreaterThan(0);
+      expect(zones[2]!.placed.length).toBe(9);
+      expect(zones[0]!.placed.length).toBe(16);
+      expect(zones[1]!.placed.length).toBe(16);
       expect(zones[2]!.bossSpawn).toBeTruthy();
       for (const zone of zones) {
         const layout = zoneMapToLayout(zone);

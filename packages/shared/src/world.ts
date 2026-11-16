@@ -29,6 +29,7 @@ import {
   type HunterView,
   type PreyView,
 } from './enemyMind';
+import { JEV_STEERS, legalAttackSnaps, type JevAdvisor, type JevHeroSnap, type JevSample } from './jevMind';
 import { HEROES, type AttackDef } from './heroes';
 import { getItem, rollDice } from './itemsCatalog';
 import {
@@ -105,9 +106,6 @@ import {
 
 const T = (s: number): number => s * TICK_HZ;
 const RAD = Math.PI / 180;
-/** Idle garrison look this far, and only inside this half-angle of their facing. */
-const VISION_RANGE = 12;
-const VISION_HALF = 0.95;
 
 /** Ranged and magic heroes ignore the two-terrace melee cutoff. Their shots still stop on walls and higher ground. */
 function ignoresMeleeHeight(hero: HeroId): boolean {
@@ -173,6 +171,11 @@ export interface WorldOpts {
   pvp?: boolean;
   /** Downed heroes stay down — no revive / Party heal. */
   noRevive?: boolean;
+  /**
+   * Optional Jev advisor. Absent (tests, no API key) the persona decides alone.
+   * Peek is synchronous; the advisor never blocks a tick.
+   */
+  jev?: JevAdvisor;
 }
 
 const tmp: Point = { x: 0, z: 0 };
@@ -183,6 +186,7 @@ export class World {
   readonly safe: boolean;
   readonly pvp: boolean;
   readonly noRevive: boolean;
+  readonly jev?: JevAdvisor;
   time = 0;
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
@@ -241,6 +245,7 @@ export class World {
     this.safe = !!opts.safe;
     this.pvp = !!opts.pvp;
     this.noRevive = !!opts.noRevive;
+    this.jev = opts.jev;
     this.waves = opts.waves ?? [];
     this.ctx = { layout: this.layout, enemies: this.lite, allies: this.allies };
     if (this.waves.length > 0) {
@@ -1623,6 +1628,12 @@ export class World {
     const valid = (p: PlayerState | undefined): p is PlayerState =>
       !!p && p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth);
     if (hasStatus(e.st, ES.Taunted) && valid(current)) return current;
+    const advisedId = this.jev?.peek(e.id, this.time)?.targetId;
+    const advised = advisedId ? this.players.get(advisedId) : undefined;
+    if (valid(advised)) {
+      e.target = advised.id;
+      return advised;
+    }
     if (valid(current) && e.retarget > 0) return current;
     const persona = personaOf(e.type);
     e.retarget = retargetWindow(persona.mind) + this.rng.next() * 0.4;
@@ -1658,6 +1669,17 @@ export class World {
   }
 
   private chooseAttack(e: EnemyState, def: EnemyDef, d: number, target: PlayerState): number {
+    const advice = this.jev?.peek(e.id, this.time);
+    if (advice?.wait) return -1;
+    if (advice?.attackId) {
+      for (let i = 0; i < def.attacks.length; i++) {
+        const atk = def.attacks[i]!;
+        if (atk.id !== advice.attackId) continue;
+        if ((atk.phase ?? 0) > e.phase) break;
+        if (d > atk.startRange || d < (atk.minRange ?? 0)) break;
+        return i;
+      }
+    }
     const persona = personaOf(e.type);
     const prey = this.asPrey(target);
     const party = this.alivePrey();
@@ -1857,19 +1879,103 @@ export class World {
   private spotHero(e: EnemyState): PlayerState | undefined {
     const eye = standElevation(this.layout, e.x, e.z);
     let best: PlayerState | undefined;
-    let bestD = VISION_RANGE;
+    let bestD: number = TUNING.garrisonVision;
     for (const p of this.players.values()) {
       if (p.act === Act.Downed || hasStatus(p.st, PS.Stealth)) continue;
       const dx = p.x - e.x;
       const dz = p.z - e.z;
       const dist = Math.hypot(dx, dz);
       if (dist > bestD) continue;
-      if (Math.abs(angleDiff(yawOf(dx, dz), e.yaw)) > VISION_HALF) continue;
+      if (Math.abs(angleDiff(yawOf(dx, dz), e.yaw)) > TUNING.garrisonCone) continue;
       if (!losClear(this.layout, e.x, e.z, p.x, p.z, eye)) continue;
       best = p;
       bestD = dist;
     }
     return best;
+  }
+
+  private aggro(e: EnemyState, seen: PlayerState): void {
+    e.target = seen.id;
+    e.state = EState.Chase;
+    e.t = 0;
+    e.retarget = 0.45;
+  }
+
+  /** The spotter and every idle ally close enough to hear the shout join the chase. */
+  private wakeGarrison(spotter: EnemyState, seen: PlayerState): void {
+    this.aggro(spotter, seen);
+    for (const other of this.enemies) {
+      if (other.id === spotter.id || other.state !== EState.Idle || !this.garrison.has(other.id)) continue;
+      if (Math.hypot(other.x - spotter.x, other.z - spotter.z) > TUNING.garrisonAlert) continue;
+      this.aggro(other, seen);
+    }
+  }
+
+  private actLabel(act: number): string {
+    switch (act) {
+      case Act.Attack:
+        return 'attack';
+      case Act.Heavy:
+        return 'heavy';
+      case Act.Charge:
+        return 'charge';
+      case Act.Dodge:
+        return 'dodge';
+      case Act.Block:
+        return 'block';
+      case Act.Hit:
+        return 'hitstun';
+      case Act.Ability:
+        return 'ability';
+      case Act.Ult:
+        return 'ultimate';
+      case Act.Execute:
+        return 'execute';
+      case Act.Revive:
+        return 'revive';
+      default:
+        return 'idle';
+    }
+  }
+
+  /** Snapshot a decision point for Jev. The persona still acts this tick if no answer is cached. */
+  private considerJev(e: EnemyState, def: EnemyDef, target: PlayerState, dist: number, los: boolean): void {
+    if (!this.jev || this.safe || def.dummy) return;
+    if (e.state !== EState.Chase && e.state !== EState.Circle && e.state !== EState.Windup) return;
+    const party = this.alivePrey().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (party.length === 0) return;
+    const heroes: JevHeroSnap[] = [];
+    for (let i = 0; i < party.length && i < 9; i++) {
+      const prey = party[i]!;
+      heroes.push({
+        alias: `h${i}`,
+        id: prey.id,
+        hero: prey.hero,
+        archetype: HEROES[prey.hero].archetype,
+        hpFrac: prey.maxHp > 0 ? prey.hp / prey.maxHp : 1,
+        act: this.actLabel(prey.act),
+        dist: Math.hypot(prey.x - e.x, prey.z - e.z),
+        blocking: prey.act === Act.Block,
+        clustered: clusterCount(prey, party),
+      });
+    }
+    const focus = this.asPrey(target);
+    const sample: JevSample = {
+      enemyId: e.id,
+      type: e.type,
+      name: def.name,
+      mind: personaOf(e.type).mind,
+      rank: def.boss || def.bar ? 0 : def.elite ? 1 : 2,
+      phase: e.phase,
+      dist,
+      behind: isBehind(e, focus),
+      los,
+      hpFrac: e.maxHp > 0 ? e.hp / e.maxHp : 1,
+      heroes,
+      attacks: legalAttackSnaps(def.attacks, e.phase, dist),
+      steers: [...JEV_STEERS],
+    };
+    this.jev.note(sample);
   }
 
   private stepEnemy(e: EnemyState, dt: number): void {
@@ -1964,6 +2070,17 @@ export class World {
     }
 
     if (e.state === EState.Windup) {
+      const windTarget = this.players.get(e.target);
+      if (windTarget && windTarget.act !== Act.Downed) {
+        const eye = standElevation(this.layout, e.x, e.z);
+        this.considerJev(
+          e,
+          def,
+          windTarget,
+          Math.hypot(windTarget.x - e.x, windTarget.z - e.z),
+          losClear(this.layout, e.x, e.z, windTarget.x, windTarget.z, eye),
+        );
+      }
       this.stepWindup(e, def, dt, slow);
       return;
     }
@@ -1988,10 +2105,7 @@ export class World {
       this.patrol(e, def, dt);
       const seen = this.spotHero(e);
       if (!seen) return;
-      e.target = seen.id;
-      e.state = EState.Chase;
-      e.t = 0;
-      e.retarget = 2.5;
+      this.wakeGarrison(e, seen);
       return;
     }
 
@@ -2028,6 +2142,7 @@ export class World {
       return;
     }
 
+    this.considerJev(e, def, target, dist, los);
     const mind = personaOf(e.type).mind;
     const prey = this.asPrey(target);
     const slots = partyAttackSlots(!!def.ranged, this.players.size);
@@ -2043,7 +2158,8 @@ export class World {
 
     const wantAttack = e.cool <= 0.4 && free;
     const charge = chargeWindow(def.attacks, e.phase);
-    const mode = steerMode(mind, {
+    const advisedSteer = this.jev?.peek(e.id, this.time)?.steer;
+    const mode = advisedSteer ?? steerMode(mind, {
       dist,
       gap,
       preferred: def.preferred || 4.2,
@@ -2127,7 +2243,7 @@ export class World {
       e.t = 0;
       // A boss facing a crowd keeps the pressure up: he has more heroes to answer.
       const crowd = def.boss ? 1 / (1 + 0.12 * (Math.max(1, this.players.size) - 1)) : 1;
-      e.cool = atk.cd * this.rng.range(0.8, 1.3) * crowd;
+      e.cool = atk.cd * this.rng.range(0.62, 1.02) * crowd;
     }
   }
 
@@ -2142,7 +2258,7 @@ export class World {
       p.kx = (dx / d) * 30;
       p.kz = (dz / d) * 30;
     }
-    const count = 2 + Math.floor(this.players.size / 2);
+    const count = 3 + Math.floor(this.players.size / 2);
     for (let i = 0; i < count; i++) {
       const s = this.rng.pick(this.layout.enemySpawns);
       this.spawnEnemy(i % 3 === 2 ? 'accolito' : 'cultista', s.x + this.rng.range(-1, 1), s.z + this.rng.range(-1, 1));
@@ -2587,6 +2703,7 @@ export class World {
     this.stepWaves(dt);
     this.stepLoot(dt);
     this.stepHeroRegen(dt);
+    this.jev?.pump(this.time);
     if (this.enemies.some((e) => e.state === EState.Dead && e.t > CORPSE_TIME)) {
       this.enemies = this.enemies.filter((e) => !(e.state === EState.Dead && e.t > CORPSE_TIME));
     }

@@ -6,6 +6,7 @@ import { isHeroId, isProfileId, PUBLIC_ROOM_ID, type HeroId, type HeroInventory 
 import compression from 'compression';
 import express from 'express';
 import { defaultGearFile, FileGearStore } from './gearStore';
+import { jevEnabled, mountJevRoute } from './jev';
 import { closePublicRooms, ensurePublicRoom, MalampuRoom, openPublicRooms, ROOM_NAME } from './room';
 
 export interface AppOptions {
@@ -38,6 +39,7 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
         res.json({ ok: true });
       });
       mountProfileApi(app, archive);
+      mountJevRoute(app);
       if (!staticDir) return;
       app.use(compression());
       // Hashed build files never change; the page itself must always be fresh.
@@ -55,6 +57,11 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
   if (!options.quiet) {
     console.log(`Malampu in ascolto sulla porta ${options.port}${staticDir ? ` (client da ${staticDir})` : ' (solo server di gioco)'}`);
     console.log(`Taverna pubblica ${PUBLIC_ROOM_ID} pronta.`);
+    console.log(
+      jevEnabled()
+        ? 'Jev tattico attivo: i mostri scelgono tra le mosse legali.'
+        : 'Jev tattico spento. Imposta TYPESAFE_API_KEY per le decisioni dei mostri.',
+    );
   }
 
   return {
