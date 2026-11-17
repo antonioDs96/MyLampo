@@ -16,6 +16,8 @@ import { dressHero, lookKey } from './looks';
 
 /** The stage floats far above every map, so nothing of the world is ever in its frame. */
 const STAGE_Y = 1000;
+/** Height of the hero the camera was framed for; anyone taller pushes it back, head and all. */
+const FRAMED_HEIGHT = 2.35;
 
 function hexColor(hex: string): [number, number, number] {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -40,6 +42,9 @@ export class HeroStage {
   /** Horizontal camera shift: 0 centres the hero, positive values push them to the left. */
   private offset = 0;
   private offsetGoal = 0;
+  /** How far the camera backs off for a hero taller than the stage was framed for. */
+  private fit = 1;
+  private fitGoal = 1;
 
   constructor(
     private readonly scene: Scene,
@@ -135,8 +140,11 @@ export class HeroStage {
     const view = new CharacterView(this.scene, this.assets, dressHero(hero, loadout), `stage:${key}`, null);
     view.root.position.set(0, STAGE_Y, 0);
     view.root.rotation.y = Math.PI;
+    const first = !this.view;
     this.view = view;
     this.time = 0;
+    this.fitGoal = Math.max(1, view.height / FRAMED_HEIGHT);
+    if (first) this.fit = this.fitGoal;
     this.lightOnly(view);
     const [r, g, b] = hexColor(HEROES[hero].color);
     this.rim.diffuse = new Color3(r, g, b);
@@ -157,6 +165,7 @@ export class HeroStage {
     this.clock += dt;
     this.time += dt;
     this.offset += (this.offsetGoal - this.offset) * (1 - Math.exp(-dt * 8));
+    this.fit += (this.fitGoal - this.fit) * (1 - Math.exp(-dt * 8));
     const view = this.view;
     if (view) {
       // Attachments are parented after the constructor returns: keep the light list complete.
@@ -167,9 +176,9 @@ export class HeroStage {
     }
     // A narrow window shows less of the stage sideways: pull back so the hero still fits.
     const aspect = this.scene.getEngine().getAspectRatio(this.camera);
-    const pull = aspect < 1 ? 1 + (1 - aspect) * 0.9 : 1;
-    this.camera.position.set(this.offset, STAGE_Y + 1.5, -7.2 * pull);
+    const pull = (aspect < 1 ? 1 + (1 - aspect) * 0.9 : 1) * this.fit;
+    this.camera.position.set(this.offset * this.fit, STAGE_Y + 1.5 * this.fit, -7.2 * pull);
     // Aim low: the hero stands in the upper part of the frame and leaves the bottom to the name plate.
-    this.camera.setTarget(new Vector3(this.offset, STAGE_Y + 0.84, 0));
+    this.camera.setTarget(new Vector3(this.offset * this.fit, STAGE_Y + 0.84 * this.fit, 0));
   }
 }
