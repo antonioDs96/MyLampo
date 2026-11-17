@@ -1,64 +1,65 @@
 /**
- * Game host: lobby, mission flow and snapshots on top of the World simulation.
+ * Game host: Hero Selection, the hub, expeditions and snapshots on top of the World simulation.
  * Transport-agnostic: the Colyseus room wraps it on the server, and the offline mode
  * runs it in the browser through an in-memory loopback.
+ *
+ *   select -> hub (La Taverna di Carl) -> run (Environment ... City Boss) -> hub
  */
-import { PROGRESS_EPOCH } from './arcadeKits';
-import { MAX_PLAYERS, TICK_HZ, WORLD_DT, WORLD_HZ } from './constants';
-import type { GearArchive } from './gearArchive';
-import { isProfileId } from './gearArchive';
-import { HEROES, HERO_IDS, isHeroId } from './heroes';
-import { collide, nearestFloor, parseLayout, standElevation } from './layout';
+import { BOUNTY_BY_ID, judgeBounty, type BountyVerdict, type StageLog } from './bounties';
+import {
+  HUB_LAYOUT,
+  isCityId,
+  stageBlurb,
+  stageIndex,
+  stageLabel,
+  stageLayout,
+  stageName,
+  stageOf,
+  type CityId,
+  type Stage,
+} from './campaign';
+import { MAX_PLAYERS, TICK_HZ, TUNING, WORLD_DT, WORLD_HZ } from './constants';
+import { COSMETIC_BY_ID, LOADOUT_SLOTS, emptyLoadout, type LoadoutSlot } from './cosmetics';
+import { addPurse, afterWipe, companyBonus, deathTax, emptyPurse, fervorBonus, type Purse } from './economy';
+import { HEROES, isHeroId } from './heroes';
+import type { JevAdvisor } from './jevMind';
+import { parseLayout } from './layout';
 import { HUB_LINES } from './lore';
-import { MISSIONS, missionById, type MissionDef, type MissionMode } from './missions';
 import { clonePlayer, neutralCmd } from './player';
+import {
+  bountiesUnlocked,
+  buyCosmetic,
+  buyNode,
+  checkpointOf,
+  emptyProfile,
+  equipCosmetic,
+  isProfileId,
+  loadoutOf,
+  regionBossUnlocked,
+  respecTree,
+  treeOf,
+  type Profile,
+  type ProfileArchive,
+  type ShopResult,
+} from './profile';
 import {
   packEnemy,
   packProjectile,
   packZone,
   unpackCmds,
   type ClientMsg,
-  type LobbyContract,
   type LobbyState,
   type Phase,
+  type ReportKind,
+  type RunReport,
   type ServerMsg,
   type Snapshot,
+  type VoteChoice,
   type WorldInfo,
 } from './protocol';
-import { makeInstance, type ItemInstance } from './itemsCatalog';
-import { emptyInventory, inventoryHasProgress, restoreSavedGear, type HeroInventory } from './lootSystem';
-import { spawnBossRelicChest } from './bossLootSystem';
-import { awardXp, levelFromXp } from './progress';
-import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
-import type { JevAdvisor } from './jevMind';
-import { World, type PlayerStats, type WorldOpts } from './world';
-import {
-  ALL_HUBS,
-  HUB_META,
-  TileType,
-  buildHub,
-  getZone,
-  hubIdFromRegion,
-  tileAt,
-  type HubId,
-  zoneMapToLayout,
-} from './proceduralBiomes';
-import {
-  advanceZone,
-  createProceduralRuntime,
-  currentLayout,
-  currentZone,
-  gatherResource,
-  generateContractBoard,
-  objectiveHudLine,
-  tryCapture,
-  unlockNextGate,
-  updateBossObjective,
-  wavesForZone,
-  type MissionContract,
-  type MissionKind,
-  type ProceduralMissionRuntime,
-} from './missionSystem';
+import { ABILITY_SLOTS, PATH_IDS, type AbilitySlot, type PathId } from './skillTree';
+import { Act, type GameEvent, type HeroId, type InputCmd, type PingKind } from './types';
+import { World, type PlayerSetup, type PlayerStats, type WorldOpts } from './world';
 
 export interface HostIO {
   send(id: string, msg: ServerMsg): void;
@@ -69,8 +70,9 @@ interface Client {
   id: string;
   name: string;
   hero: HeroId | '';
-  /** Total XP per hero id for this player (synced from the client). */
-  xp: Record<string, number>;
+  /** Pressed "Conferma Pronto": the hero is (or is about to be) in the world. */
+  ready: boolean;
+  slot: number;
   queue: InputCmd[];
   last: InputCmd | undefined;
   ack: number;
@@ -78,14 +80,28 @@ interface Client {
   budget: number;
   idleTicks: number;
   rtt: number;
-  /** Stable id for the on-disk hero book. Empty until the client introduces itself. */
+  /** Stable id of the saved profile. Empty until the client introduces itself. */
   profileId: string;
+  profile: Profile;
+  /** Loot from earlier stages of this expedition, not banked yet. */
+  carried: Purse;
+  /** Clock of the last ping, for rate limiting. */
+  markAt: number;
 }
+
+interface Vote {
+  by: string;
+  votes: Map<string, VoteChoice | ''>;
+}
+
+type Transition = { at: number; to: 'wipe' | 'boss' };
 
 const STEPS_PER_TICK = TICK_HZ / WORLD_HZ;
 const TICK_MS = 1000 / WORLD_HZ;
 const MAX_BUDGET = STEPS_PER_TICK * 5;
 const MAX_QUEUE = 40;
+const MARK_EVERY_MS = 350;
+const PING_KINDS: PingKind[] = ['rally', 'danger', 'chest', 'elite'];
 
 export function sanitizeName(raw: unknown): string {
   const s = String(raw ?? '')
@@ -95,22 +111,22 @@ export function sanitizeName(raw: unknown): string {
   return s || 'Viandante';
 }
 
+function isPrivate(ev: GameEvent): ev is Extract<GameEvent, { to: string }> {
+  return ev.e === 'drop' || ev.e === 'take';
+}
+
 export class GameHost {
   readonly code: string;
-  phase: Phase = 'hub';
-  missionId: string = MISSIONS[0]!.id;
-  stage = 0;
+  phase: Phase = 'select';
   world!: World;
   info!: WorldInfo;
   hostId = '';
   /** Strangers may join, and the client labels the room as the public tavern. */
   readonly isPublic: boolean;
-  /** Active regional hub. */
-  hubId: HubId = 'badiscar';
-  /** Contracts currently on the board. */
-  contracts: MissionContract[] = [];
-  /** Selected procedural contract (null = legacy story mission). */
-  contractId: string | null = null;
+  /** Where the expedition is. Null in the hub. */
+  stage: Stage | null = null;
+  /** Consecutive stages entered without saving: the Fervor. */
+  streak = 0;
 
   private readonly io: HostIO;
   private readonly clients = new Map<string, Client>();
@@ -119,51 +135,30 @@ export class GameHost {
   private clock = 0;
   private acc = 0;
   private lastNow = -1;
-  private transition: { at: number; to: 'next' | 'victory' | 'defeat' | 'zone' } | null = null;
-  private finalStats: Record<string, PlayerStats> = {};
-  private xpGain: Record<string, number> = {};
-  private proc: ProceduralMissionRuntime | null = null;
-  private gateArmAt = 0;
-  /** Solo / offline UI pause — freezes sim clock without dropping the world. */
+  private transition: Transition | null = null;
+  private vote: Vote | null = null;
+  private report: RunReport | null = null;
+  private reports = 0;
+  /** Stages cleared so far in this expedition, in order: what bounties are judged on. */
+  private log: StageLog[] = [];
+  /** Contract the Host signed before leaving ('' = none). */
+  private bounty = '';
+  private bountyState: BountyVerdict = 'open';
+  private judgeIn = 0;
+  /** Solo / offline UI pause: freezes the simulation without dropping the world. */
   private paused = false;
-  /**
-   * Inventory lives on the hero, not on the current World. A new stage, zone or
-   * tavern used to mint a fresh starter kit and the loot picked up in the previous
-   * room vanished from the sheet.
-   */
-  private readonly stash = new Map<string, Map<HeroId, HeroInventory>>();
-  /** Relics rolled for a hero nobody is playing yet (co-op, hero still at the bar). */
-  private readonly pendingRelics = new Map<HeroId, ItemInstance[]>();
-  /** Server-owned sheets. Absent in tests that only care about one room. */
-  private readonly archive?: GearArchive;
+  private readonly archive?: ProfileArchive;
   /** Tactical Jev advisor. Absent when the server has no TypeSafe key. */
   private readonly jev?: JevAdvisor;
 
-  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive, isPublic = false, jev?: JevAdvisor) {
+  constructor(io: HostIO, code: string, seed: number, archive?: ProfileArchive, isPublic = false, jev?: JevAdvisor) {
     this.io = io;
     this.archive = archive;
     this.jev = jev;
     this.code = code;
     this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
-    this.refreshContracts();
     this.loadHub();
-  }
-
-  private refreshContracts(): void {
-    this.contracts = generateContractBoard(this.hubId, this.seed ^ (this.wid + 1) * 9973, 4);
-    if (this.contractId && !this.contracts.some((c) => c.id === this.contractId)) {
-      this.contractId = this.contracts[0]?.id ?? null;
-    }
-  }
-
-  private selectedContract(): MissionContract | null {
-    if (!this.contractId) return null;
-    return this.contracts.find((c) => c.id === this.contractId) ?? null;
-  }
-
-  private isProcedural(): boolean {
-    return !!this.proc;
   }
 
   get playerCount(): number {
@@ -178,7 +173,8 @@ export class GameHost {
       id,
       name: sanitizeName(name),
       hero: '',
-      xp: {},
+      ready: false,
+      slot: this.freeSlot(),
       queue: [],
       last: undefined,
       ack: 0,
@@ -186,10 +182,14 @@ export class GameHost {
       idleTicks: 0,
       rtt: 0,
       profileId: '',
+      profile: emptyProfile(),
+      carried: emptyPurse(),
+      markAt: -1e9,
     });
     if (!this.hostId) this.hostId = id;
     this.io.send(id, { t: 'welcome', id });
     this.io.send(id, { t: 'world', w: this.info });
+    this.io.send(id, { t: 'profile', p: this.clients.get(id)!.profile });
     this.sendLobby();
     return true;
   }
@@ -197,12 +197,31 @@ export class GameHost {
   leave(id: string): void {
     const c = this.clients.get(id);
     if (!c) return;
-    this.persistProfile(c);
+    // Walking out of an expedition counts as falling in it: the current stage is taxed.
+    if (this.phase === 'run' && this.world.players.has(id)) {
+      this.bank(c, afterWipe(c.carried, this.world.satchelOf(id)));
+    }
+    this.saveProfile(c);
     this.clients.delete(id);
-    this.stash.delete(id);
     this.world.removePlayer(id);
     if (this.hostId === id) this.hostId = this.clients.keys().next().value ?? '';
+    if (this.vote) {
+      this.vote.votes.delete(id);
+      this.checkVote();
+    }
+    if (this.phase === 'select') this.checkAllReady();
+    if (this.phase === 'run' && this.world.players.size === 0) this.endRun();
     this.sendLobby();
+  }
+
+  private freeSlot(): number {
+    const used = new Set([...this.clients.values()].map((c) => c.slot));
+    for (let i = 0; i < MAX_PLAYERS; i++) if (!used.has(i)) return i;
+    return 0;
+  }
+
+  private hostClient(): Client | undefined {
+    return this.clients.get(this.hostId);
   }
 
   onMessage(id: string, msg: ClientMsg): void {
@@ -218,94 +237,32 @@ export class GameHost {
       case 'hero':
         this.pickHero(c, msg.hero);
         break;
-      case 'mission':
-        if (id === this.hostId && this.phase === 'hub' && missionById(String(msg.id))) {
-          this.missionId = String(msg.id);
-          this.contractId = null;
-          this.proc = null;
-          this.sendLobby();
-        }
+      case 'ready':
+        this.setReady(c, msg.on !== false);
         break;
-      case 'hubSelect': {
-        if (id !== this.hostId || this.phase !== 'hub') break;
-        const hub = String(msg.hubId) as HubId;
-        if (!ALL_HUBS.includes(hub) || hub === this.hubId) break;
-        this.hubId = hub;
-        this.contractId = null;
-        this.refreshContracts();
-        this.loadHub();
+      case 'reselect':
+        this.reselect(c);
         break;
-      }
-      case 'contract':
-        if (id === this.hostId && this.phase === 'hub') {
-          const c = this.contracts.find((x) => x.id === String(msg.id));
-          if (c) {
-            this.contractId = c.id;
-            this.missionId = `proc:${c.kind}`;
-            this.sendLobby();
-          }
-        }
+      case 'run':
+        if (id === this.hostId) this.startRun(String(msg.city));
         break;
-      case 'capture':
-        if (this.phase === 'mission' && this.proc) {
-          if (tryCapture(this.proc)) {
-            const relic = spawnBossRelicChest(this.proc.contract.biome, 0, 0, this.world.rng);
-            this.world.relicGrants.push({ hero: relic.hero, itemId: relic.itemId, banner: relic.banner });
-            this.world.events.push({ e: 'say', who: 'Carlos', text: 'Cattura riuscita — tramortito, non ucciso. Il Consiglio vi deve un favore.' });
-            this.world.events.push({ e: 'say', who: 'Carlos', text: relic.banner });
-            unlockNextGate(this.proc);
-            this.transition = { at: this.clock + 3500, to: 'victory' };
-            this.sendLobby();
-            break;
-          }
-          // Gathering: [F] near a resource node.
-          if (this.proc.contract.kind === 'GATHERING_RUN') {
-            const p = this.world.players.get(id);
-            const zone = currentZone(this.proc);
-            if (p && zone.resourceSpawns.length) {
-              let nearest = -1;
-              let best = 3.5;
-              for (let i = 0; i < zone.resourceSpawns.length; i++) {
-                const n = zone.resourceSpawns[i]!;
-                const d = Math.hypot(n.x - p.x, n.z - p.z);
-                if (d < best) {
-                  best = d;
-                  nearest = i;
-                }
-              }
-              if (nearest >= 0 && gatherResource(this.proc)) {
-                zone.resourceSpawns.splice(nearest, 1);
-                this.world.events.push({
-                  e: 'say',
-                  who: 'Carlos',
-                  text: `Nodo estratto · ${this.proc.objectives.resourcesCarried}/${this.proc.objectives.resourcesTotal}`,
-                });
-                this.sendLobby();
-              }
-            }
-          }
-        }
+      case 'vote':
+        this.castVote(c, String(msg.choice));
         break;
-      case 'dungeon':
-        if (id === this.hostId && this.phase === 'hub') this.startRegionDungeon(String(msg.region));
+      case 'mark':
+        this.mark(c, msg.kind, Number(msg.x), Number(msg.z));
         break;
-      case 'start':
-        if (id === this.hostId && this.phase === 'hub') this.startMission();
+      case 'tree':
+        this.shopTree(c, msg.op, String(msg.slot), String(msg.path ?? ''));
         break;
-      case 'retry':
-        if (id === this.hostId && this.phase === 'defeat') {
-          this.phase = 'mission';
-          if (this.proc) this.loadProceduralZone(false, true);
-          else this.loadStage(this.stage, false, true);
-        }
+      case 'cosm':
+        this.shopCosmetic(c, msg.op, String(msg.id ?? ''), String(msg.slot ?? ''));
         break;
-      case 'hub':
-        if (id === this.hostId && this.phase !== 'hub') {
-          this.phase = 'hub';
-          this.proc = null;
-          this.refreshContracts();
-          this.loadHub();
-        }
+      case 'bounty':
+        this.signBounty(c, String(msg.id ?? ''));
+        break;
+      case 'profile':
+        this.bindProfile(c, msg.id);
         break;
       case 'ping':
         this.io.send(id, { t: 'pong', at: Number(msg.at) || 0 });
@@ -318,238 +275,99 @@ export class GameHost {
         }
         break;
       }
-      case 'progress':
-        this.mergeProgress(c, msg.xp);
-        break;
-      case 'profile':
-        this.bindProfile(c, msg.id);
-        break;
-      case 'useBelt':
-        if (this.world.useBelt(id, Number(msg.slot) | 0)) this.sendInv(id);
-        break;
-      case 'pickCard':
-        if (this.world.pickLevelCard(id, Number(msg.index) | 0)) this.sendInv(id);
-        break;
-      case 'asi':
-        if (typeof msg.ability === 'string' && this.world.spendAsi(id, msg.ability as import('./dndMegabonkRules').AbilityId)) {
-          this.sendInv(id);
-        }
-        break;
-      case 'inv':
-        if (this.world.invAction(id, msg.op, String(msg.uid), msg.slot)) this.sendInv(id);
-        break;
     }
   }
 
-  private sendInv(id: string): void {
-    const inv = this.world.getInventory(id);
-    if (!inv) return;
-    this.io.send(id, { t: 'inv', id, inv });
-    const c = this.clients.get(id);
-    if (c?.profileId) this.archive?.save(c.profileId, inv.hero, inv);
-  }
+  // ---------------------------------------------------------------- profile
 
-  private mergeProgress(c: Client, raw: unknown): void {
-    if (raw && typeof raw === 'object') {
-      const next = { ...c.xp };
-      const book = this.stash.get(c.id);
-      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-        if (!isHeroId(k)) continue;
-        const n = Number(v);
-        if (!Number.isFinite(n) || n < 0) continue;
-        const floor = Math.floor(n);
-        const saved = book?.get(k);
-        // After a progress-epoch wipe, ignore stale client PE above the sheet.
-        if (saved && saved.progressEpoch >= PROGRESS_EPOCH) {
-          next[k] = Math.max(next[k] ?? 0, Math.min(floor, saved.pe));
-        } else {
-          next[k] = Math.max(next[k] ?? 0, floor);
-        }
-      }
-      c.xp = next;
-    }
-    if (c.hero) this.world.syncPe(c.id, c.xp[c.hero] ?? 0);
-    this.sendLobby();
-    this.sendInv(c.id);
-  }
-
-  /** Pull this player's hero book off the server archive into the session stash. */
   private bindProfile(c: Client, raw: unknown): void {
-    const id = String(raw ?? '');
-    if (!isProfileId(id) || !this.archive) return;
-    c.profileId = id;
-    const sheets = this.archive.load(id);
-    for (const hero of HERO_IDS) {
-      const saved = sheets[hero];
-      if (!saved) continue;
-      this.adoptGear(c.id, hero, saved);
-      // Sheet PE is authoritative after epoch resets.
-      c.xp[hero] = saved.pe;
+    if (!isProfileId(raw) || c.profileId === raw) return;
+    // Two tabs on one profile would overwrite each other's bank.
+    for (const o of this.clients.values()) if (o !== c && o.profileId === raw) return;
+    const fresh = c.profile;
+    c.profileId = raw;
+    c.profile = this.archive?.load(raw) ?? emptyProfile();
+    // Anything earned before the client introduced itself is kept.
+    c.profile.gems += fresh.gems;
+    c.profile.threads += fresh.threads;
+    this.io.send(c.id, { t: 'profile', p: c.profile });
+    if (c.hero && this.world.players.has(c.id)) this.world.retune(c.id, treeOf(c.profile, c.hero));
+    this.sendLobby();
+  }
+
+  private saveProfile(c: Client): void {
+    if (c.profileId) this.archive?.save(c.profileId, c.profile);
+  }
+
+  private pushProfile(c: Client): void {
+    this.saveProfile(c);
+    this.io.send(c.id, { t: 'profile', p: c.profile });
+  }
+
+  private bank(c: Client, purse: Purse): void {
+    c.profile.gems += purse.gems;
+    c.profile.threads += purse.threads;
+    c.carried = emptyPurse();
+  }
+
+  private deny(c: Client, res: ShopResult): boolean {
+    if (res.ok) return false;
+    this.io.send(c.id, { t: 'error', text: res.why });
+    return true;
+  }
+
+  /** Iej. Only in the hub: the tree never changes in the middle of an expedition. */
+  private shopTree(c: Client, op: unknown, slot: string, path: string): void {
+    if (this.phase === 'run' || !c.hero) return;
+    if (op === 'respec') {
+      const only = (ABILITY_SLOTS as string[]).includes(slot) ? (slot as AbilitySlot) : undefined;
+      respecTree(c.profile, c.hero, only);
+    } else if (op === 'buy') {
+      if (!(ABILITY_SLOTS as string[]).includes(slot) || !(PATH_IDS as string[]).includes(path)) return;
+      if (this.deny(c, buyNode(c.profile, c.hero, slot as AbilitySlot, path as PathId))) return;
+    } else return;
+    this.world.retune(c.id, treeOf(c.profile, c.hero));
+    this.pushProfile(c);
+  }
+
+  /** Saraya. Cosmetics only: nothing here reaches the simulation. */
+  private shopCosmetic(c: Client, op: unknown, id: string, slot: string): void {
+    if (this.phase === 'run') return;
+    if (op === 'buy') {
+      if (this.deny(c, buyCosmetic(c.profile, id))) return;
+    } else if (op === 'equip') {
+      const kind = slot || COSMETIC_BY_ID[id]?.kind || '';
+      if (kind !== 'title' && !(LOADOUT_SLOTS as string[]).includes(kind)) return;
+      if (kind !== 'title' && !c.hero) return;
+      if (this.deny(c, equipCosmetic(c.profile, c.hero || 'albereth', kind as LoadoutSlot | 'title', id))) return;
+    } else return;
+    this.pushProfile(c);
+    this.sendLobby();
+  }
+
+  /** Eleonora. The Host signs one contract for the whole company. */
+  private signBounty(c: Client, id: string): void {
+    if (this.phase === 'run' || c.id !== this.hostId) return;
+    if (id && !BOUNTY_BY_ID[id]) return;
+    if (id && !bountiesUnlocked(c.profile)) {
+      this.io.send(c.id, { t: 'error', text: 'Eleonora tratta solo con chi ha già liberato una Città.' });
+      return;
     }
-    if (c.hero) this.sendInv(c.id);
+    c.profile.bounty = id;
+    this.pushProfile(c);
+    this.sendLobby();
   }
 
-  private persistProfile(c: Client): void {
-    if (!c.profileId || !this.archive) return;
-    const book = this.stash.get(c.id);
-    if (!book) return;
-    for (const [hero, inv] of book) this.archive.save(c.profileId, hero, inv);
-  }
-
-  private putStash(id: string, hero: HeroId, inv: HeroInventory): void {
-    let book = this.stash.get(id);
-    if (!book) this.stash.set(id, (book = new Map()));
-    book.set(hero, inv);
-  }
-
-  /** Remember every sheet currently in a world before that world is discarded. */
-  private captureWorldInventories(world: World | undefined): void {
-    if (!world) return;
-    for (const [id, inv] of world.inventories) this.putStash(id, inv.hero, inv);
-  }
-
-  /** Drop rolled relics into the named hero's bag, or hold them until that hero is fielded. */
-  private collectRelicGrants(): void {
-    const grants = this.world.relicGrants.splice(0);
-    for (const g of grants) {
-      const id = this.giveRelic(g.hero, g.itemId);
-      if (!id) continue;
-      this.world.events.push({
-        e: 'pickup',
-        id,
-        dropId: g.itemId,
-        kind: 'equipment',
-        amount: 1,
-        itemId: g.itemId,
-        toast: g.banner,
-      });
-    }
-  }
-
-  private giveRelic(hero: HeroId, itemId: string): string | null {
-    const inst = makeInstance(itemId, 1);
-    const put = (inv: HeroInventory): boolean => {
-      if (inv.bag.length >= 40) return false;
-      inv.bag.push(inst);
-      return true;
-    };
-    for (const c of this.clients.values()) {
-      if (c.hero !== hero) continue;
-      const inv = this.world.getInventory(c.id);
-      if (inv && put(inv)) {
-        this.putStash(c.id, hero, inv);
-        return c.id;
-      }
-    }
-    for (const c of this.clients.values()) {
-      const inv = this.stash.get(c.id)?.get(hero);
-      if (inv && put(inv)) return null;
-    }
-    if (this.clients.size === 1) {
-      const only = [...this.clients.values()][0]!;
-      if (put(this.sheetFor(only, hero))) return null;
-    }
-    const q = this.pendingRelics.get(hero) ?? [];
-    q.push(inst);
-    this.pendingRelics.set(hero, q);
-    return null;
-  }
-
-  private sheetFor(c: Client, hero: HeroId): HeroInventory {
-    let book = this.stash.get(c.id);
-    if (!book) this.stash.set(c.id, (book = new Map()));
-    let inv = book.get(hero);
-    if (!inv) {
-      inv = emptyInventory(hero, { starter: true });
-      book.set(hero, inv);
-    }
-    return inv;
-  }
-
-  private flushPendingRelics(world: World, id: string, hero: HeroId): void {
-    const q = this.pendingRelics.get(hero);
-    if (!q?.length) return;
-    const inv = world.getInventory(id);
-    if (!inv) return;
-    const left: ItemInstance[] = [];
-    for (const inst of q) {
-      if (inv.bag.some((i) => i.uid === inst.uid)) continue;
-      if (inv.bag.length >= 40) {
-        left.push(inst);
-        continue;
-      }
-      inv.bag.push(inst);
-    }
-    if (left.length) this.pendingRelics.set(hero, left);
-    else this.pendingRelics.delete(hero);
-  }
-
-  /**
-   * Put the hero's sheet into a world. A brand-new hero gets the starter kit;
-   * anyone who already looted keeps that same sheet across rooms and the tavern.
-   */
-  private placeHero(world: World, c: Client, hero: HeroId): PlayerState {
-    const kept = this.stash.get(c.id)?.get(hero);
-    const p = world.addPlayer(c.id, hero, this.slotOf(c.id), this.levelOf(c, hero), {
-      starterGear: !kept,
-      inventory: kept,
-    });
-    this.flushPendingRelics(world, c.id, hero);
-    world.syncPe(c.id, c.xp[hero] ?? 0);
-    const inv = world.getInventory(c.id);
-    if (inv) this.putStash(c.id, hero, inv);
-    return p;
-  }
-
-  /** Fold a saved sheet into the live one. Never deletes gear already in hand. */
-  private adoptGear(id: string, hero: HeroId, saved: HeroInventory): void {
-    // An empty blob must not occupy the stash, or the next spawn skips the starter kit.
-    if (!inventoryHasProgress(saved)) return;
-    const player = this.world.players.get(id);
-    const live = player?.hero === hero ? this.world.getInventory(id) : undefined;
-    const current = live ?? this.stash.get(id)?.get(hero);
-    const next = restoreSavedGear(current, saved);
-    if (live) this.world.installInventory(id, next);
-    this.putStash(id, hero, next);
-  }
-
-  private levelOf(c: Client, hero: HeroId | ''): number {
-    if (!hero) return 1;
-    return levelFromXp(c.xp[hero] ?? 0);
-  }
-
-  private spawnHero(c: Client, hero: HeroId): void {
-    this.captureWorldInventories(this.world);
-    this.persistProfile(c);
-    this.world.removePlayer(c.id);
-    this.placeHero(this.world, c, hero);
-    this.sendInv(c.id);
-  }
+  // ---------------------------------------------------------------- hero selection
 
   private pickHero(c: Client, raw: unknown): void {
-    // Empty string releases the current hero in the tavern so friends can swap.
+    if (c.ready) return;
     if (raw === '' || raw === null || raw === undefined) {
-      if (this.phase !== 'hub') {
-        this.io.send(c.id, { t: 'error', text: 'Puoi lasciare un eroe solo in taverna.' });
-        return;
-      }
-      if (!c.hero) return;
       c.hero = '';
-      this.world.removePlayer(c.id);
       this.sendLobby();
       return;
     }
-    if (!isHeroId(raw)) return;
-    if (c.hero === raw) return;
-    if (this.phase === 'mission' && c.hero) {
-      this.io.send(c.id, { t: 'error', text: 'Non puoi cambiare eroe durante una missione — torna in taverna.' });
-      return;
-    }
-    // Hub, victory and defeat all allow a new pick for the next sortie.
-    if (this.phase !== 'hub' && this.phase !== 'victory' && this.phase !== 'defeat' && c.hero) {
-      this.io.send(c.id, { t: 'error', text: 'Non puoi cambiare eroe adesso.' });
-      return;
-    }
+    if (!isHeroId(raw) || c.hero === raw) return;
     for (const o of this.clients.values()) {
       if (o !== c && o.hero === raw) {
         this.io.send(c.id, { t: 'error', text: `${HEROES[raw].short} è già stato scelto da ${o.name}.` });
@@ -557,22 +375,59 @@ export class GameHost {
       }
     }
     c.hero = raw;
-    if (this.phase === 'hub') this.spawnHero(c, raw);
-    else if (this.phase === 'mission') {
-      // Drop-in: the public tavern (and any room that shares a code) is already fighting.
-      this.spawnHero(c, raw);
-      this.world.events.push({ e: 'say', who: 'Carlos', text: `${c.name} scende in campo.` });
+    this.sendLobby();
+  }
+
+  private setReady(c: Client, on: boolean): void {
+    if (on === c.ready) return;
+    if (!on) {
+      // Taking it back is only possible while the lobby is still gathering.
+      if (this.phase !== 'select') return;
+      c.ready = false;
+      this.sendLobby();
+      return;
+    }
+    if (!c.hero) {
+      this.io.send(c.id, { t: 'error', text: 'Scegli prima un eroe.' });
+      return;
+    }
+    c.ready = true;
+    if (this.phase === 'select') {
+      this.checkAllReady();
+    } else {
+      // Late arrival: the company is already in the tavern or in the field.
+      this.spawn(c, undefined);
+      if (this.phase === 'run') {
+        this.world.events.push({ e: 'say', who: 'Carl', text: `${c.name} raggiunge la Compagnia.` });
+        if (this.vote) this.vote.votes.set(c.id, '');
+      }
     }
     this.sendLobby();
   }
 
-  private slotOf(id: string): number {
-    let i = 0;
-    for (const k of this.clients.keys()) {
-      if (k === id) return i;
-      i++;
-    }
-    return 0;
+  /** The whole lobby pressed "Conferma Pronto": everyone walks into the tavern together. */
+  private checkAllReady(): void {
+    if (this.phase !== 'select' || this.clients.size === 0) return;
+    for (const c of this.clients.values()) if (!c.ready || !c.hero) return;
+    this.phase = 'hub';
+    this.loadHub();
+  }
+
+  /** Back to the Hero Selection screen from the tavern. */
+  private reselect(c: Client): void {
+    if (this.phase !== 'hub' || !c.ready) return;
+    c.ready = false;
+    this.world.removePlayer(c.id);
+    this.sendLobby();
+  }
+
+  private spawn(c: Client, setup: PlayerSetup | undefined): void {
+    if (!c.hero) return;
+    this.world.removePlayer(c.id);
+    this.world.addPlayer(c.id, c.hero, c.slot, { ...setup, tree: treeOf(c.profile, c.hero) });
+    this.world.rtt.set(c.id, c.rtt);
+    c.queue.length = 0;
+    this.sendMine(c, []);
   }
 
   // ---------------------------------------------------------------- worlds
@@ -580,217 +435,113 @@ export class GameHost {
   /** New room, fresh foe ids: drop cached Jev answers before they latch onto the wrong body. */
   private openWorld(opts: WorldOpts): World {
     this.jev?.reset();
-    return new World({ ...opts, jev: this.jev });
-  }
-
-  private mission(): MissionDef {
-    return missionById(this.missionId) ?? MISSIONS[0]!;
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    return new World({ ...opts, seed: this.seed, jev: this.jev });
   }
 
   private announce(info: WorldInfo): void {
     this.info = info;
     this.transition = null;
-    for (const c of this.clients.values()) {
-      c.queue.length = 0;
-      this.world.rtt.set(c.id, c.rtt);
-    }
+    this.vote = null;
+    for (const c of this.clients.values()) c.queue.length = 0;
     this.io.broadcast({ t: 'world', w: info });
     this.sendLobby();
   }
 
   private loadHub(): void {
-    this.captureWorldInventories(this.world);
-    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    this.proc = null;
-    const hubMap = buildHub(this.hubId);
-    const layout = zoneMapToLayout(hubMap);
-    this.world = this.openWorld({ layout, seed: this.seed, safe: true });
-    this.xpGain = {};
-    this.gateArmAt = 0;
+    this.stage = null;
+    this.streak = 0;
+    this.log = [];
+    this.world = this.openWorld({ layout: parseLayout(HUB_LAYOUT), seed: this.seed, safe: true });
     for (const c of this.clients.values()) {
-      if (c.hero) this.spawnHero(c, c.hero);
+      c.carried = emptyPurse();
+      if (c.ready && this.phase !== 'select') this.spawn(c, undefined);
     }
-    const meta = HUB_META[this.hubId];
-    const line = HUB_LINES[this.wid % HUB_LINES.length]!;
-    this.world.events.push({ e: 'say', who: 'Carlos', text: line });
+    this.world.events.push({ e: 'say', who: 'Carl', text: HUB_LINES[this.wid % HUB_LINES.length]! });
     this.announce({
       wid: ++this.wid,
       kind: 'hub',
-      layoutId: hubMap.id,
-      mission: '',
-      stage: 0,
-      stages: 0,
-      title: meta.name,
-      mutation: false,
-      hubId: this.hubId,
-      biome: meta.biome,
+      layoutId: HUB_LAYOUT.id,
+      title: HUB_LAYOUT.name,
+      label: 'Hub',
+      blurb: 'La tregua vale per tutti. Scegliete la rotta al Tavolo della Mappa.',
     });
   }
 
-  /** Puts a vertical map on the council choices and leaves at once. */
-  private startRegionDungeon(regionId: string): void {
-    const missing = [...this.clients.values()].filter((c) => !c.hero);
-    if (missing.length > 0) {
-      this.io.broadcast({ t: 'error', text: `Manca ancora la scelta dell'eroe: ${missing.map((c) => c.name).join(', ')}.` });
-      return;
-    }
-    const hub = hubIdFromRegion(regionId);
-    if (hub !== this.hubId) {
-      this.hubId = hub;
-      this.refreshContracts();
-    }
-    const contract = this.contracts.find((c) => c.kind === 'BOSS_HUNT') ?? this.contracts[0];
-    if (!contract) return;
-    this.contractId = contract.id;
-    this.missionId = `proc:${contract.kind}`;
-    this.startMission();
-  }
-
-  private startMission(): void {
-    const missing = [...this.clients.values()].filter((c) => !c.hero);
-    if (missing.length > 0) {
-      this.io.broadcast({ t: 'error', text: `Manca ancora la scelta dell'eroe: ${missing.map((c) => c.name).join(', ')}.` });
-      return;
-    }
-    const contract = this.selectedContract();
-    if (contract) {
-      this.phase = 'mission';
-      this.proc = createProceduralRuntime(contract);
-      this.loadProceduralZone(false, true);
-      return;
-    }
-    const mission = this.mission();
-    const mode: MissionMode = mission.mode ?? 'story';
-    if (mode === 'arena') {
-      const ready = [...this.clients.values()].filter((c) => c.hero);
-      if (ready.length < 2) {
-        this.io.broadcast({
-          t: 'error',
-          text: "L'arena Ultimo in piedi serve almeno due eroi in taverna. Chiamate un amico — o un nemico.",
-        });
+  /** Map Table: the Host starts a City from its checkpoint, or dares the Region Boss. */
+  private startRun(target: string): void {
+    const host = this.hostClient();
+    if (this.phase !== 'hub' || !host) return;
+    if (this.world.players.size === 0) return;
+    let stage: Stage;
+    if (target === 'boss') {
+      if (!regionBossUnlocked(host.profile)) {
+        this.io.send(host.id, { t: 'error', text: 'Il Leviatano si mostra solo a chi ha abbattuto i tre Boss di Città.' });
         return;
       }
+      stage = { kind: 'regionBoss' };
+    } else if (isCityId(target)) {
+      stage = stageOf(target, checkpointOf(host.profile, target));
+    } else {
+      // Regions beyond the Costa Est stay sealed until the Region Boss falls.
+      this.io.send(host.id, { t: 'error', text: 'Questa rotta è ancora sigillata.' });
+      return;
     }
-    this.phase = 'mission';
-    this.proc = null;
-    this.loadStage(0, false, true);
+    this.phase = 'run';
+    this.streak = 0;
+    this.log = [];
+    this.report = null;
+    this.bounty = stage.kind === 'regionBoss' ? '' : host.profile.bounty;
+    this.bountyState = 'open';
+    for (const c of this.clients.values()) c.carried = emptyPurse();
+    this.loadStage(stage, new Map());
   }
 
-  /** Procedural multi-zone (or raid arena) world build. */
-  private loadProceduralZone(carry: boolean, fresh: boolean): void {
-    const rt = this.proc;
-    if (!rt) return;
-    const old = this.world;
-    this.captureWorldInventories(old);
-    const layout = currentLayout(rt);
-    const garrisoned = layout.placed.length > 0 && rt.contract.kind !== 'RAID_DEFENSE';
-    const waves = garrisoned ? [] : wavesForZone(rt);
-    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    const world = this.openWorld({
-      layout,
-      seed: this.seed,
-      waves,
-      introDelay: carry ? 3.5 : 4,
-    });
-    for (const c of this.clients.values()) {
-      if (!c.hero) continue;
-      const p = this.placeHero(world, c, c.hero);
-      const prev = carry ? old.players.get(c.id) : undefined;
-      if (prev && !fresh) {
-        const keep = clonePlayer(prev);
-        const max = p.maxHp;
-        p.hp = keep.act === Act.Downed ? max * 0.5 : Math.min(max, keep.hp + max * 0.35);
-        p.ult = keep.ult;
-        p.cd = keep.cd;
-      }
-      if (carry) {
-        const st = old.stats.get(c.id);
-        if (st) world.stats.set(c.id, st);
-      }
-    }
-    const zone = layout;
-    const zMap = getZone(zone);
-    const hint = waves[0]?.hint ?? (garrisoned ? 'Il dungeon è già abitato. Se vi vedono, vi danno la caccia.' : undefined);
-    if (hint) world.events.push({ e: 'say', who: 'Carlos', text: hint });
-    this.world = world;
-    for (const c of this.clients.values()) this.sendInv(c.id);
-    this.stage = rt.zoneIndex;
-    this.announce({
-      wid: ++this.wid,
-      kind: 'mission',
-      layoutId: zMap?.id ?? `proc_${rt.zoneIndex}`,
-      mission: rt.contract.id,
-      stage: rt.zoneIndex,
-      stages: rt.zones.length,
-      title: zMap?.name ?? rt.contract.name,
-      mutation: false,
-      missionSeed: rt.contract.missionSeed,
-      hubId: rt.contract.hubId,
-      biome: rt.contract.biome,
-      contractKind: rt.contract.kind,
-      zoneIndex: rt.zoneIndex,
-    });
-  }
-
-  /**
-   * Builds the world for a mission stage.
-   * `carry` keeps the heroes' condition from the previous stage; `fresh` restores them fully.
-   */
-  private loadStage(stage: number, carry: boolean, fresh: boolean): void {
-    const mission = this.mission();
-    const def = mission.stages[stage]!;
-    const old = this.world;
-    this.captureWorldInventories(old);
-    const mutation = !!def.mutation && carry;
+  private loadStage(stage: Stage, carry: Map<string, PlayerSetup>): void {
     this.stage = stage;
-    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    const layout = parseLayout(def.layout);
-    const mode: MissionMode = mission.mode ?? 'story';
-    const arena = mode === 'arena';
-    const world = this.openWorld({
-      layout,
-      seed: this.seed,
-      waves: def.waves,
-      introDelay: mutation ? 4.5 : arena ? 2.5 : 4,
-      pvp: arena,
-      noRevive: arena,
-    });
+    this.world = this.openWorld({ layout: parseLayout(stageLayout(stage)), seed: this.seed, streak: this.streak });
     for (const c of this.clients.values()) {
-      if (!c.hero) continue;
-      const p = this.placeHero(world, c, c.hero);
-      const prev = carry ? old.players.get(c.id) : undefined;
-      if (prev && !fresh) {
-        const keep = clonePlayer(prev);
-        const max = p.maxHp;
-        p.hp = keep.act === Act.Downed ? max * 0.5 : Math.min(max, keep.hp + max * 0.35);
-        p.ult = keep.ult;
-        p.cd = keep.cd;
-        if (mutation) {
-          const at = nearestFloor(layout, keep.x, keep.z);
-          collide(layout, at.x, at.z, 0.6, at, standElevation(layout, keep.x, keep.z));
-          p.x = at.x;
-          p.z = at.z;
-          p.yaw = keep.yaw;
-        }
-      }
-      if (carry) {
-        const st = old.stats.get(c.id);
-        if (st) world.stats.set(c.id, st);
-      }
+      if (c.ready) this.spawn(c, carry.get(c.id));
     }
-    for (const line of def.intro ?? []) world.events.push({ e: 'say', who: line.who, text: line.text });
-    this.world = world;
-    for (const c of this.clients.values()) this.sendInv(c.id);
+    const name = stageName(stage);
+    this.world.events.push({ e: 'say', who: 'Carl', text: stageBlurb(stage) });
+    const fervor = fervorBonus(this.streak);
+    if (fervor > 0) {
+      this.world.events.push({ e: 'hint', text: `Fervore: bottino +${Math.round(fervor * 100)}%` });
+    }
     this.announce({
       wid: ++this.wid,
-      kind: 'mission',
-      layoutId: def.layout.id,
-      mission: mission.id,
-      stage,
-      stages: mission.stages.length,
-      title: def.title,
-      mutation,
+      kind: 'run',
+      layoutId: stageLayout(stage).id,
+      title: name,
+      label: stageLabel(stage),
+      blurb: stageBlurb(stage),
     });
+  }
+
+  /** What the company did in the current stage, for Eleonora. */
+  private stageLog(cleared: boolean): StageLog {
+    const out: StageLog = {
+      index: this.stage ? stageIndex(this.stage) : 0,
+      cleared,
+      taken: 0,
+      ults: 0,
+      downs: 0,
+      revives: 0,
+      bossTime: this.world.bossDead ? this.world.bossDeadAt : Infinity,
+    };
+    for (const st of this.world.stats.values()) {
+      out.taken += st.taken;
+      out.ults += st.ults;
+      out.downs += st.downs;
+      out.revives += st.revives;
+    }
+    return out;
+  }
+
+  private judge(cleared: boolean): BountyVerdict {
+    if (!this.bounty) return 'open';
+    return judgeBounty(this.bounty, [...this.log, this.stageLog(cleared)]);
   }
 
   private collectStats(): Record<string, PlayerStats> {
@@ -799,82 +550,238 @@ export class GameHost {
     return out;
   }
 
+  /** Clients whose heroes are in the field. */
+  private party(): Client[] {
+    return [...this.clients.values()].filter((c) => this.world.players.has(c.id));
+  }
+
+  // ---------------------------------------------------------------- choice terminal
+
+  private openVote(by: string): void {
+    const votes = new Map<string, VoteChoice | ''>();
+    for (const c of this.party()) votes.set(c.id, '');
+    this.vote = { by, votes };
+    this.world.events.push({
+      e: 'say',
+      who: 'Carl',
+      text: 'Il Portale è aperto. Tornate a casa col bottino, o andate avanti: ma decidete tutti insieme.',
+    });
+    this.sendLobby();
+  }
+
+  private castVote(c: Client, choice: string): void {
+    if (!this.vote || !this.vote.votes.has(c.id)) return;
+    if (choice !== 'extract' && choice !== 'continue' && choice !== '') return;
+    this.vote.votes.set(c.id, choice);
+    this.checkVote();
+    this.sendLobby();
+  }
+
+  /** Unanimity, either way. Until then the terminal stays open. */
+  private checkVote(): void {
+    const vote = this.vote;
+    if (!vote || !this.stage || this.stage.kind !== 'env') return;
+    if (vote.votes.size === 0) {
+      this.vote = null;
+      this.world.reopenPortal();
+      return;
+    }
+    const first = vote.votes.values().next().value ?? '';
+    if (!first) return;
+    for (const v of vote.votes.values()) if (v !== first) return;
+    this.vote = null;
+    if (first === 'extract') this.extract();
+    else this.goOn();
+  }
+
+  /** B - Go on: wounds stay, buffs go, the Fervor grows. */
+  private goOn(): void {
+    const stage = this.stage;
+    if (!stage || stage.kind !== 'env') return;
+    this.log.push(this.stageLog(true));
+    const carry = new Map<string, PlayerSetup>();
+    for (const c of this.party()) {
+      c.carried = addPurse(c.carried, this.world.satchelOf(c.id));
+      const p = this.world.players.get(c.id)!;
+      const hp = p.act === Act.Downed ? p.maxHp * TUNING.carryDownedHp : p.hp;
+      carry.set(c.id, { hp, ult: p.ult });
+    }
+    this.streak++;
+    this.loadStage(stageOf(stage.city, stage.index + 1), carry);
+  }
+
+  /** A - Return to the hub: the satchel is banked and the City checkpoint is saved. */
+  private extract(): void {
+    const stage = this.stage;
+    if (!stage || stage.kind !== 'env') return;
+    this.finish('extract', (c) => {
+      const next = stage.index + 1;
+      const own = checkpointOf(c.profile, stage.city);
+      c.profile.checkpoint[stage.city] = c.id === this.hostId ? next : Math.max(own, next);
+    });
+  }
+
+  /** Banks the whole expedition for everyone in the field and goes home. */
+  private finish(kind: ReportKind, each: (c: Client) => void): void {
+    const verdict = this.judge(true);
+    const def = verdict === 'done' ? BOUNTY_BY_ID[this.bounty] : undefined;
+    const report = this.newReport(kind);
+    for (const c of this.party()) {
+      const purse = addPurse(c.carried, this.world.satchelOf(c.id));
+      if (def) {
+        purse.threads += def.reward;
+        c.profile.bountiesPaid++;
+      }
+      report.banked[c.id] = purse;
+      this.bank(c, purse);
+      each(c);
+    }
+    if (def) {
+      report.bounty = def.id;
+      report.bountyPaid = def.reward;
+      const host = this.hostClient();
+      if (host) host.profile.bounty = '';
+    }
+    this.endRun(report);
+  }
+
+  private newReport(kind: ReportKind): RunReport {
+    return {
+      n: ++this.reports,
+      kind,
+      label: this.stage ? stageLabel(this.stage) : '',
+      banked: {},
+      taxed: {},
+      bounty: '',
+      bountyPaid: 0,
+      stats: this.collectStats(),
+    };
+  }
+
+  /** Everyone at 0 HP: the Death Tax burns 30% of what was found in this stage only. */
+  private wipe(): void {
+    const stage = this.stage;
+    if (!stage) return;
+    const report = this.newReport('wipe');
+    for (const c of this.party()) {
+      const here = this.world.satchelOf(c.id);
+      report.taxed[c.id] = deathTax(here);
+      const purse = afterWipe(c.carried, here);
+      report.banked[c.id] = purse;
+      this.bank(c, purse);
+      // The company restarts from the beginning of the stage it fell in.
+      if (stage.kind !== 'regionBoss') {
+        const at = stageIndex(stage);
+        const own = checkpointOf(c.profile, stage.city);
+        c.profile.checkpoint[stage.city] = c.id === this.hostId ? at : Math.max(own, at);
+      }
+    }
+    this.endRun(report);
+  }
+
+  /** A City Boss or the Region Boss fell: there is nothing to vote, the company goes home rich. */
+  private bossWin(): void {
+    const stage = this.stage;
+    if (!stage || stage.kind === 'env') return;
+    if (stage.kind === 'cityBoss') {
+      const city: CityId = stage.city;
+      this.finish('city', (c) => {
+        if (!c.profile.cleared.includes(city)) c.profile.cleared.push(city);
+        c.profile.checkpoint[city] = 0;
+      });
+    } else {
+      this.finish('region', (c) => {
+        c.profile.regionCleared = true;
+      });
+    }
+  }
+
+  private endRun(report?: RunReport): void {
+    if (report) this.report = report;
+    this.phase = 'hub';
+    this.bounty = '';
+    for (const c of this.clients.values()) this.pushProfile(c);
+    this.loadHub();
+  }
+
+  // ---------------------------------------------------------------- pings
+
+  private mark(c: Client, kind: unknown, x: number, z: number): void {
+    if (!this.world.players.has(c.id)) return;
+    if (!PING_KINDS.includes(kind as PingKind) || !Number.isFinite(x) || !Number.isFinite(z)) return;
+    if (this.clock - c.markAt < MARK_EVERY_MS) return;
+    c.markAt = this.clock;
+    this.world.events.push({ e: 'ping', by: c.id, kind: kind as PingKind, x, z });
+  }
+
+  // ---------------------------------------------------------------- lobby
+
   private sendLobby(): void {
-    const ended = this.phase === 'victory' || this.phase === 'defeat';
-    const contracts: LobbyContract[] = this.contracts.map((c) => ({
-      id: c.id,
-      kind: c.kind,
-      name: c.name,
-      brief: c.brief,
-      danger: c.danger,
-      rewardHint: c.rewardHint,
-      biome: c.biome,
-      hubId: c.hubId,
-      missionSeed: c.missionSeed,
-    }));
+    const host = this.hostClient();
+    const stage = this.stage;
+    const vote = this.vote;
     const s: LobbyState = {
       code: this.code,
       host: this.hostId,
       public: this.isPublic,
       phase: this.phase,
-      mission: this.missionId,
-      stage: this.stage,
       players: [...this.clients.values()].map((c) => ({
         id: c.id,
         name: c.name,
         hero: c.hero,
-        level: this.levelOf(c, c.hero),
-        xp: c.hero ? c.xp[c.hero] ?? 0 : 0,
+        ready: c.ready,
+        slot: c.slot,
+        look: c.hero ? loadoutOf(c.profile, c.hero) : emptyLoadout(),
+        title: COSMETIC_BY_ID[c.profile.title]?.text ?? '',
       })),
-      stats: ended ? this.finalStats : {},
-      xpGain: ended ? this.xpGain : {},
-      hubId: this.hubId,
-      contracts,
-      contractId: this.contractId ?? undefined,
-      objective: this.proc ? objectiveHudLine(this.proc) : undefined,
+      table: {
+        checkpoint: host ? { ...host.profile.checkpoint } : {},
+        cleared: host ? [...host.profile.cleared] : [],
+        regionBoss: host ? regionBossUnlocked(host.profile) : false,
+        regionCleared: host?.profile.regionCleared ?? false,
+        bounties: host ? bountiesUnlocked(host.profile) : false,
+        bounty: host?.profile.bounty ?? '',
+      },
+      run:
+        this.phase === 'run' && stage
+          ? {
+              stage,
+              label: stageLabel(stage),
+              name: stageName(stage),
+              streak: this.streak,
+              fervor: fervorBonus(this.streak),
+              company: companyBonus(this.world.players.size),
+              bounty: this.bounty,
+              bountyState: this.bountyState,
+            }
+          : null,
+      vote:
+        vote && stage && stage.kind === 'env'
+          ? {
+              by: vote.by,
+              votes: Object.fromEntries(vote.votes),
+              next: stageLabel(stageOf(stage.city, stage.index + 1)),
+              nextFervor: fervorBonus(this.streak + 1),
+            }
+          : null,
+      report: this.report,
     };
     this.io.broadcast({ t: 'lobby', s });
   }
 
-  private grantRunXp(victory: boolean): void {
-    const mission = missionById(this.missionId);
-    const mode: MissionMode = mission?.mode ?? 'story';
-    this.xpGain = {};
-    for (const c of this.clients.values()) {
-      if (!c.hero) continue;
-      const st = this.finalStats[c.id];
-      if (!st) continue;
-      const inv = this.world.getInventory(c.id);
-      // Prefer live PE from gem pickups; fall back to the synced book.
-      const prevXp = Math.max(c.xp[c.hero] ?? 0, inv?.pe ?? 0);
-      const prevLevel = levelFromXp(prevXp);
-      const { gained } = awardXp(c.hero, st, { victory, mode });
-      const xp = prevXp + gained;
-      c.xp[c.hero] = xp;
-      if (inv) inv.pe = xp;
-      this.world.syncPe(c.id, xp);
-      this.xpGain[c.id] = gained;
-      this.io.send(c.id, {
-        t: 'xp',
-        id: c.id,
-        hero: c.hero,
-        gained,
-        xp,
-        level: levelFromXp(xp),
-        prevLevel,
-      });
-      this.sendInv(c.id);
-    }
+  private sendMine(c: Client, ev: GameEvent[]): void {
+    const sat = this.phase === 'run' ? addPurse(c.carried, this.world.satchelOf(c.id)) : emptyPurse();
+    this.io.send(c.id, { t: 'mine', ev, sat });
   }
 
   // ---------------------------------------------------------------- loop
 
-  /** Freeze the simulation (menus / scheda). Wall-clock gaps are discarded on resume. */
+  /** Freeze the simulation (solo menus). Wall-clock gaps are discarded on resume. */
   pause(): void {
     this.paused = true;
   }
 
-  /** Resume after UI pause; pass the current monotonic clock so catch-up is skipped. */
+  /** Resume after a pause; pass the current monotonic clock so catch-up is skipped. */
   unpause(nowMs: number): void {
     if (!this.paused) return;
     this.paused = false;
@@ -927,192 +834,68 @@ export class GameHost {
     }
 
     world.step(WORLD_DT);
-    this.collectRelicGrants();
-    // Keep XP books aligned with gem PE and push inventory when progression events fire.
-    const pending = world.events;
-    let needInv = false;
-    for (const ev of pending) {
-      if (ev.e === 'pickup' || ev.e === 'levelup') needInv = true;
-    }
-    for (const c of this.clients.values()) {
-      if (!c.hero) continue;
-      const inv = world.getInventory(c.id);
-      if (!inv) continue;
-      const pe = inv.pe;
-      if (pe > (c.xp[c.hero] ?? 0)) c.xp[c.hero] = pe;
-    }
     this.flow();
-    this.io.broadcast({ t: 'snap', s: this.snapshot() });
-    if (needInv) {
-      for (const c of this.clients.values()) this.sendInv(c.id);
-    }
+    // flow() may have swapped the world: snapshot whatever is current.
+    this.publish();
   }
 
   private flow(): void {
-    // Hub: arm the north gate when a contract is selected and a hero steps on GATE_SOCKET.
-    if (this.phase === 'hub') {
-      this.hubGateFlow();
-      return;
-    }
-    if (this.phase !== 'mission') return;
+    if (this.phase !== 'run' || !this.stage) return;
     const world = this.world;
-
-    if (this.proc) {
-      this.proceduralFlow();
+    if (this.transition) {
+      if (this.clock < this.transition.at) return;
+      const to = this.transition.to;
+      this.transition = null;
+      if (to === 'wipe') this.wipe();
+      else this.bossWin();
       return;
     }
-
-    const mission = this.mission();
-    const arena = (mission.mode ?? 'story') === 'arena';
-    if (!this.transition) {
-      if (arena) {
-        const standing = world.alivePlayers();
-        if (world.players.size >= 2 && standing.length <= 1) {
-          if (standing.length === 1) {
-            const champ = standing[0]!;
-            const name = this.clients.get(champ.id)?.name ?? HEROES[champ.hero].short;
-            world.events.push({
-              e: 'say',
-              who: 'Carlos',
-              text: `${name} resta in piedi. Gli altri… beh, la pagheranno al bancone.`,
-            });
-            for (const line of mission.victory) world.events.push({ e: 'say', who: line.who, text: line.text });
-            this.transition = { at: this.clock + 3500, to: 'victory' };
-          } else {
-            world.events.push({ e: 'say', who: 'Carlos', text: 'Tutti a terra. Nessun vincitore — solo conti da saldare.' });
-            this.transition = { at: this.clock + 2500, to: 'defeat' };
-          }
-        }
-      } else if (world.players.size > 0 && world.allDown()) {
-        this.transition = { at: this.clock + 2500, to: 'defeat' };
-      } else if (world.waveState === 'done') {
-        if (this.stage + 1 < mission.stages.length) {
-          this.transition = { at: this.clock + 3500, to: 'next' };
-        } else {
-          for (const line of mission.victory) world.events.push({ e: 'say', who: line.who, text: line.text });
-          this.transition = { at: this.clock + 4500, to: 'victory' };
-        }
-      }
-      return;
-    }
-    if (this.clock < this.transition.at) return;
-    const to = this.transition.to;
-    this.transition = null;
-    if (to === 'next') {
-      this.loadStage(this.stage + 1, true, false);
-    } else if (to === 'zone') {
-      this.loadProceduralZone(true, false);
-    } else {
-      this.finalStats = this.collectStats();
-      this.phase = to;
-      this.grantRunXp(to === 'victory');
+    if (world.players.size > 0 && world.allDown()) {
+      this.vote = null;
+      world.events.push({ e: 'say', who: 'Carl', text: 'Tutti a terra. Vi riporto a casa: il mare si tiene la sua parte.' });
+      this.transition = { at: this.clock + 2500, to: 'wipe' };
       this.sendLobby();
-    }
-  }
-
-  private hubGateFlow(): void {
-    if (!this.contractId) {
-      this.gateArmAt = 0;
       return;
     }
-    const onGate = [...this.world.players.values()].some((p) => tileAt(this.world.layout, p.x, p.z) === TileType.GATE_SOCKET);
-    if (!onGate) {
-      this.gateArmAt = 0;
-      return;
+    if (this.stage.kind !== 'env') {
+      if (world.bossDead) this.transition = { at: this.clock + 4500, to: 'boss' };
+    } else if (world.portalBy && !this.vote) {
+      this.openVote(world.portalBy);
     }
-    if (!this.gateArmAt) {
-      this.gateArmAt = this.clock + 10000;
-      this.world.events.push({
-        e: 'say',
-        who: 'Carlos',
-        text: 'Varco armato — partenza tra 10 secondi. Restate sul sigillo (o lasciate la zona per annullare).',
-      });
-      return;
-    }
-    if (this.clock >= this.gateArmAt) {
-      this.gateArmAt = 0;
-      this.startMission();
-    }
-  }
-
-  private proceduralFlow(): void {
-    const rt = this.proc!;
-    const world = this.world;
-
-    // Track boss for hunt / capture objectives.
-    const boss = world.enemies.find((e) => e.type === rt.objectives.bossId);
-    if (boss) {
-      updateBossObjective(rt, {
-        hp: boss.hp,
-        maxHp: boss.maxHp,
-        broken: boss.state === EState.Broken,
-        dead: boss.hp <= 0 || boss.state === EState.Dead,
-      });
-    }
-
-    if (!this.transition) {
-      if (rt.objectives.failed) {
-        this.transition = { at: this.clock + 2500, to: 'defeat' };
-        return;
-      }
-      if (rt.objectives.complete) {
-        this.transition = { at: this.clock + 3500, to: 'victory' };
-        return;
-      }
-      if (world.players.size > 0 && world.allDown()) {
-        this.transition = { at: this.clock + 2500, to: 'defeat' };
-        return;
-      }
-      if (world.waveState === 'done') {
-        unlockNextGate(rt);
-        const kind = rt.contract.kind as MissionKind;
-        if (kind === 'RAID_DEFENSE') {
-          world.events.push({ e: 'say', who: 'Carlos', text: 'La Reliquia regge. Il forziere è nello zaino dell’eroe indicato.' });
-          rt.objectives.complete = true;
-          this.transition = { at: this.clock + 4000, to: 'victory' };
-        } else if (kind === 'GATHERING_RUN' && rt.objectives.extractUnlocked) {
-          rt.objectives.complete = true;
-          this.transition = { at: this.clock + 3500, to: 'victory' };
-        } else if (advanceZone(rt)) {
-          world.events.push({ e: 'say', who: 'Carlos', text: 'Varco aperto — avanti, Compagnia.' });
-          this.transition = { at: this.clock + 3000, to: 'zone' };
-        } else {
-          // Final zone cleared
-          if (kind === 'CAPTURE_QUEST' && !rt.objectives.captureSucceeded) {
-            // Killing boss illegally still ends the run (no capture bonus).
-            rt.objectives.complete = true;
-          } else if (kind === 'BOSS_HUNT') {
-            rt.objectives.complete = true;
-          } else if (kind === 'GATHERING_RUN') {
-            // Still need extract — keep gate open, wait for resources
-            if (rt.objectives.resourcesCarried >= rt.objectives.resourcesTotal) {
-              rt.objectives.complete = true;
-            }
-          }
-          if (rt.objectives.complete) this.transition = { at: this.clock + 4000, to: 'victory' };
-        }
+    if (this.bounty && --this.judgeIn <= 0) {
+      this.judgeIn = WORLD_HZ;
+      const verdict = this.judge(false);
+      // A contract is only "done" once the company is safely home.
+      const shown: BountyVerdict = verdict === 'failed' ? 'failed' : 'open';
+      if (shown !== this.bountyState) {
+        this.bountyState = shown;
         this.sendLobby();
       }
-      return;
-    }
-    if (this.clock < this.transition.at) return;
-    const to = this.transition.to;
-    this.transition = null;
-    if (to === 'zone') {
-      this.loadProceduralZone(true, false);
-    } else if (to === 'next') {
-      this.loadProceduralZone(true, false);
-    } else {
-      this.finalStats = this.collectStats();
-      this.phase = to;
-      this.grantRunXp(to === 'victory');
-      this.proc = null;
-      this.refreshContracts();
-      this.sendLobby();
     }
   }
 
-  private snapshot(): Snapshot {
+  private publish(): void {
+    const world = this.world;
+    const all = world.drainEvents();
+    const pub: GameEvent[] = [];
+    const mine = new Map<string, GameEvent[]>();
+    for (const ev of all) {
+      if (!isPrivate(ev)) {
+        pub.push(ev);
+        continue;
+      }
+      const list = mine.get(ev.to);
+      if (list) list.push(ev);
+      else mine.set(ev.to, [ev]);
+    }
+    this.io.broadcast({ t: 'snap', s: this.snapshot(pub) });
+    for (const [id, ev] of mine) {
+      const c = this.clients.get(id);
+      if (c) this.sendMine(c, ev);
+    }
+  }
+
+  private snapshot(ev: GameEvent[]): Snapshot {
     const world = this.world;
     const ack: Record<string, number> = {};
     for (const c of this.clients.values()) ack[c.id] = c.ack;
@@ -1124,25 +907,12 @@ export class GameHost {
       e: world.enemies.map((e) => packEnemy(e)),
       pr: world.projectiles.map(packProjectile),
       z: world.zones.map(packZone),
-      ev: world.drainEvents(),
-      wave: {
-        n: world.waveIdx + 1,
-        of: world.waves.length,
-        left: world.enemiesLeft(),
-        state: world.waveState,
-      },
-      loot: world.loot.map((d) => ({
-        dropId: d.dropId,
-        kind: d.kind,
-        x: Math.round(d.x * 100) / 100,
-        z: Math.round(d.z * 100) / 100,
-        vx: Math.round(d.vx * 100) / 100,
-        vz: Math.round(d.vz * 100) / 100,
-        amount: d.amount,
-        gem: d.gem,
-        itemId: d.itemId,
-        rarity: d.rarity,
-      })),
+      ev,
+      poi: world.pois.map((p) => p.state),
+      flood: world.flood,
+      syn: [...world.synergy],
+      left: world.enemiesLeft(),
+      time: Math.round(world.time * 10) / 10,
     };
   }
 }
