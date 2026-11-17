@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stickVector } from '../src/game/stick';
+import { screenToWorld, stickVector } from '../src/game/stick';
 
 describe('stickVector', () => {
   it('stays at rest inside the dead zone', () => {
@@ -26,5 +26,34 @@ describe('stickVector', () => {
     expect(Math.hypot(full.x, full.y)).toBeCloseTo(1);
     expect(full.x).toBeGreaterThan(0);
     expect(full.y).toBeGreaterThan(0);
+  });
+});
+
+describe('screen-space movement', () => {
+  const out = { x: 0, z: 0 };
+
+  it('W walks toward the top of the screen whichever way the camera is turned', () => {
+    for (const yaw of [0, 0.7, Math.PI / 2, Math.PI, -2.2]) {
+      // The camera looks along (sin yaw, cos yaw) on the ground: that is "up" on the screen.
+      const up = screenToWorld(0, 1, yaw, out);
+      expect(up.x).toBeCloseTo(Math.sin(yaw));
+      expect(up.z).toBeCloseTo(Math.cos(yaw));
+    }
+  });
+
+  it('D walks to the right of the screen, at a right angle to W', () => {
+    for (const yaw of [0, 1.1, Math.PI, -0.4]) {
+      const right = { ...screenToWorld(1, 0, yaw, out) };
+      const up = { ...screenToWorld(0, 1, yaw, out) };
+      expect(right.x * up.x + right.z * up.z).toBeCloseTo(0);
+      // Right-handed on the ground: right × up points up out of the floor.
+      expect(right.z * up.x - right.x * up.z).toBeCloseTo(-1);
+    }
+    expect(screenToWorld(1, 0, 0, out)).toEqual({ x: 1, z: 0 });
+  });
+
+  it('keeps the length of the input, so a half-tilted stick is still a walk', () => {
+    const v = screenToWorld(0.3, -0.4, 2.4, out);
+    expect(Math.hypot(v.x, v.z)).toBeCloseTo(0.5);
   });
 });
