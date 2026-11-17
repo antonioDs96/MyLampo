@@ -263,6 +263,8 @@ export class World {
   /** Summoned foes never drop loot. */
   private readonly summoned = new Set<number>();
   private slowTick = 0;
+  /** Heroes a toxic cloud already hurt during this step. */
+  private readonly gassed = new Set<string>();
   private zergWarned = false;
 
   private pending: PendingHit[] = [];
@@ -922,6 +924,19 @@ export class World {
       this.events.push({ e: 'take', to: p.id, id: d.id, kind: d.kind, amount: d.amount });
     }
     this.drops = keep;
+  }
+
+  /** The map is over and the company is leaving on its feet: nothing is left on the ground. */
+  sweepDrops(): void {
+    for (const d of this.drops) {
+      if (d.kind === 'orb' || !this.players.has(d.owner)) continue;
+      const purse = this.satchel.get(d.owner) ?? emptyPurse();
+      if (d.kind === 'gem') purse.gems += d.amount;
+      else purse.threads += d.amount;
+      this.satchel.set(d.owner, purse);
+      this.events.push({ e: 'take', to: d.owner, id: d.id, kind: d.kind, amount: d.amount });
+    }
+    this.drops = [];
   }
 
   // ---------------------------------------------------------------- points of interest
@@ -2754,6 +2769,7 @@ export class World {
   }
 
   private stepZones(dt: number): void {
+    this.gassed.clear();
     const keep: Zone[] = [];
     for (const z of this.zones) {
       z.t += dt;
@@ -2795,8 +2811,13 @@ export class World {
         }
         case 'toxic': {
           // Fungal cloud: it does not stagger, it just eats whoever stays inside.
+          // Overlapping clouds do not stack: one lungful per tick is enough.
           if (ticked()) {
-            for (const p of this.alliesNear(z.x, z.z, z.r)) this.hurt(p, z.power * 0.5);
+            for (const p of this.alliesNear(z.x, z.z, z.r)) {
+              if (this.gassed.has(p.id)) continue;
+              this.gassed.add(p.id);
+              this.hurt(p, z.power * 0.5);
+            }
           }
           break;
         }

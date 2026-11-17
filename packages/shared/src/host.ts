@@ -599,6 +599,7 @@ export class GameHost {
     const stage = this.stage;
     if (!stage || stage.kind !== 'env') return;
     this.log.push(this.stageLog(true));
+    this.world.sweepDrops();
     const carry = new Map<string, PlayerSetup>();
     for (const c of this.party()) {
       c.carried = addPurse(c.carried, this.world.satchelOf(c.id));
@@ -623,6 +624,7 @@ export class GameHost {
 
   /** Banks the whole expedition for everyone in the field and goes home. */
   private finish(kind: ReportKind, each: (c: Client) => void): void {
+    this.world.sweepDrops();
     const verdict = this.judge(true);
     const def = verdict === 'done' ? BOUNTY_BY_ID[this.bounty] : undefined;
     const report = this.newReport(kind);
