@@ -2049,19 +2049,16 @@ export class World {
     this.events.push({ e: 'taunt', who, text, id });
   }
 
-  /** Who the next joke is about: whoever is actually eating hits, then someone else in the party. */
+  /** Who the next joke is about: whoever is actually eating hits, not a turn of the party. */
   private tauntVictim(): PlayerState | undefined {
     const alive = [...this.players.values()].filter((p) => p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth));
-    if (alive.length === 0) return undefined;
-    const aimed = new Set(this.enemies.filter((e) => e.state !== EState.Dead && e.target).map((e) => e.target));
     const heat = (p: PlayerState) => {
-      const marks = (this.suffer.get(p.id) ?? []).filter((m) => this.time - m.t <= 16);
-      return marks.filter((m) => m.landed).length * 4 + marks.length + (aimed.has(p.id) ? 2 : 0);
+      const marks = (this.suffer.get(p.id) ?? []).filter((m) => this.time - m.t <= 16 && m.landed);
+      return marks.length;
     };
-    const ranked = alive.slice().sort((a, b) => heat(b) - heat(a) || (a.id < b.id ? -1 : 1));
-    const other = ranked.find((p) => p.id !== this.lastTauntHero);
-    if (this.lastTauntHero && other) return other;
-    return ranked.find((p) => heat(p) > 0);
+    return alive
+      .filter((p) => heat(p) > 0)
+      .sort((a, b) => heat(b) - heat(a) || (a.id < b.id ? -1 : 1))[0];
   }
 
   /** A read for the joke, looser than the combat rule: one landed family is already a bit. */
@@ -2094,7 +2091,7 @@ export class World {
       }
       return;
     }
-    if (this.safe || this.players.size < 3 || this.time - this.lastTauntAt < 8) return;
+    if (this.safe || this.players.size < 3 || this.time - this.lastTauntAt < 24) return;
     const order = this.roomOrder();
     const prey = this.tauntVictim();
     if (!prey) return;

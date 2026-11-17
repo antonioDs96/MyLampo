@@ -317,7 +317,7 @@ describe('jev decisions', () => {
     }
   });
 
-  it('rotates the banner onto another living hero and still jokes about who ate the hits', () => {
+  it('waits out the gap, then jokes about whoever is actually eating the hits', () => {
     const world = new World({
       layout: parseLayout({
         id: 'taunt-party',
@@ -349,13 +349,24 @@ describe('jev decisions', () => {
     expect(first[0].text).toContain('i rossi');
     const firstText = first[0].text;
     world.events.length = 0;
-    for (let i = 0; i < 170; i++) {
+    let fed = false;
+    while (world.time < 24.6) {
       vyncent.hp = 800;
       jusef.hp = 800;
       elite.hp = elite.maxHp;
       elite.cool = 99;
-      world.step(0.05);
+      if (!fed && world.time >= 10) {
+        expect(world.events.some((ev) => ev.e === 'taunt')).toBe(false);
+        const onto = { ...spec, ox: jusef.x, oz: jusef.z };
+        world['applyHit'](jusef, onto);
+        world['applyHit'](jusef, onto);
+        world['applyHit'](jusef, onto);
+        fed = true;
+        world.events.length = 0;
+      }
+      world.step(Math.min(0.2, 24.6 - world.time));
     }
+    expect(fed).toBe(true);
     const second = world.events.filter((ev) => ev.e === 'taunt');
     expect(second.length).toBeGreaterThan(0);
     const line = second.find((ev) => ev.e === 'taunt' && ev.text.includes('Jusef'));
@@ -371,9 +382,10 @@ describe('jev decisions', () => {
     expect(cleanQuip('  "Vyncent, i rossi sono la tua dieta."  ')).toBe('Vyncent, i rossi sono la tua dieta.');
     expect(cleanQuip('http://nope.example')).toBeNull();
     expect(cleanQuip('troppo ' + 'lunga '.repeat(30))).toBeNull();
-    const multi = '1. Vyncent, i rossi hanno le chiavi di casa tua.\nVyncent, i rossi hanno le chiavi di casa tua.\nJusef para i blu, poi esplode di stile.';
-    expect(pickQuip(multi, 'Vyncent, i rossi hanno le chiavi di casa tua.')).toBe('Jusef para i blu, poi esplode di stile.');
-    expect(pickQuip(multi)).toBe('Vyncent, i rossi hanno le chiavi di casa tua.');
+    expect(cleanQuip('una due tre quattro cinque sei sette otto nove')).toBeNull();
+    const multi = '1. Vyncent, i rossi ti usano da sacco.\nVyncent, i rossi ti usano da sacco.\nJusef, i blu ti chiudono la bocca.';
+    expect(pickQuip(multi, 'Vyncent, i rossi ti usano da sacco.')).toBe('Jusef, i blu ti chiudono la bocca.');
+    expect(pickQuip(multi)).toBe('Vyncent, i rossi ti usano da sacco.');
     expect(sufferSentenceIt('Vyncent', { family: 'red', resisted: 'blue' })).toContain('i rossi');
 
     const ready = new Map<string, string>();
