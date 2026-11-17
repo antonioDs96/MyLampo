@@ -1,16 +1,14 @@
-import {
-  Act,
-  HEROES,
-  PS,
-  RARITY_COLORS,
-  TICK_HZ,
-  getItem,
-  xpProgress,
-  type HeroDef,
-  type HeroInventory,
-  type PlayerState,
-} from '@malampu/shared';
+import { Act, HEROES, PS, TICK_HZ, TUNING, type HeroDef, type PlayerState, type VoteChoice } from '@malampu/shared';
 import { h, portrait } from './dom';
+
+/** What the Choice Terminal shows. */
+export interface VoteView {
+  next: string;
+  nextFervor: number;
+  mine: VoteChoice | '';
+  rows: { name: string; color: string; choice: VoteChoice | '' }[];
+  touch: boolean;
+}
 
 export interface PartyEntry {
   id: string;
@@ -35,6 +33,13 @@ interface Tag {
   text: string;
 }
 
+interface Pointer {
+  root: HTMLElement;
+  arrow: HTMLElement;
+  label: HTMLElement;
+  used: boolean;
+}
+
 const STATUS_LABEL: Record<number, [string, string]> = {
   [PS.Regen]: ['Ristoro', 'good'],
   [PS.DmgUp]: ['Armonia', 'good'],
@@ -48,6 +53,11 @@ const STATUS_LABEL: Record<number, [string, string]> = {
   [PS.Cramp]: ['Crampi', 'bad'],
   [PS.Counter]: ['Contrattacco', 'power'],
   [PS.Bubble]: ['Bolla sonora', 'good'],
+  [PS.Frenzy]: ['Frenesia · +20% velocità d’attacco', 'power'],
+  [PS.Keen]: ['Occhio di Falco · +15% critico', 'power'],
+  [PS.Surge]: ['Slancio · vigore inesauribile', 'power'],
+  [PS.Leech]: ['Aura Vampirica · i colpi curano', 'power'],
+  [PS.Reflect]: ['Scudo riflettente', 'good'],
 };
 
 export class Hud {
@@ -89,15 +99,20 @@ export class Hud {
   private readonly downedBox = h('div', { class: 'downed hidden' });
   private readonly chargeBox = h('div', { class: 'charge hidden' }, h('i'));
   private readonly comboBox = h('div', { class: 'combo hidden' });
-  private readonly xpBar = h('div', { class: 'xp-top' });
-  private readonly xpFill = h('i');
-  private readonly xpLabel = h('span', { class: 'xp-label' });
-  private readonly belt = h('div', { class: 'belt' });
+  private readonly chargeLabel = h('span');
+  private readonly furyFill = h('i');
+  private readonly furyBar = h('div', { class: 'bar fury' });
+  private readonly runBox = h('div', { class: 'run-chips' });
+  private readonly purseBox = h('div', { class: 'purse' });
+  private readonly synergyBox = h('div', { class: 'synergy' });
   private readonly lootToasts = h('div', { class: 'loot-toasts' });
-  private readonly levelCards = h('div', { class: 'level-cards hidden' });
+  private readonly voteBox = h('div', { class: 'vote hidden' });
   private readonly sheetBtn = h('button', { class: 'sheet-btn', text: 'I · Scheda' });
+  /** The radar canvas is mounted here by the game. */
+  readonly radarSlot = h('div', { class: 'radar' });
   private readonly bars = new Map<number, Bar>();
   private readonly tags = new Map<string, Tag>();
+  private readonly pointers = new Map<string, Pointer>();
   private readonly lines: { who: string; text: string }[] = [];
   private lineTimer = 0;
   private hintTimer = 0;
@@ -108,14 +123,21 @@ export class Hud {
   private lastStatusKey = '';
   private lastPartyKey = '';
   private promptText = '';
-  private xpFlash = 0;
+  private runKey = '';
+  private purseKey = '';
+  private synergyKey = '';
+  private voteKey = '';
   onOpenSheet: () => void = () => {};
-  onPickCard: (index: number) => void = () => {};
-  onUseBelt: (slot: number) => void = () => {};
+  onVote: (choice: VoteChoice) => void = () => {};
 
   constructor(parent: HTMLElement) {
     this.root = h('div', { class: 'hud hidden' });
-    this.xpBar.append(this.xpFill, this.xpLabel);
+    this.chargeBox.append(this.chargeLabel);
+    this.furyBar.append(this.furyFill);
+    // One notch per momentum threshold.
+    for (const tier of TUNING.furyTiers) {
+      if (tier < TUNING.furyMax) this.furyBar.append(h('em', { style: `left:${(tier / TUNING.furyMax) * 100}%` }));
+    }
     this.boss.append(this.bossName, h('div', { class: 'bar boss-hp' }, this.bossHp), h('div', { class: 'bar boss-poise' }, this.bossPoise));
     this.dialog.append(this.dialogWho, this.dialogText);
     this.bannerBox.append(this.bannerTitle, this.bannerSub);
@@ -130,21 +152,21 @@ export class Hud {
         this.meName,
         h('div', { class: 'bar hp' }, this.hpLag, this.hpFill, this.hpText),
         h('div', { class: 'bar stamina' }, this.stFill),
-        h('div', { class: 'skills' }, this.belt, this.abilityBox, this.ultBox),
+        this.furyBar,
+        h('div', { class: 'skills' }, this.abilityBox, this.ultBox),
       ),
     );
     this.root.append(
       this.vignette,
       this.world,
       this.reticleEl,
-      this.xpBar,
-      h('div', { class: 'top' }, h('div', { class: 'stage' }, this.stageTitle, this.waveText), this.boss),
+      h('div', { class: 'top' }, h('div', { class: 'stage' }, this.stageTitle, this.waveText, this.runBox), this.boss),
+      h('div', { class: 'corner' }, this.radarSlot, this.purseBox, this.synergyBox, this.lootToasts),
       this.party,
       this.me,
       this.statuses,
       this.calloutBox,
-      this.lootToasts,
-      this.levelCards,
+      this.voteBox,
       this.sheetBtn,
       this.comboBox,
       this.chargeBox,
@@ -191,6 +213,10 @@ export class Hud {
     const teleportReady = !!tp && p.dodgeCd <= 0 && p.stamina >= tp.cost;
     this.stFill.classList.toggle('charged', teleportReady || hero.dodge.kind === 'blink');
     this.ultFill.style.transform = `scaleX(${Math.min(1, p.ult / 100)})`;
+    const fury = Math.max(0, Math.min(1, p.fury / TUNING.furyMax));
+    this.furyFill.style.transform = `scaleX(${fury})`;
+    this.furyBar.classList.toggle('hot', p.fury >= TUNING.furyTiers[0]!);
+    this.furyBar.classList.toggle('max', p.fury >= TUNING.furyMax);
     this.ultBox.classList.toggle('ready', p.ult >= 100);
     const cd = p.cd / TICK_HZ;
     this.abilityBox.classList.toggle('ready', cd <= 0);
@@ -212,12 +238,86 @@ export class Hud {
     }
 
     const charging = p.act === Act.Charge;
-    this.chargeBox.classList.toggle('hidden', !charging);
-    if (charging) {
-      const u = Math.min(1, p.t / TICK_HZ / 0.9);
-      (this.chargeBox.firstChild as HTMLElement).style.transform = `scaleX(${u})`;
-      this.chargeBox.classList.toggle('full', u >= 1);
-    }
+    if (charging) this.setGauge(Math.min(1, p.t / TICK_HZ / 0.9), '');
+    else if (p.act !== Act.Channel) this.setGauge(null, '');
+  }
+
+  /** The bar above the hero's feet: heavy charge, or a channel on a point of interest. */
+  setGauge(frac: number | null, label: string): void {
+    this.chargeBox.classList.toggle('hidden', frac === null);
+    if (frac === null) return;
+    (this.chargeBox.firstChild as HTMLElement).style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
+    this.chargeBox.classList.toggle('full', frac >= 1);
+    this.chargeBox.classList.toggle('channel', !!label);
+    if (this.chargeLabel.textContent !== label) this.chargeLabel.textContent = label;
+  }
+
+  // ---------------------------------------------------------------- run state
+
+  /** Small chips under the stage title: Fervor, company bonus, contract. */
+  setRun(chips: { text: string; cls: string; title?: string }[]): void {
+    const key = chips.map((c) => `${c.cls}:${c.text}`).join('|');
+    if (key === this.runKey) return;
+    this.runKey = key;
+    this.runBox.replaceChildren(...chips.map((c) => h('span', { class: `chip ${c.cls}`, text: c.text, title: c.title })));
+  }
+
+  setPurse(label: string, gems: number, threads: number, note = ''): void {
+    const key = `${label}:${gems}:${threads}:${note}`;
+    if (key === this.purseKey) return;
+    this.purseKey = key;
+    this.purseBox.replaceChildren(
+      h('span', { class: 'purse-label', text: label }),
+      h('span', { class: 'purse-gems', text: String(gems), title: "Gemme dell'Eclissi" }),
+      h('span', { class: 'purse-threads', text: String(threads), title: "Fili d'Ombra" }),
+      h('span', { class: 'purse-note', text: note }),
+    );
+  }
+
+  setSynergy(list: { name: string; text: string }[]): void {
+    const key = list.map((b) => b.name).join('|');
+    if (key === this.synergyKey) return;
+    this.synergyKey = key;
+    this.synergyBox.replaceChildren(...list.map((b) => h('div', { class: 'synergy-chip', text: b.name, title: b.text })));
+  }
+
+  /** The Choice Terminal. Both outcomes need every hero to agree. */
+  setVote(v: VoteView | null): void {
+    const key = v ? JSON.stringify(v) : '';
+    if (key === this.voteKey) return;
+    this.voteKey = key;
+    this.voteBox.classList.toggle('hidden', !v);
+    if (!v) return;
+    const pct = Math.round(v.nextFervor * 100);
+    const option = (choice: VoteChoice, key: string, title: string, sub: string) =>
+      h(
+        'button',
+        { class: `vote-option ${choice} ${v.mine === choice ? 'chosen' : ''}`, onclick: () => this.onVote(choice) },
+        v.touch ? null : h('kbd', { text: key }),
+        h('b', { text: title }),
+        h('span', { text: sub }),
+      );
+    this.voteBox.replaceChildren(
+      h('div', { class: 'vote-title', text: 'Terminale di Scelta' }),
+      h('div', { class: 'vote-sub', text: 'Il Portale è aperto. Serve l’unanimità: si parte solo quando tutti scelgono la stessa via.' }),
+      h(
+        'div',
+        { class: 'vote-options' },
+        option('extract', '1', 'Rientra in taverna', 'Salva ed estrai: i Manufatti nella bisaccia vanno in banca. Il Fervore si azzera.'),
+        option('continue', '2', `Prosegui · ${v.next}`, `Le ferite restano, i buff si azzerano. Fervore: bottino +${pct}%.`),
+      ),
+      h(
+        'div',
+        { class: 'vote-rows' },
+        ...v.rows.map((r) =>
+          h(
+            'span',
+            { class: `vote-row ${r.choice || 'waiting'}`, style: `--c:${r.color}` },
+            `${r.name} · ${r.choice === 'extract' ? 'rientra' : r.choice === 'continue' ? 'prosegue' : 'sta decidendo'}`,
+          ),
+        ),
+      ),
+    );
   }
 
   setParty(list: PartyEntry[]): void {
@@ -341,6 +441,25 @@ export class Hud {
   beginFrame(): void {
     for (const b of this.bars.values()) b.used = false;
     for (const t of this.tags.values()) t.used = false;
+    for (const p of this.pointers.values()) p.used = false;
+  }
+
+  /** Arrow on the edge of the screen toward something out of view (an ally, a ping). */
+  pointer(id: string, x: number, y: number, angle: number, color: string, text: string, cls = ''): void {
+    let p = this.pointers.get(id);
+    if (!p) {
+      const arrow = h('i');
+      const label = h('span');
+      p = { root: h('div', { class: 'edge-pointer' }, arrow, label), arrow, label, used: true };
+      this.pointers.set(id, p);
+      this.world.append(p.root);
+    }
+    p.used = true;
+    p.root.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+    p.root.className = `edge-pointer ${cls}`;
+    p.root.style.setProperty('--c', color);
+    p.arrow.style.transform = `rotate(${angle.toFixed(3)}rad)`;
+    if (p.label.textContent !== text) p.label.textContent = text;
   }
 
   enemyBar(id: number, x: number, y: number, hp: number, poise: number, cls: string, label: string): void {
@@ -390,6 +509,11 @@ export class Hud {
       t.root.remove();
       this.tags.delete(id);
     }
+    for (const [id, p] of this.pointers) {
+      if (p.used) continue;
+      p.root.remove();
+      this.pointers.delete(id);
+    }
   }
 
   reticle(x: number, y: number, on: boolean): void {
@@ -405,88 +529,16 @@ export class Hud {
     this.world.append(el);
   }
 
-  setXp(pe: number, flash = false): void {
-    const p = xpProgress(pe);
-    const frac = p.need > 0 ? p.into / p.need : 1;
-    this.xpFill.style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
-    this.xpLabel.textContent = `LIV. ${p.level} · ${p.into} / ${p.need || 'MAX'} PE`;
-    if (flash) {
-      this.xpFlash = 0.45;
-      this.xpBar.classList.add('flash');
-    }
-  }
-
-  setBelt(inv: HeroInventory | null): void {
-    if (!inv) {
-      this.belt.replaceChildren();
-      return;
-    }
-    this.belt.replaceChildren(
-      ...inv.belt.map((slot, i) => {
-        const def = slot ? getItem(slot.itemId) : null;
-        const el = h(
-          'div',
-          {
-            class: `belt-slot${slot ? '' : ' empty'}`,
-            title: def?.name ?? `Slot ${i + 1}`,
-            onclick: () => this.onUseBelt(i),
-          },
-          h('kbd', { text: String(i + 1) }),
-          h('span', { text: slot ? `×${slot.qty}` : '' }),
-        );
-        if (def) el.style.setProperty('--r', RARITY_COLORS[def.rarity]);
-        return el;
-      }),
-    );
-  }
-
-  lootToast(text: string, rarity?: string): void {
-    const el = h('div', {
-      class: 'loot-toast',
-      text,
-      style: rarity ? `border-color:${rarity}` : undefined,
-    });
+  lootToast(text: string, cls = ''): void {
+    const el = h('div', { class: `loot-toast ${cls}`, text });
     el.addEventListener('animationend', () => el.remove());
     this.lootToasts.append(el);
     while (this.lootToasts.children.length > 4) this.lootToasts.firstChild?.remove();
   }
 
-  showLevelCards(cards: { name: string; desc: string }[]): void {
-    if (!cards.length) {
-      this.levelCards.classList.add('hidden');
-      this.levelCards.replaceChildren();
-      return;
-    }
-    this.levelCards.classList.remove('hidden');
-    this.levelCards.replaceChildren(
-      h('div', {
-        class: 'level-cards-title',
-        text: document.documentElement.classList.contains('touch-mode')
-          ? 'Potenziamento rapido — tocca una carta'
-          : 'Potenziamento Rapido — premi 1 · 2 · 3',
-      }),
-      ...cards.map((c, i) =>
-        h(
-          'button',
-          {
-            class: 'level-card',
-            onclick: () => this.onPickCard(i),
-          },
-          h('kbd', { text: String(i + 1) }),
-          h('b', { text: c.name }),
-          h('span', { text: c.desc }),
-        ),
-      ),
-    );
-  }
-
   // ---------------------------------------------------------------- frame
 
   update(dt: number): void {
-    if (this.xpFlash > 0) {
-      this.xpFlash -= dt;
-      if (this.xpFlash <= 0) this.xpBar.classList.remove('flash');
-    }
     if (this.lineTimer > 0) {
       this.lineTimer -= dt;
       if (this.lineTimer <= 0) this.dialog.classList.add('hidden');
