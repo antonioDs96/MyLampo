@@ -36,7 +36,7 @@ function factsText(facts: QuipFacts): string {
   return [
     `Chi parla: ${facts.who}`,
     `Eroe: ${facts.hero}`,
-    'Tono: sottovoce',
+    'Tono: ironia fuori controllo',
     `Osservazione: ${facts.suffers}`,
     `Ordine: ${facts.punish || 'nessuno'}, forma ${facts.shape || 'nessuna'}`,
     facts.avoid ? `Non ripetere: ${facts.avoid}` : '',
@@ -52,13 +52,13 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
     },
     body: JSON.stringify({
       model: cfg.model,
-      temperature: 0.9,
+      temperature: 1.1,
       max_tokens: 50,
       messages: [
         {
           role: 'system',
           content:
-            'Sei un mostro di Malampu. Una frase italiana, massimo 18 parole, ironia sottovoce: dici poco e lasci intendere. Nomina l’eroe. Cambia le parole ogni volta e non riusare la frase già detta. Niente virgolette, niente spiegazioni, niente insulti volgari.',
+            'Sei un mostro di Malampu, ironico e fuori di testa. UNA frase italiana, massimo 18 parole, assurda e cattiva in modo comico. Nomina l’eroe. Esagera, cambia le parole ogni volta, non riusare la frase già detta. Niente virgolette, niente spiegazioni, niente insulti volgari.',
         },
         { role: 'user', content: factsText(facts) },
       ],
