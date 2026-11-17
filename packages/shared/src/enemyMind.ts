@@ -90,47 +90,45 @@ export function tauntLine(args: {
   let lines: string[];
   if (fam) {
     lines = [
-      `${args.hero}, ${fam} ti salutano per nome. Tu rispondi col mento.`,
-      `${args.hero} apre la guardia e ${fam} entrano in fila. Educati, crudeli, puntuali.`,
-      `${args.hero} colleziona ${fam} sul viso. Il museo apre a ogni schivata mancata.`,
-      `${args.hero} firma ${fam} uno a uno. L'inchiostro, purtroppo, è il naso.`,
-      `${args.hero} e ${fam} ballano un minuetto. Tu conti i passi con i denti.`,
-      `${args.hero}, ${fam} ti cercano come un debito antico. Paghi, e il resto applaude.`,
+      `${args.hero}, ${fam} ti usano da sacco. E tu dici ancora grazie.`,
+      `Oh ${args.hero}. ${fam} ti schiaffeggiano e tu tieni il conto.`,
+      `${args.hero} fa il duro, poi ${fam} gli piegano il mento.`,
+      `${args.hero}, ${fam} hanno trovato il più molle. Sei tu, campione.`,
+      `Ancora ${fam}, ${args.hero}? Ti piace proprio fare il bersaglio.`,
+      `${args.hero} cede a ${fam} per primo. Gli altri ridono, e hanno ragione.`,
     ];
   } else if (stopped) {
     lines = [
-      `${args.hero} ferma ${stopped} con un inchino. Il resto gli scompiglia la corona.`,
-      `Parata da teatro su ${stopped}, ${args.hero}. Il sipario è il prossimo colpo.`,
+      `${args.hero} para ${stopped} e si crede un eroe. Il resto entra lo stesso.`,
+      `Bella parata su ${stopped}, ${args.hero}. Peccato che conti niente.`,
     ];
   } else if (args.witness) {
     const other = args.witness.hero;
     lines = [
-      `${args.hero} fa il pubblico. ${other} intanto firma autografi a ${seen}.`,
-      `${args.hero} tiene il mantello. ${other} intanto offre la faccia a ${seen}.`,
-      `${args.hero} applaude dal bordo. ${other} presta il mento a ${seen}, sorridendo.`,
-      `${args.hero} prende appunti col sangue altrui. ${other} è la pagina, ${seen} la penna.`,
-      `${args.hero} fa il critico di corte. ${other} esegue, e ${seen} dettano la cronaca.`,
-      `${args.hero} guarda e non si sporca. ${other} intanto bacia ${seen} a ripetizione.`,
+      `${args.hero} fa il bullo da lontano. ${other} intanto incassa ${seen}.`,
+      `${args.hero} guarda e sogghigna. ${other} prende ${seen} al posto tuo.`,
+      `${args.hero} si nasconde dietro ${other}. ${seen} trovano comunque la faccia giusta.`,
+      `Che coraggio, ${args.hero}. ${other} mangia ${seen} e tu fai il tifo.`,
     ];
   } else if (args.shape === 'surround') {
     lines = [
-      `${args.hero} al centro, torta senza candeline. Il cerchio le porta lui.`,
-      `Intorno a ${args.hero}: non è un ballo, è un inventario con le zanne.`,
+      `${args.hero} in mezzo, da solo. Il cerchio ha già scelto il più lento.`,
+      `Intorno a ${args.hero}. Non è una trappola, è uno sfottò.`,
     ];
   } else if (args.shape === 'peel') {
     lines = [
-      `Il tank balla col bruto. ${args.hero}, tu sei il dolce in fondo.`,
-      `${args.hero} crede di stare dietro le quinte. Il bruto tiene il sipario.`,
+      `Il tank tiene il bruto. ${args.hero}, tu sei lo spuntino.`,
+      `${args.hero} crede di stare al sicuro. Il branco ride già di te.`,
     ];
   } else if (args.shape === 'hold') {
     lines = [
-      `State larghi, che eleganza. ${args.hero}, la parata da qui è un ricordo.`,
-      `Niente mischia. ${args.hero}, da lontano il tuo errore ha un bel profilo.`,
+      `State larghi, ${args.hero}. Da qui si vede meglio chi trema.`,
+      `${args.hero}, da lontano il tuo errore è ancora più ridicolo.`,
     ];
   } else {
     lines = [
-      `${args.hero}, vi studiamo e il sorriso arriva prima del colpo.`,
-      `${args.hero}, il vizio non c'è ancora. Quando spunta, facciamo festa storta.`,
+      `${args.hero}, vi guardiamo e il più molle si vede subito.`,
+      `${args.hero}, non hai ancora un vizio. Quando esce, ti ci appendiamo.`,
     ];
   }
   return { who: args.who, text: lineOf(lines, salt, args.avoid) };

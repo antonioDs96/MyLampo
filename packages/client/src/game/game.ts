@@ -917,7 +917,7 @@ export class Game {
           for (let i = this.blades.length - 1; i >= 0; i--) {
             if (this.blades[i]!.id === ev.id) this.blades.splice(i, 1);
           }
-          this.blades.push({ id: ev.id, who: ev.who, text: ev.text, until: performance.now() + 4200 });
+          this.blades.push({ id: ev.id, who: ev.who, text: ev.text, until: performance.now() + 7500 });
           if (this.blades.length > 2) this.blades.shift();
         }
         break;
