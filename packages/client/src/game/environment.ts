@@ -5,24 +5,26 @@ import {
   MeshBuilder,
   Quaternion,
   type Scene,
+  ShaderMaterial,
   StandardMaterial,
+  Vector2,
   Vector3,
-  VertexBuffer,
   VertexData,
 } from '@babylonjs/core';
-import { CELL, STEP_HEIGHT, type Layout } from '@malampu/shared';
+import { CELL, type Layout } from '@malampu/shared';
 import type { Assets } from './assets';
+import { HEADLAND_GAP, HEADLAND_THICK, SEA_LEVEL, SEA_MARGIN, seaCrest, seaFragmentShader, seaVertexShader, SHORE_FADE } from './sea';
 
 export type ReliefBiome = 'urban' | 'wild' | 'coastal';
 
 /**
  * Fills the void past the playable wall with fog-eaten silhouettes made from the existing kit,
- * and (on the coast) a dark sea under the abyss terraces.
+ * and (on the coast) the sea of Badiscar: impetuous swells outside the wall, flat under the town.
  */
 export class EnvironmentManager {
   private readonly owned: { dispose(): void }[] = [];
-  private sea: Mesh | null = null;
-  private seaBase: Float32Array | null = null;
+  private seaMat: ShaderMaterial | null = null;
+  private readonly camPos = new Vector3();
   private clock = 0;
 
   constructor(
@@ -43,24 +45,19 @@ export class EnvironmentManager {
   }
 
   update(dt: number): void {
-    if (!this.sea || !this.seaBase) return;
+    if (!this.seaMat) return;
     this.clock += dt;
-    const data = this.sea.getVerticesData(VertexBuffer.PositionKind);
-    if (!data) return;
-    const base = this.seaBase;
-    for (let i = 0; i < data.length; i += 3) {
-      const x = base[i]!;
-      const z = base[i + 2]!;
-      data[i + 1] = base[i + 1]! + Math.sin(x * 0.35 + this.clock * 1.3) * 0.07 + Math.cos(z * 0.27 + this.clock * 0.9) * 0.05;
-    }
-    this.sea.updateVerticesData(VertexBuffer.PositionKind, data);
+    this.seaMat.setFloat('time', this.clock);
+    const cam = this.scene.activeCamera;
+    if (!cam) return;
+    this.camPos.copyFrom(cam.position);
+    this.seaMat.setVector3('cameraPosition', this.camPos);
   }
 
   dispose(): void {
     for (const o of this.owned) o.dispose();
     this.owned.length = 0;
-    this.sea = null;
-    this.seaBase = null;
+    this.seaMat = null;
   }
 
   private ring(layout: Layout, assets: Assets, biome: ReliefBiome, mat: StandardMaterial): void {
@@ -90,7 +87,7 @@ export class EnvironmentManager {
         const sy = dolmen ? 0.7 : s * (0.9 + hash(cx, cz, 5));
         const sz = dolmen ? 1.5 : s;
         const sx = dolmen ? 2.3 : s;
-        this.place(assets, model, x, biome === 'coastal' ? -STEP_HEIGHT : 0, z, hash(cx, cz, 6) * Math.PI * 2, sx, sy, sz, mat);
+        this.place(assets, model, x, biome === 'coastal' ? SEA_LEVEL : 0, z, hash(cx, cz, 6) * Math.PI * 2, sx, sy, sz, mat);
       }
     }
   }
@@ -107,11 +104,15 @@ export class EnvironmentManager {
     const spanZ = h * CELL + 30;
     const height = 14;
     const y = biome === 'coastal' ? -2 : 2;
+    // On the coast the blocks are headlands standing in the water, with open sea past them.
+    // Corners stay open: the bars are only a little wider than the map.
+    const gap = biome === 'coastal' ? HEADLAND_GAP : 10;
+    const thick = biome === 'coastal' ? HEADLAND_THICK : 8;
     const specs: [number, number, number, number][] = [
-      [w * CELL * 0.5, -10, spanX, 8],
-      [w * CELL * 0.5, h * CELL + 10, spanX, 8],
-      [-10, h * CELL * 0.5, 8, spanZ],
-      [w * CELL + 10, h * CELL * 0.5, 8, spanZ],
+      [w * CELL * 0.5, -gap, spanX, thick],
+      [w * CELL * 0.5, h * CELL + gap, spanX, thick],
+      [-gap, h * CELL * 0.5, thick, spanZ],
+      [w * CELL + gap, h * CELL * 0.5, thick, spanZ],
     ];
     for (const [x, z, bw, bd] of specs) {
       const box = MeshBuilder.CreateBox(`cliff-${x}`, { width: bw, height, depth: bd }, this.scene);
@@ -125,22 +126,42 @@ export class EnvironmentManager {
 
   private makeSea(layout: Layout): void {
     const { w, h } = layout;
+    const width = w * CELL + SEA_MARGIN * 2;
+    const depth = h * CELL + SEA_MARGIN * 2;
     const sea = MeshBuilder.CreateGround(
       'sea',
-      { width: (w + 14) * CELL, height: (h + 14) * CELL, subdivisions: 28 },
+      {
+        width,
+        height: depth,
+        subdivisionsX: Math.min(240, Math.max(64, Math.round(width / 1.15))),
+        subdivisionsY: Math.min(240, Math.max(64, Math.round(depth / 1.15))),
+      },
       this.scene,
     );
-    sea.position.set((w * CELL) / 2, -2 * STEP_HEIGHT - 0.35, (h * CELL) / 2);
-    const mat = new StandardMaterial('sea', this.scene);
-    mat.diffuseColor = new Color3(0.04, 0.07, 0.1);
-    mat.specularColor = new Color3(0.55, 0.65, 0.72);
-    mat.specularPower = 64;
-    mat.emissiveColor = new Color3(0.015, 0.03, 0.045);
-    sea.material = mat;
+    sea.position.set((w * CELL) / 2, SEA_LEVEL, (h * CELL) / 2);
     sea.isPickable = false;
-    const data = sea.getVerticesData(VertexBuffer.PositionKind);
-    if (data) this.seaBase = Float32Array.from(data);
-    this.sea = sea;
+    sea.alwaysSelectAsActiveMesh = true;
+    const mat = new ShaderMaterial(
+      'badiscar-sea',
+      this.scene,
+      { vertexSource: seaVertexShader(), fragmentSource: seaFragmentShader() },
+      {
+        attributes: ['position'],
+        uniforms: ['worldViewProjection', 'world', 'time', 'mapHalf', 'shoreFade', 'crestScale', 'cameraPosition', 'fogColor', 'fogDensity'],
+      },
+    );
+    mat.fogEnabled = false;
+    mat.backFaceCulling = true;
+    mat.setVector2('mapHalf', new Vector2((w * CELL) / 2, (h * CELL) / 2));
+    mat.setFloat('shoreFade', SHORE_FADE);
+    mat.setFloat('crestScale', seaCrest(1));
+    mat.setFloat('time', 0);
+    mat.setColor3('fogColor', this.scene.fogColor);
+    mat.setFloat('fogDensity', this.scene.fogDensity);
+    const cam = this.scene.activeCamera;
+    if (cam) mat.setVector3('cameraPosition', cam.position);
+    sea.material = mat;
+    this.seaMat = mat;
     this.owned.push(mat, sea);
   }
 
