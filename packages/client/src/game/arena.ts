@@ -46,6 +46,7 @@ interface ThemeDef {
 }
 
 /** Chiaroscuro palettes. Terraces stay matte; skirts are darker so the step reads at a glance. */
+// The camera hangs some 40 units above the hero: the haze is kept thin so the floor keeps its colour.
 const RELIEF_PALETTE: Record<
   ReliefBiome,
   { floor: string; skirt: string; sun: [number, number, number]; hemi: [number, number, number]; fog: [number, number, number]; density: number; spec: [number, number, number] }
@@ -56,7 +57,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.62, 0.74, 0.98],
     hemi: [0.45, 0.5, 0.62],
     fog: [0.42, 0.4, 0.38],
-    density: 0.022,
+    density: 0.0085,
     spec: [0, 0, 0],
   },
   wild: {
@@ -65,7 +66,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.55, 0.7, 0.85],
     hemi: [0.28, 0.4, 0.32],
     fog: [0.04, 0.1, 0.07],
-    density: 0.02,
+    density: 0.009,
     spec: [0.04, 0.02, 0.02],
   },
   coastal: {
@@ -74,7 +75,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.7, 0.78, 0.9],
     hemi: [0.35, 0.42, 0.5],
     fog: [0.5, 0.58, 0.62],
-    density: 0.018,
+    density: 0.0075,
     spec: [0.28, 0.34, 0.38],
   },
 };

@@ -78,7 +78,7 @@ export class HeroStage {
     tex.update();
     const skyMat = unlit('heroStageSky');
     skyMat.emissiveTexture = tex;
-    skyMat.emissiveColor = Color3.White();
+    // The texture adds to the emissive colour, which therefore stays black.
     const back = MeshBuilder.CreatePlane('heroStageBack', { width: 60, height: 34 }, scene);
     back.position.set(0, STAGE_Y + 3, 11);
     back.material = skyMat;
@@ -137,12 +137,20 @@ export class HeroStage {
     view.root.rotation.y = Math.PI;
     this.view = view;
     this.time = 0;
-    const meshes = [this.props[1]!, ...view.root.getChildMeshes()];
-    this.light.includedOnlyMeshes = meshes;
-    this.rim.includedOnlyMeshes = meshes;
+    this.lightOnly(view);
     const [r, g, b] = hexColor(HEROES[hero].color);
     this.rim.diffuse = new Color3(r, g, b);
     this.ringMat.emissiveColor = new Color3(r, g, b);
+  }
+
+  /** Points the stage lights at the pedestal and at this hero, and at nothing else. */
+  private lightOnly(view: CharacterView): void {
+    const meshes = [this.props[1]!, ...view.root.getChildMeshes()];
+    this.light.includedOnlyMeshes = meshes;
+    this.rim.includedOnlyMeshes = meshes;
+    // A light that starts to include a mesh is queued behind the world's lights, past the
+    // material's light limit. Rebuilding the list puts the stage lights first again.
+    for (const m of meshes) m._resyncLightSources();
   }
 
   update(dt: number): void {
@@ -152,11 +160,7 @@ export class HeroStage {
     const view = this.view;
     if (view) {
       // Attachments are parented after the constructor returns: keep the light list complete.
-      if (this.light.includedOnlyMeshes.length !== view.root.getChildMeshes().length + 1) {
-        const meshes = [this.props[1]!, ...view.root.getChildMeshes()];
-        this.light.includedOnlyMeshes = meshes;
-        this.rim.includedOnlyMeshes = meshes;
-      }
+      if (this.light.includedOnlyMeshes.length !== view.root.getChildMeshes().length + 1) this.lightOnly(view);
       view.root.rotation.y = Math.PI + Math.sin(this.clock * 0.45) * 0.3;
       view.play(this.clip, this.time, true);
       view.update(dt);
@@ -164,7 +168,8 @@ export class HeroStage {
     // A narrow window shows less of the stage sideways: pull back so the hero still fits.
     const aspect = this.scene.getEngine().getAspectRatio(this.camera);
     const pull = aspect < 1 ? 1 + (1 - aspect) * 0.9 : 1;
-    this.camera.position.set(this.offset, STAGE_Y + 1.45, -6.4 * pull);
-    this.camera.setTarget(new Vector3(this.offset, STAGE_Y + 1.12, 0));
+    this.camera.position.set(this.offset, STAGE_Y + 1.5, -7.2 * pull);
+    // Aim low: the hero stands in the upper part of the frame and leaves the bottom to the name plate.
+    this.camera.setTarget(new Vector3(this.offset, STAGE_Y + 0.84, 0));
   }
 }
