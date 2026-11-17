@@ -35,11 +35,73 @@ export interface SufferRead {
   resisted: AttackFamily | '';
 }
 
+export type TauntTone = 'cruel' | 'mock' | 'dry';
+
 export interface RoomOrder {
   focusId: string | null;
   punish: AttackFamily | 'mix' | null;
   shape: 'surround' | 'peel' | 'hold' | null;
+  tone: TauntTone | null;
   until: number;
+}
+
+const FAMILY_IT: Record<AttackFamily, string> = {
+  blue: 'i blu',
+  red: 'i rossi',
+  shot: 'i dardi',
+  blast: 'le aree',
+  rush: 'le cariche',
+};
+
+function lineOf(lines: string[], salt: string): string {
+  let h = 0;
+  for (let i = 0; i < salt.length; i++) h = (h * 33 + salt.charCodeAt(i)) >>> 0;
+  return lines[h % lines.length]!;
+}
+
+/** A short Italian taunt. Jev only picks the tone; the words stay in the game. */
+export function tauntLine(args: {
+  who: string;
+  hero: string;
+  read: SufferRead;
+  punish: RoomOrder['punish'];
+  shape: RoomOrder['shape'];
+  tone: TauntTone;
+}): { who: string; text: string } {
+  const fam = args.read.family ? FAMILY_IT[args.read.family] : args.punish && args.punish !== 'mix' ? FAMILY_IT[args.punish] : '';
+  const stopped = args.read.resisted ? FAMILY_IT[args.read.resisted] : '';
+  const salt = `${args.hero}|${args.tone}|${fam}|${args.shape ?? ''}`;
+  let lines: string[];
+  if (fam && args.tone === 'cruel') {
+    lines = [
+      `${args.hero} soffre ${fam}. Allora ${fam}, ancora.`,
+      `Ho visto ${args.hero}. ${fam} restano addosso. Continuiamo.`,
+    ];
+  } else if (fam && args.tone === 'mock') {
+    lines = [
+      `${args.hero}, ${fam} ti stanno simpatici. Te ne offro il bis.`,
+      `Non è cattiveria, ${args.hero}. È che ${fam} funzionano.`,
+    ];
+  } else if (fam) {
+    lines = [
+      `${args.hero}: più ${fam}. Il resto è tempo perso.`,
+      `Nota su ${args.hero}. ${fam} entrano. Ripeto.`,
+    ];
+  } else if (stopped) {
+    lines = [
+      `${args.hero} ferma ${stopped}. Quello lo lasciamo stare.`,
+      `Bella parata, ${args.hero}. ${stopped} no. Il resto sì.`,
+    ];
+  } else if (args.shape === 'surround') {
+    lines = [`${args.hero} in mezzo. Il cerchio è già chiuso.`, `Vi mettiamo intorno a ${args.hero}. Nessun lato buono.`];
+  } else if (args.shape === 'peel') {
+    lines = [`Il tank al bruto. ${args.hero} è la portata.`, `${args.hero} dietro non è al sicuro. Il bruto tiene l'altro.`];
+  } else if (args.shape === 'hold') {
+    lines = [`State larghi. ${args.hero} lo prendiamo da dove non arriva la parata.`, `Niente mischia. ${args.hero} da lontano.`];
+  } else {
+    lines = [`Vi studiamo, ${args.hero}. Ancora un po' e diventa personale.`, `${args.hero}, non abbiamo ancora un vizio vostro. Arriva.`];
+  }
+  return { who: args.who, text: lineOf(lines, salt) };
 }
 
 export function familyOf(atk: { kind: 'blue' | 'red'; proj?: unknown; aoe?: number; special?: string; lunge: number }): AttackFamily {
@@ -334,8 +396,8 @@ export function attackWeightMul(mind: EnemyMind, atk: EnemyAttackDef, ctx: Attac
       if (atk.proj) m *= 0.5;
       break;
   }
-  if (mind !== 'dummy' && ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
-  if (mind !== 'dummy' && ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
+  if (ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
+  if (ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
   return m;
 }
 

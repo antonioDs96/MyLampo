@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { matchMaker, Room, type Client } from '@colyseus/core';
 import { GameHost, MAX_PLAYERS, PUBLIC_ROOM_ID, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
 import { createServerJevAdvisor } from './jev';
+import { createQuipWriter } from './quips';
 
 /** Letters and digits that are hard to confuse when read aloud or typed from a chat. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -119,6 +120,7 @@ export class MalampuRoom extends Room<{ metadata: { public: boolean } }> {
       this.archive,
       this.isPublic,
       createServerJevAdvisor(),
+      createQuipWriter(),
     );
   }
 }
