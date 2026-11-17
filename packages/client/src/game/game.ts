@@ -73,6 +73,7 @@ import { Menus } from '../ui/menus';
 import { Radar } from '../ui/radar';
 import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
 import { profileId, SoloProfileArchive } from '../net/profile';
+import { shotAlertLength } from './attackClip';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
@@ -2216,7 +2217,9 @@ export class Game {
   /**
    * Ground marker showing where an enemy attack will land, filling up as the strike approaches.
    * It is drawn where the blow will actually be thrown from, lunge included, and it flares once
-   * the attacker has committed: from then on it no longer turns to follow anyone.
+   * the attacker has committed: from then on it no longer turns to follow anyone. A teleport
+   * marks its landing while the enemy is still standing where it started. A harpoon paints its
+   * whole range.
    */
   private telegraph(e: EnemySnap, radius: number, atk: EnemyAttackDef, k: number, c: RGB, melee: boolean, committed: boolean): void {
     const vfx = this.vfx;
@@ -2228,17 +2231,27 @@ export class Game {
       vfx.disc(e.ax, e.az, atk.aoe * k, c, 0.5, ay);
       return;
     }
+    if (atk.special === 'teleport') {
+      const oy = this.groundY(e.ax, e.az) + 0.04;
+      const run = Math.hypot(e.ax - e.x, e.az - e.z);
+      if (run > 0.8) vfx.beamAt(e.x, y + 0.05, e.z, e.ax, oy + 0.05, e.az, radius * 1.1, c, 0.28 + k * 0.35 + hot);
+      vfx.ring(e.ax, e.az, radius + 0.45, c, 0.55 + k * 0.4 + hot, oy);
+      vfx.sector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot, oy);
+      vfx.sector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45, oy);
+      return;
+    }
     if (!melee) {
       vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5, y);
       if (atk.proj) {
-        // The line of fire: it stops turning when the shooter commits.
-        const len = Math.min(atk.proj.range, 14);
+        // The line of fire: it stops turning when the shooter commits. A harpoon shows every metre it can travel.
+        const len = shotAlertLength(atk.proj.range, atk.special === 'harpoon');
         const count = atk.proj.count ?? 1;
+        const width = atk.special === 'harpoon' ? Math.max(1.5, atk.proj.r * 2.2) : atk.proj.r * 1.4;
         for (let i = 0; i < count; i++) {
           const a = e.yaw + (i - (count - 1) / 2) * 0.22;
           const tx = e.x + Math.sin(a) * len;
           const tz = e.z + Math.cos(a) * len;
-          vfx.beamAt(e.x, y + 0.05, e.z, tx, y + 0.05, tz, atk.proj.r * 1.4, c, 0.12 + k * 0.25 + hot);
+          vfx.beamAt(e.x, y + 0.05, e.z, tx, y + 0.05, tz, width, c, 0.12 + k * 0.25 + hot);
         }
       }
       return;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  Act,
   Btn,
   ENEMIES,
   EState,
@@ -282,5 +283,155 @@ describe('the warning on the ground matches the blow', () => {
     p.x += 3;
     for (let i = 0; i < 8; i++) world.step(0.05);
     expect(p.hp).toBe(hp);
+  });
+});
+
+describe('the attack is the moment it touches the hero', () => {
+  function cast(type: EnemyState['type'], attack: string, dist: number) {
+    const world = new World({ layout: parseLayout(FIELD), seed: 5 });
+    const p = world.addPlayer('a', 'jusef', 0);
+    const def = ENEMIES[type];
+    const idx = def.attacks.findIndex((a) => a.id === attack);
+    const e = world.spawnEnemy(type, p.x, p.z + dist);
+    e.state = EState.Chase;
+    e.cool = 999;
+    e.target = p.id;
+    (world as unknown as { beginAttack(e: EnemyState, def: unknown, idx: number, p: unknown): void }).beginAttack(e, def, idx, p);
+    return { world, p, e };
+  }
+
+  function press(world: World, button: number): void {
+    world.applyCommand('a', { seq: 1, mx: 0, mz: 0, buttons: button, aim: 0, lock: 0 });
+  }
+
+  function holdStill(p: { x: number; z: number; iframes: number; act: number }, home: { x: number; z: number }): void {
+    p.act = Act.Idle;
+    p.iframes = 0;
+    p.x = home.x;
+    p.z = home.z;
+  }
+
+  /** Stops the enemy from starting another attack once this one has been released. */
+  function park(e: EnemyState): void {
+    e.state = EState.Idle;
+    e.cool = 999;
+  }
+
+  function untilShot(world: World, e: EnemyState): void {
+    for (let i = 0; i < 80 && world.projectiles.length === 0; i++) world.step(0.05);
+    expect(world.projectiles.length).toBeGreaterThan(0);
+    park(e);
+  }
+
+  it('a dodge after a shot is fired still avoids it if the shot has not arrived', () => {
+    const dodged = cast('madre_spore', 'spora', 10);
+    const home = { x: dodged.p.x, z: dodged.p.z };
+    untilShot(dodged.world, dodged.e);
+    dodged.world.step(0.1);
+    press(dodged.world, Btn.Dodge);
+    holdStill(dodged.p, home);
+    const hp = dodged.p.hp;
+    for (let i = 0; i < 40; i++) dodged.world.step(0.05);
+    expect(dodged.p.hp).toBe(hp);
+    expect(dodged.world.events.some((ev) => ev.e === 'pdodge')).toBe(true);
+
+    const hit = cast('madre_spore', 'spora', 10);
+    const before = hit.p.hp;
+    untilShot(hit.world, hit.e);
+    for (let i = 0; i < 40; i++) hit.world.step(0.05);
+    expect(hit.p.hp).toBeLessThan(before);
+  });
+
+  it('a parry before a blue shot lands is good, and a red shot still has to be dodged', () => {
+    const blue = cast('madre_spore', 'spora', 10);
+    const home = { x: blue.p.x, z: blue.p.z };
+    untilShot(blue.world, blue.e);
+    blue.world.step(0.1);
+    press(blue.world, Btn.Block);
+    holdStill(blue.p, home);
+    const hp = blue.p.hp;
+    for (let i = 0; i < 40; i++) blue.world.step(0.05);
+    expect(blue.p.hp).toBe(hp);
+    expect(blue.world.events.some((ev) => ev.e === 'parry')).toBe(true);
+
+    const red = cast('nostromo_senzocchi', 'arpione', 12);
+    const spot = { x: red.p.x, z: red.p.z };
+    untilShot(red.world, red.e);
+    red.world.step(0.05);
+    press(red.world, Btn.Block);
+    holdStill(red.p, spot);
+    const before = red.p.hp;
+    for (let i = 0; i < 40; i++) red.world.step(0.05);
+    expect(red.p.hp).toBeLessThan(before);
+    expect(red.world.events.some((ev) => ev.e === 'parry')).toBe(false);
+
+    const slipped = cast('nostromo_senzocchi', 'arpione', 12);
+    const there = { x: slipped.p.x, z: slipped.p.z };
+    untilShot(slipped.world, slipped.e);
+    slipped.world.step(0.05);
+    press(slipped.world, Btn.Dodge);
+    holdStill(slipped.p, there);
+    const safe = slipped.p.hp;
+    for (let i = 0; i < 40; i++) slipped.world.step(0.05);
+    expect(slipped.p.hp).toBe(safe);
+    expect(slipped.world.events.some((ev) => ev.e === 'pdodge')).toBe(true);
+  });
+
+  it('a dodge before an expanding ring reaches the hero avoids it', () => {
+    const casted = cast('palombaro', 'campana', 8);
+    const home = { x: casted.p.x, z: casted.p.z };
+    for (let i = 0; i < 80 && !casted.world.zones.some((z) => z.kind === 'ring'); i++) casted.world.step(0.05);
+    expect(casted.world.zones.some((z) => z.kind === 'ring')).toBe(true);
+    park(casted.e);
+    casted.world.step(0.15);
+    press(casted.world, Btn.Dodge);
+    holdStill(casted.p, home);
+    const hp = casted.p.hp;
+    for (let i = 0; i < 50; i++) casted.world.step(0.05);
+    expect(casted.p.hp).toBe(hp);
+    expect(casted.world.events.some((ev) => ev.e === 'pdodge')).toBe(true);
+  });
+
+  it('a teleport attack shows its landing before the enemy moves', () => {
+    const { world, e } = cast('tagliagole_reietti', 'passo', 8);
+    const from = { x: e.x, z: e.z };
+    const landing = { x: e.ax, z: e.az };
+    expect(Math.hypot(landing.x - from.x, landing.z - from.z)).toBeGreaterThan(4);
+    expect(world.events.some((ev) => ev.e === 'fx' && ev.what === 'vanish')).toBe(false);
+    let blinkedAt = -1;
+    while (e.state === EState.Windup && e.struck === 0) {
+      world.step(0.05);
+      const moved = Math.hypot(e.x - from.x, e.z - from.z);
+      if (blinkedAt < 0 && moved > 1) {
+        blinkedAt = e.t;
+        expect(Math.hypot(e.x - landing.x, e.z - landing.z)).toBeLessThan(0.35);
+        expect(e.struck).toBe(0);
+      } else if (blinkedAt < 0) {
+        expect(Math.hypot(e.ax - landing.x, e.az - landing.z)).toBeLessThan(0.05);
+        expect(Math.hypot(e.x - from.x, e.z - from.z)).toBeLessThan(0.05);
+      }
+    }
+    const windup = ENEMIES.tagliagole_reietti.attacks.find((a) => a.id === 'passo')!.windup;
+    expect(blinkedAt).toBeGreaterThan(0.3);
+    expect(blinkedAt).toBeLessThan(windup);
+  });
+
+  it('a dodge during the teleport warning avoids the blow that lands after the blink', () => {
+    const stood = cast('tagliagole_reietti', 'passo', 8);
+    const before = stood.p.hp;
+    for (let i = 0; i < 40; i++) stood.world.step(0.05);
+    expect(stood.p.hp).toBeLessThan(before);
+
+    const slipped = cast('tagliagole_reietti', 'passo', 8);
+    const home = { x: slipped.p.x, z: slipped.p.z };
+    const origin = { x: slipped.e.x, z: slipped.e.z };
+    slipped.world.step(0.2);
+    expect(Math.hypot(slipped.e.x - origin.x, slipped.e.z - origin.z)).toBeLessThan(0.05);
+    press(slipped.world, Btn.Dodge);
+    holdStill(slipped.p, home);
+    const hp = slipped.p.hp;
+    for (let i = 0; i < 40; i++) slipped.world.step(0.05);
+    expect(slipped.p.hp).toBe(hp);
+    expect(slipped.world.events.some((ev) => ev.e === 'pdodge')).toBe(true);
   });
 });

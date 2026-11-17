@@ -203,9 +203,10 @@ interface HitSpec {
   /** Attack family, captured when the swing starts so a late hit still teaches the right lesson. */
   family?: AttackFamily;
   /**
-   * The red or blue signal of this blow, in world seconds: it appeared at `start` and the blow
-   * itself is released at `end`. A dodge pressed inside that span answers the alert. A parry does
-   * too, except on a red attack, which is dodged or it lands.
+   * The red or blue signal of this blow, in world seconds. It appeared at `start`. `end` is when
+   * the blow was released; the defense is judged later, at the impact on this hero. A dodge pressed
+   * after the signal and no later than that impact answers it. A parry does too, except on a red
+   * attack, which is dodged or it lands.
    */
   alert?: { start: number; end: number };
 }
@@ -261,6 +262,8 @@ export class World {
   private seen = new Map<string, number>();
   /** World time (s) each enemy's current signal appeared. */
   private signals = new Map<number, number>();
+  /** Where a teleport attack will appear. The enemy stays put until the warning has been visible. */
+  private blinkTo = new Map<number, { x: number; z: number }>();
   /** World time (s) of each hero's latest dodge and of the moment they raised their guard. */
   private reacted = new Map<string, { dodgeAt: number; blockAt: number }>();
   readonly players = new Map<string, PlayerState>();
@@ -1402,23 +1405,25 @@ export class World {
   }
 
   /**
-   * The signal is an alert, not the attack. It covers the whole wind-up and ends the instant the
-   * blow is released. A dodge pressed in that span answers it. A parry does too, but never for a
-   * red attack: red is dodged, or it deals damage.
+   * When this signal appeared, and when the blow was released. A shot or an expanding ring is
+   * released before it touches anyone: the defense stays open until that impact.
    */
   private alertWindow(e: EnemyState): { start: number; end: number } {
     return { start: this.signalOf(e), end: this.time };
   }
 
-  /** Which defense, if any, this hero committed while the signal was up and before the blow. */
+  /**
+   * Which defense this hero committed after the signal appeared and no later than the impact.
+   * The impact is this check. Red answers only to a dodge.
+   */
   private answerToSignal(p: PlayerState, spec: HitSpec): 'dodge' | 'parry' | null {
     const a = spec.alert;
     if (!a) return null;
     const r = this.reacted.get(p.id);
     if (!r) return null;
-    const dodge = r.dodgeAt >= a.start && r.dodgeAt <= a.end;
+    const dodge = r.dodgeAt >= a.start && r.dodgeAt <= this.time;
     // Red stays unparryable. Answering its signal with the guard does not turn the blow into a parry.
-    const parry = !spec.red && r.blockAt >= a.start && r.blockAt <= a.end;
+    const parry = !spec.red && r.blockAt >= a.start && r.blockAt <= this.time;
     if (dodge && (!parry || r.dodgeAt >= r.blockAt)) return 'dodge';
     if (parry) return 'parry';
     return null;
@@ -1426,7 +1431,7 @@ export class World {
 
   private tryHitPlayer(p: PlayerState, spec: HitSpec): HitResult {
     if (p.act === Act.Downed) return 'none';
-    // Answering the alert beats the blow: the attack had not started yet. Red answers only to a dodge.
+    // A defense pressed before this impact answers the alert. Red answers only to a dodge.
     const answered = this.answerToSignal(p, spec);
     if (answered === 'dodge') {
       this.perfectDodge(p);
@@ -1967,20 +1972,26 @@ export class World {
     e.atk = idx;
     e.struck = 0;
     e.n = atk.special === 'rings' ? 1 + e.phase : 1 + (atk.extraHits ?? 0);
-    if (atk.special === 'teleport') {
-      const bx = target.x - Math.sin(target.yaw) * 2.4;
-      const bz = target.z - Math.cos(target.yaw) * 2.4;
-      const at = nearestFloor(this.layout, bx, bz);
-      collide(this.layout, at.x, at.z, def.radius, tmp);
-      this.events.push({ e: 'fx', what: 'vanish', x: e.x, z: e.z, r: 1 });
-      e.x = tmp.x;
-      e.z = tmp.z;
-      this.events.push({ e: 'fx', what: 'appear', x: e.x, z: e.z, r: 1 });
-    }
-    e.yaw = yawOf(target.x - e.x, target.z - e.z);
     this.lastSwing.set(e.id, atk.kind);
     this.signals.set(e.id, this.time);
+    if (atk.special === 'teleport') {
+      this.armBlink(e, def, target);
+      return;
+    }
+    e.yaw = yawOf(target.x - e.x, target.z - e.z);
     this.setAim(e, def, atk, target);
+  }
+
+  /** Marks the landing and the swing of a blink. The enemy does not move until the warning has shown. */
+  private armBlink(e: EnemyState, def: EnemyDef, target: PlayerState): void {
+    const bx = target.x - Math.sin(target.yaw) * 2.4;
+    const bz = target.z - Math.cos(target.yaw) * 2.4;
+    const at = nearestFloor(this.layout, bx, bz);
+    collide(this.layout, at.x, at.z, def.radius, tmp);
+    e.ax = tmp.x;
+    e.az = tmp.z;
+    e.yaw = yawOf(target.x - tmp.x, target.z - tmp.z);
+    this.blinkTo.set(e.id, { x: tmp.x, z: tmp.z });
   }
 
   /** How far a lunging swing may still carry its owner toward the target. */
@@ -2628,6 +2639,7 @@ export class World {
       this.stepWindup(e, def, dt, slow);
       return;
     }
+    this.blinkTo.delete(e.id);
     if (e.state === EState.Recover) {
       e.t += dt;
       if (e.t >= def.attacks[e.atk]!.recover) {
@@ -2781,11 +2793,22 @@ export class World {
     const target = this.players.get(e.target);
     const lungeTime = TUNING.enemyCommit;
     const lungeStart = atk.windup - lungeTime;
-    if (target && target.act !== Act.Downed && e.t < lungeStart) {
+    const blink = atk.special === 'teleport';
+    if (!blink && target && target.act !== Act.Downed && e.t < lungeStart) {
       e.yaw = approachAngle(e.yaw, yawOf(target.x - e.x, target.z - e.z), 7 * dt);
       if (atk.aoe && e.t < atk.windup * 0.55) this.setAim(e, def, atk, target);
     }
-    if (atk.lunge > 0 && e.t >= lungeStart && prevT < atk.windup) {
+    if (blink) {
+      const spot = this.blinkTo.get(e.id);
+      const at = Math.max(atk.windup * 0.45, lungeStart);
+      if (spot && prevT < at && e.t >= at) {
+        this.events.push({ e: 'fx', what: 'vanish', x: e.x, z: e.z, r: 1 });
+        e.x = spot.x;
+        e.z = spot.z;
+        this.events.push({ e: 'fx', what: 'appear', x: e.x, z: e.z, r: 1 });
+        this.blinkTo.delete(e.id);
+      }
+    } else if (atk.lunge > 0 && e.t >= lungeStart && prevT < atk.windup) {
       const step = (atk.lunge / lungeTime) * dt;
       if (atk.aoe) {
         const dx = e.ax - e.x;
@@ -2803,7 +2826,7 @@ export class World {
         e.z = tmp.z;
       }
     }
-    if (!atk.aoe) this.setAim(e, def, atk, target);
+    if (!atk.aoe && !blink) this.setAim(e, def, atk, target);
     const gapT = atk.hitGap ?? 0.7;
     while (e.struck < e.n && e.t >= atk.windup + e.struck * gapT) {
       this.strike(e, def, atk);
@@ -2811,12 +2834,14 @@ export class World {
       // A perfect parry staggers or breaks the attacker mid-swing.
       if (e.state !== EState.Windup) {
         this.signals.delete(e.id);
+        this.blinkTo.delete(e.id);
         return;
       }
     }
     if (e.struck >= e.n) {
       e.state = EState.Recover;
       this.signals.delete(e.id);
+      this.blinkTo.delete(e.id);
       e.t = 0;
       // A boss facing a crowd keeps the pressure up: he has more heroes to answer.
       const crowd = def.boss ? 1 / (1 + 0.12 * (Math.max(1, this.players.size) - 1)) : 1;

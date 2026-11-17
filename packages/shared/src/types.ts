@@ -283,8 +283,8 @@ export interface Projectile {
   /** Terrace the shooter stood on. Authority-only: not part of the snapshot. */
   eye: number;
   /**
-   * For an enemy shot: when its signal appeared and when the shot itself was fired, in world
-   * seconds. A dodge or a parry between the two answered the alert. Not part of the snapshot.
+   * For an enemy shot: when its signal appeared and when the shot was released, in world seconds.
+   * The defense stays open until the shot touches the hero. Not part of the snapshot.
    */
   alertStart?: number;
   alertEnd?: number;
@@ -305,8 +305,8 @@ export interface Zone {
   /** Players already hit (expanding rings). */
   hit: string[];
   /**
-   * For a zone that is the blow following an enemy signal: when the signal appeared and when the
-   * blow was released, in world seconds. Not part of the snapshot.
+   * For a zone that follows an enemy signal: when the signal appeared and when the zone was
+   * released, in world seconds. The defense stays open until it touches the hero. Not snapshotted.
    */
   alert?: { start: number; end: number };
 }

@@ -9,6 +9,11 @@ const SWING = TUNING.enemyCommit + 0.02;
  * dodge or parry and it reaches `impact` exactly when the strike lands. Follow-up blows of a
  * multi-hit attack replay the swing, each one landing on its own strike.
  */
+/** How far the ground warning of a shot reaches. A harpoon shows its whole range. */
+export function shotAlertLength(range: number, harpoon: boolean): number {
+  return harpoon ? range : Math.min(range, 14);
+}
+
 export function attackClipTime(animStart: number, impact: number, windup: number, t: number, extraHits = 0, hitGap = 0): number {
   if (t >= windup && extraHits > 0 && hitGap > 0) {
     const over = t - windup;
