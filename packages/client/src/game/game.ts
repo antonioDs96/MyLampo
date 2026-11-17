@@ -30,7 +30,6 @@ import {
   NPCS,
   packCmds,
   parseLayout,
-  personaOf,
   PS,
   quantizeCmd,
   standElevation,
@@ -2521,8 +2520,7 @@ export class Game {
               : poi.kind === 'shrine'
                 ? `Tieni premuto [${use}]: attiva il Santuario di Cura`
                 : `Tieni premuto [${use}]: apri il Terminale di Scelta`;
-        } else if (npc) prompt = `[${use}] ${NPCS[npc].prompt}`;
-        else if (lock) prompt = personaOf(lock.type).strategy;
+        }         else if (npc) prompt = `[${use}] ${NPCS[npc].prompt}`;
         else if (inHub) prompt = this.touch.shown ? 'Il Tavolo della Mappa è al centro della sala' : 'Tavolo della Mappa al centro · [I] scheda · [C] cambia eroe · [B] bestiario';
       }
     }
