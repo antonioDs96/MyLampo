@@ -208,6 +208,8 @@ interface PendingHit {
   pid: string;
   spec: HitSpec;
   until: number;
+  /** Server clock (ms) of the strike, 0 when the player's client does not report what it shows. */
+  at: number;
 }
 
 type HitResult = 'none' | 'dodged' | 'parried' | 'blocked' | 'hit' | 'pending';
@@ -247,6 +249,10 @@ export class World {
   readonly jev?: JevAdvisor;
   readonly quips?: QuipWriter;
   time = 0;
+  /** Host clock in ms, the same one snapshots carry. 0 when nothing drives it (tests, tools). */
+  clock = 0;
+  /** Latest server clock each player's client reported having on screen. */
+  private seen = new Map<string, number>();
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
   projectiles: Projectile[] = [];
@@ -386,6 +392,7 @@ export class World {
   removePlayer(id: string): void {
     this.players.delete(id);
     this.pending = this.pending.filter((h) => h.pid !== id);
+    this.seen.delete(id);
     this.mods.delete(id);
     this.furyIdle.delete(id);
     this.drops = this.drops.filter((d) => d.owner !== id);
@@ -417,6 +424,12 @@ export class World {
     return clamp(rtt + INTERP_DELAY_MS, TUNING.graceMinMs, TUNING.graceMaxMs) / 1000;
   }
 
+  /** True while this player's commands keep telling us what their screen was showing. */
+  private reportsView(id: string): boolean {
+    const seen = this.seen.get(id);
+    return seen !== undefined && this.clock > 0 && this.clock - seen < 600;
+  }
+
   private refreshLite(): void {
     this.lite.length = 0;
     for (const e of this.enemies) {
@@ -438,6 +451,12 @@ export class World {
   applyCommand(id: string, cmd: InputCmd): void {
     const p = this.players.get(id);
     if (!p) return;
+    if (cmd.vt && this.clock > 0) {
+      // Nobody can have seen a strike the server has not sent yet.
+      this.seen.set(id, Math.max(this.seen.get(id) ?? 0, Math.min(cmd.vt, this.clock)));
+      // From here on the player is reacting to a strike they have already watched land.
+      this.resolvePending(id);
+    }
     this.refreshLite();
     const ev = this.pev;
     ev.length = 0;
@@ -1373,7 +1392,9 @@ export class World {
       this.block(p, spec);
       return 'blocked';
     }
-    this.pending.push({ pid: p.id, spec, until: this.time + this.graceFor(p.id) });
+    const view = this.reportsView(p.id);
+    const grace = view ? TUNING.graceViewMaxMs / 1000 : this.graceFor(p.id);
+    this.pending.push({ pid: p.id, spec, until: this.time + grace, at: view ? this.clock : 0 });
     return 'pending';
   }
 
@@ -1659,11 +1680,19 @@ export class World {
     this.events.push({ e: 'down', id: p.id });
   }
 
-  private resolvePending(): void {
+  /**
+   * Lands the hits whose forgiveness has run out: the wait expired, or the player's own commands
+   * show they had already watched the strike land. `only` limits it to one player.
+   */
+  private resolvePending(only?: string): void {
     if (this.pending.length === 0) return;
     const keep: PendingHit[] = [];
-    for (const h of this.pending) {
-      if (h.until > this.time) {
+    const list = this.pending;
+    // applyHit may queue new hits (reflections, chains): collect them in a fresh list.
+    this.pending = [];
+    for (const h of list) {
+      const watched = h.at > 0 && (this.seen.get(h.pid) ?? 0) > h.at + TUNING.viewLeniencyMs;
+      if ((only !== undefined && h.pid !== only) || (h.until > this.time && !watched)) {
         keep.push(h);
         continue;
       }
@@ -1673,7 +1702,7 @@ export class World {
       if (h.spec.still && !h.spec.still(p)) continue;
       this.applyHit(p, h.spec);
     }
-    this.pending = keep;
+    this.pending = keep.concat(this.pending);
   }
 
   // ---------------------------------------------------------------- enemies

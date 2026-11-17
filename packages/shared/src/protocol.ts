@@ -172,7 +172,8 @@ export interface Snapshot {
 }
 
 export type ClientMsg =
-  | { t: 'i'; c: number[] }
+  /** `v`: server clock (ms) the client was showing when it produced these commands. */
+  | { t: 'i'; c: number[]; v?: number }
   /** Hero Selection: highlight a hero ('' releases it). */
   | { t: 'hero'; hero: string }
   /** Hero Selection: "Conferma Pronto" (or take it back). */

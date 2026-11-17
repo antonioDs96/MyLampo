@@ -224,6 +224,8 @@ export class Game {
   private arena: Arena | null = null;
   private frames: Frame[] = [];
   private clockOffset = 0;
+  /** Server clock of the picture last drawn: what the player was looking at when they pressed. */
+  private shownClock = 0;
   private hasOffset = false;
   private me: PlayerState | null = null;
   private readonly pending: InputCmd[] = [];
@@ -1451,7 +1453,7 @@ export class Game {
     }
     if (this.pending.length > 180) this.pending.splice(0, this.pending.length - 180);
     if (this.outbox.length > 0) {
-      this.send({ t: 'i', c: packCmds(this.outbox) });
+      this.send({ t: 'i', c: packCmds(this.outbox), v: this.shownClock });
       this.outbox.length = 0;
     }
   }
@@ -1625,6 +1627,7 @@ export class Game {
       a = f;
       b = f;
     }
+    this.shownClock = latest && a ? Math.round(Math.min(latest.s.t, Math.max(a.s.t, rt))) : 0;
     const span = a && b ? b.s.t - a.s.t : 0;
     const u = span > 0 ? Math.min(1, Math.max(0, (rt - a!.s.t) / span)) : 0;
     const since = a ? Math.max(0, Math.min(0.25, (rt - a.s.t) / 1000)) : 0;

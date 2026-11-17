@@ -64,6 +64,15 @@ export const TUNING = {
   graceMinMs: 100,
   graceMaxMs: 260,
   /**
+   * A client that reports what it was showing (InputCmd.vt) is judged on that instead: the hit
+   * waits until the player has seen the strike, plus this margin (ms) for a dodge or a parry
+   * pressed a hair late, and never longer than `graceViewMaxMs`.
+   */
+  viewLeniencyMs: 50,
+  graceViewMaxMs: 500,
+  /** Enemies stop turning and commit to their swing this long (s) before it lands. */
+  enemyCommit: 0.28,
+  /**
    * How far past the telegraph edge (enemy centre → reach) a player centre may still be hit.
    * Keep small so spacing out of the glow actually avoids damage; must match the grace re-check.
    */
