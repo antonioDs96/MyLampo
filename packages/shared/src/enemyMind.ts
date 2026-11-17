@@ -90,45 +90,45 @@ export function tauntLine(args: {
   let lines: string[];
   if (fam) {
     lines = [
-      `${args.hero}, ${fam} ti usano da sacco. E tu dici ancora grazie.`,
-      `Oh ${args.hero}. ${fam} ti schiaffeggiano e tu tieni il conto.`,
-      `${args.hero} fa il duro, poi ${fam} gli piegano il mento.`,
-      `${args.hero}, ${fam} hanno trovato il più molle. Sei tu, campione.`,
-      `Ancora ${fam}, ${args.hero}? Ti piace proprio fare il bersaglio.`,
-      `${args.hero} cede a ${fam} per primo. Gli altri ridono, e hanno ragione.`,
+      `${args.hero}, ${fam} ti usano da sacco.`,
+      `Oh ${args.hero}, ${fam} ti schiaffeggiano.`,
+      `${args.hero}, ${fam} ti piegano il mento.`,
+      `${args.hero}, ${fam} hanno scelto il molle.`,
+      `Ancora ${fam}, ${args.hero}? Bersaglio perfetto.`,
+      `${args.hero}, ${fam} ridono di te.`,
     ];
   } else if (stopped) {
     lines = [
-      `${args.hero} para ${stopped} e si crede un eroe. Il resto entra lo stesso.`,
-      `Bella parata su ${stopped}, ${args.hero}. Peccato che conti niente.`,
+      `${args.hero} para ${stopped} e si crede.`,
+      `${args.hero}, bella parata su ${stopped}. Inutile.`,
     ];
   } else if (args.witness) {
     const other = args.witness.hero;
     lines = [
-      `${args.hero} fa il bullo da lontano. ${other} intanto incassa ${seen}.`,
-      `${args.hero} guarda e sogghigna. ${other} prende ${seen} al posto tuo.`,
-      `${args.hero} si nasconde dietro ${other}. ${seen} trovano comunque la faccia giusta.`,
-      `Che coraggio, ${args.hero}. ${other} mangia ${seen} e tu fai il tifo.`,
+      `${args.hero} fa il bullo. ${other} incassa ${seen}.`,
+      `${args.hero} sogghigna. ${other} prende ${seen}.`,
+      `${args.hero} si nasconde. ${other} prende ${seen}.`,
+      `${args.hero} fa il tifo. ${other} mangia ${seen}.`,
     ];
   } else if (args.shape === 'surround') {
     lines = [
-      `${args.hero} in mezzo, da solo. Il cerchio ha già scelto il più lento.`,
-      `Intorno a ${args.hero}. Non è una trappola, è uno sfottò.`,
+      `${args.hero} in mezzo. Il più lento.`,
+      `Intorno a ${args.hero}. Che sfottò.`,
     ];
   } else if (args.shape === 'peel') {
     lines = [
-      `Il tank tiene il bruto. ${args.hero}, tu sei lo spuntino.`,
-      `${args.hero} crede di stare al sicuro. Il branco ride già di te.`,
+      `${args.hero}, tu sei lo spuntino.`,
+      `${args.hero}, il branco ride di te.`,
     ];
   } else if (args.shape === 'hold') {
     lines = [
-      `State larghi, ${args.hero}. Da qui si vede meglio chi trema.`,
-      `${args.hero}, da lontano il tuo errore è ancora più ridicolo.`,
+      `${args.hero}, da qui si vede chi trema.`,
+      `${args.hero}, da lontano sei ridicolo.`,
     ];
   } else {
     lines = [
-      `${args.hero}, vi guardiamo e il più molle si vede subito.`,
-      `${args.hero}, non hai ancora un vizio. Quando esce, ti ci appendiamo.`,
+      `${args.hero}, il più molle si vede.`,
+      `${args.hero}, il vizio deve ancora uscire.`,
     ];
   }
   return { who: args.who, text: lineOf(lines, salt, args.avoid) };

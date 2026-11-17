@@ -29,9 +29,9 @@ export function cleanQuip(raw: string): string | null {
   let line = raw.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
   line = line.replace(/^\d+\s*[.)]\s*/, '').replace(/^[-•]\s*/, '');
   line = line.replace(/^["'«»]+|["'«»]+$/g, '').trim();
-  if (!line || line.length > 140 || line.includes('http') || line.includes('```')) return null;
+  if (!line || line.length > 70 || line.includes('http') || line.includes('```')) return null;
   const words = line.split(' ').filter(Boolean);
-  if (words.length < 3 || words.length > 14) return null;
+  if (words.length < 3 || words.length > 8) return null;
   return line;
 }
 

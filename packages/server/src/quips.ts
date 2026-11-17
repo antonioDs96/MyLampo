@@ -80,13 +80,13 @@ const SYSTEM = [
   'Scrivi battute in italiano che pungano. Regole:',
   '1. Usa il FATTO VERO e, se c’è, il mestiere dell’eroe. Sminuisci QUESTO eroe, non un generico avversario.',
   '2. Tono: sfottò, soprannome beffardo, risata in faccia. Niente «sei debole» o «ti distruggerò». La cattiveria sta nel dettaglio.',
-  '3. Massimo 12 parole. Una sola frase, corta, da leggere al volo. La prima riga nomina l’eroe.',
+  '3. Massimo 8 parole. Una sola frase, corta, da leggere al volo. La prima riga nomina l’eroe.',
   '4. Niente virgolette, spiegazioni, emoji, insulti volgari, parolacce, riferimenti al mondo reale moderno.',
   '5. Vietato: adozione, chiavi di casa, amore tossico, abbonamento, occhi a cuore.',
   'Esempi del tono (non copiarli):',
-  'Fatto: Vyncent prende i rossi a ripetizione → Vyncent, i rossi ti usano da sacco e tu dici grazie.',
-  'Fatto: Jusef para i blu e poi prende le aree → Jusef para i blu da bravo, poi le aree gli chiudono la bocca.',
-  'Fatto: Gabryel guarda mentre un altro prende i dardi → Gabryel fa il bullo da lontano. Il compagno incassa i dardi.',
+  'Fatto: Vyncent prende i rossi a ripetizione → Vyncent, i rossi ti usano da sacco.',
+  'Fatto: Jusef para i blu e poi prende le aree → Jusef, le aree gli chiudono la bocca.',
+  'Fatto: Gabryel guarda mentre un altro prende i dardi → Gabryel fa il bullo. Il compagno incassa.',
 ].join('\n');
 
 async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null> {
@@ -99,7 +99,7 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
     body: JSON.stringify({
       model: cfg.model,
       temperature: 1.15,
-      max_tokens: 160,
+      max_tokens: 80,
       messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: factsText(facts) },
