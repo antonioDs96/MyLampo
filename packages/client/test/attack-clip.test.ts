@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMIES, TUNING } from '@malampu/shared';
-import { attackClipTime } from '../src/game/attackClip';
+import { attackClipTime, shotAlertLength } from '../src/game/attackClip';
 
 describe('enemy attack animation timing', () => {
   const attacks = Object.values(ENEMIES).flatMap((def) => def.attacks.map((atk) => ({ id: `${def.id}.${atk.id}`, atk })));
@@ -55,5 +55,20 @@ describe('enemy attack animation timing', () => {
       const done = atk.windup + atk.extraHits! * gap;
       expect(attackClipTime(atk.animStart, atk.impact, atk.windup, done + 0.1, atk.extraHits, gap), id).toBeCloseTo(atk.impact + 0.1, 6);
     }
+  });
+});
+
+describe('shot warnings', () => {
+  it('a harpoon alert covers the whole range and other shots stay readable', () => {
+    for (const def of Object.values(ENEMIES)) {
+      for (const atk of def.attacks) {
+        if (!atk.proj) continue;
+        const len = shotAlertLength(atk.proj.range, atk.special === 'harpoon');
+        if (atk.special === 'harpoon') expect(len, `${def.id}.${atk.id}`).toBe(atk.proj.range);
+        else expect(len, `${def.id}.${atk.id}`).toBeLessThanOrEqual(14);
+      }
+    }
+    expect(shotAlertLength(36, true)).toBe(36);
+    expect(shotAlertLength(28, false)).toBe(14);
   });
 });
