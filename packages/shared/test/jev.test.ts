@@ -276,6 +276,55 @@ describe('jev decisions', () => {
     }
   });
 
+  it('rotates the banner onto another living hero and still jokes about who ate the hits', () => {
+    const world = new World({
+      layout: parseLayout({
+        id: 'taunt-party',
+        name: 'taunt-party',
+        theme: 'crypt',
+        rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
+      }),
+      seed: 4,
+    });
+    const vyncent = world.addPlayer('a', 'vyncent', 0);
+    const jusef = world.addPlayer('b', 'jusef', 1);
+    vyncent.hp = 800;
+    jusef.hp = 800;
+    const elite = world.spawnEnemy('inquisitore', vyncent.x, vyncent.z + 4);
+    elite.state = EState.Chase;
+    elite.target = vyncent.id;
+    elite.cool = 99;
+    const spec = { dmg: 5, red: true, kb: 0, ox: vyncent.x, oz: vyncent.z, src: elite.id, family: 'red' as const };
+    world['applyHit'](vyncent, spec);
+    world['applyHit'](vyncent, spec);
+    world['applyHit'](vyncent, spec);
+    world.events.length = 0;
+    world.step(0.05);
+    const first = world.events.filter((ev) => ev.e === 'taunt');
+    expect(first).toHaveLength(1);
+    if (first[0]?.e !== 'taunt') throw new Error('missing first taunt');
+    expect(first[0].text).toContain('Vyncent');
+    expect(first[0].text).toContain('i rossi');
+    const firstText = first[0].text;
+    world.events.length = 0;
+    for (let i = 0; i < 170; i++) {
+      vyncent.hp = 800;
+      jusef.hp = 800;
+      elite.hp = elite.maxHp;
+      elite.cool = 99;
+      world.step(0.05);
+    }
+    const second = world.events.filter((ev) => ev.e === 'taunt');
+    expect(second.length).toBeGreaterThan(0);
+    const line = second.find((ev) => ev.e === 'taunt' && ev.text.includes('Jusef'));
+    expect(line?.e).toBe('taunt');
+    if (line?.e === 'taunt') {
+      expect(line.text).toContain('Jusef');
+      expect(line.text).toContain('i rossi');
+      expect(line.text).not.toBe(firstText);
+    }
+  });
+
   it('prefers a lite model line and rejects a rambling reply', () => {
     expect(cleanQuip('  "Vyncent, i rossi sono la tua dieta."  ')).toBe('Vyncent, i rossi sono la tua dieta.');
     expect(cleanQuip('http://nope.example')).toBeNull();

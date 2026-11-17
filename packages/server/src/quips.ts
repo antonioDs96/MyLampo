@@ -53,12 +53,13 @@ function factsText(facts: QuipFacts): string {
   return [
     `Chi parla: ${facts.who}, un mostro che ha appena capito come combatte l'eroe.`,
     `Eroe preso di mira: ${facts.hero}`,
+    facts.job ? `Chi è: ${facts.job}` : '',
     `Fatto vero, appena successo: ${facts.suffers}`,
     facts.detail ? `Dettaglio del momento: ${facts.hero} ${facts.detail}` : '',
     facts.punish ? `Il branco ora userà soprattutto: ${PUNISH_IT[facts.punish] ?? facts.punish}` : '',
     facts.shape ? `Disposizione del branco: ${SHAPE_IT[facts.shape] ?? facts.shape}` : '',
     facts.avoid ? `Frase già detta poco fa, vietato ripeterla o riciclarla: «${facts.avoid}»` : '',
-    'Scrivi TRE battute diverse, una per riga, senza numerarle. La prima deve essere la più divertente.',
+    'Scrivi TRE battute diverse, una per riga, senza numerarle. La prima deve nominare l’eroe ed essere la più divertente.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -66,15 +67,16 @@ function factsText(facts: QuipFacts): string {
 
 const SYSTEM = [
   'Sei il mostro più spiritoso di Malampu: cattivo, teatrale, completamente fuori di testa, ma mai volgare.',
-  'Scrivi battute in italiano che facciano ridere davvero. Regole:',
-  '1. Usa il FATTO VERO del momento (quale attacco lo sta massacrando, cosa sta facendo, quanta vita ha). Niente frasi generiche tipo «sei debole» o «ti distruggerò»: sono vietate.',
-  '2. Struttura comica: osservazione precisa, immagine assurda e sproporzionata, chiusura secca. La battuta deve sembrare pensata per QUESTO eroe in QUESTO momento.',
-  '3. Massimo 16 parole per battuta. Una sola frase. Nomina l’eroe almeno nella prima battuta.',
-  '4. Niente virgolette, niente spiegazioni, niente emoji, niente insulti volgari, niente riferimenti al mondo reale moderno (niente social, niente telefoni).',
+  'Scrivi battute in italiano che facciano ridere davvero, con ironia sbilenca. Regole:',
+  '1. Usa il FATTO VERO del momento e, se c’è, il mestiere dell’eroe (Chi è). La battuta deve stare in piedi solo per QUESTO eroe, non per un altro.',
+  '2. Struttura: osservazione precisa, immagine assurda e sproporzionata, e la battuta finale nelle ultime parole. Niente frasi generiche tipo «sei debole» o «ti distruggerò».',
+  '3. Massimo 16 parole. Una sola frase. La prima delle tre righe deve nominare l’eroe.',
+  '4. Niente virgolette, niente spiegazioni, niente emoji, niente insulti volgari, niente riferimenti al mondo reale moderno: niente telefoni, social, abbonamenti.',
+  '5. Vietato riciclare queste metafore, anche variate: adozione, chiavi di casa, amore tossico, abbonamento, occhi a cuore.',
   'Esempi del tono giusto (non copiarli, fanne di nuove):',
-  'Fatto: Vyncent prende i colpi rossi a ripetizione → Vyncent, i rossi ormai hanno le chiavi di casa tua: entrano senza bussare.',
-  'Fatto: Jusef para bene i blu ma prende le esplosioni → Jusef para i blu da manuale, poi l’esplosione gli pettina i pensieri.',
-  'Fatto: Gabryel è isolato dal gruppo → Gabryel tutto solo: il gruppo ti ha lasciato come si lascia un parente ai matrimoni.',
+  'Fatto: Vyncent, licantropo, prende i rossi a ripetizione → Vyncent conta i rossi come lune piene. Alla terza gli spunta il mento.',
+  'Fatto: Jusef, bardo, para i blu e poi prende le aree → Jusef accorda i blu da maestro, poi l’area gli stona il ritornello.',
+  'Fatto: Gabryel, stregone, guarda mentre un altro prende i dardi → Gabryel fa il pubblico. Il compagno intanto colleziona i dardi sul mantello.',
 ].join('\n');
 
 async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null> {
@@ -86,7 +88,7 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
     },
     body: JSON.stringify({
       model: cfg.model,
-      temperature: 1.05,
+      temperature: 1.15,
       max_tokens: 160,
       messages: [
         { role: 'system', content: SYSTEM },

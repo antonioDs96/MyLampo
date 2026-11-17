@@ -53,6 +53,11 @@ const FAMILY_IT: Record<AttackFamily, string> = {
   rush: 'le cariche',
 };
 
+/** Italian name of an attack family, the same words the banner uses. */
+export function familyWordIt(family: AttackFamily): string {
+  return FAMILY_IT[family];
+}
+
 function lineOf(lines: string[], salt: string, avoid = ''): string {
   let h = 0;
   for (let i = 0; i < salt.length; i++) h = (h * 33 + salt.charCodeAt(i)) >>> 0;
@@ -75,44 +80,57 @@ export function tauntLine(args: {
   /** Advances the line so the same observation does not repeat the last sentence. */
   n?: number;
   avoid?: string;
+  /** Someone else is eating the hits while this hero watches. */
+  witness?: { hero: string; family: AttackFamily };
 }): { who: string; text: string } {
   const fam = args.read.family ? FAMILY_IT[args.read.family] : args.punish && args.punish !== 'mix' ? FAMILY_IT[args.punish] : '';
   const stopped = args.read.resisted ? FAMILY_IT[args.read.resisted] : '';
-  const salt = `${args.hero}|${args.tone}|${fam}|${args.shape ?? ''}|${args.n ?? 0}`;
+  const seen = args.witness ? FAMILY_IT[args.witness.family] : '';
+  const salt = `${args.hero}|${args.tone}|${fam}|${seen}|${args.witness?.hero ?? ''}|${args.shape ?? ''}|${args.n ?? 0}`;
   let lines: string[];
   if (fam) {
     lines = [
-      `${args.hero}, ${fam} ti hanno adottato. Io porto solo il bis.`,
-      `${args.hero} e ${fam}: amore tossico, e io faccio da testimone.`,
-      `Oddio ${args.hero}, ancora ${fam}. Il tuo corpo ha l'abbonamento.`,
-      `${args.hero}, ${fam} sono la tua personalità. Io eseguo, ridendo.`,
-      `Aiuto, ${args.hero} colleziona ${fam}. Te li verso tutti.`,
-      `${args.hero} vede ${fam} e fa gli occhi a cuore. Che romanticismo.`,
+      `${args.hero}, ${fam} ti salutano per nome. Tu rispondi col mento.`,
+      `${args.hero} apre la guardia e ${fam} entrano in fila. Educati, crudeli, puntuali.`,
+      `${args.hero} colleziona ${fam} sul viso. Il museo apre a ogni schivata mancata.`,
+      `${args.hero} firma ${fam} uno a uno. L'inchiostro, purtroppo, è il naso.`,
+      `${args.hero} e ${fam} ballano un minuetto. Tu conti i passi con i denti.`,
+      `${args.hero}, ${fam} ti cercano come un debito antico. Paghi, e il resto applaude.`,
     ];
   } else if (stopped) {
     lines = [
-      `${args.hero} ferma ${stopped} come un affronto. Il resto entra in casa.`,
-      `Parata da premio su ${stopped}, ${args.hero}. Il manuale finisce lì.`,
+      `${args.hero} ferma ${stopped} con un inchino. Il resto gli scompiglia la corona.`,
+      `Parata da teatro su ${stopped}, ${args.hero}. Il sipario è il prossimo colpo.`,
+    ];
+  } else if (args.witness) {
+    const other = args.witness.hero;
+    lines = [
+      `${args.hero} fa il pubblico. ${other} intanto firma autografi a ${seen}.`,
+      `${args.hero} tiene il mantello. ${other} intanto offre la faccia a ${seen}.`,
+      `${args.hero} applaude dal bordo. ${other} presta il mento a ${seen}, sorridendo.`,
+      `${args.hero} prende appunti col sangue altrui. ${other} è la pagina, ${seen} la penna.`,
+      `${args.hero} fa il critico di corte. ${other} esegue, e ${seen} dettano la cronaca.`,
+      `${args.hero} guarda e non si sporca. ${other} intanto bacia ${seen} a ripetizione.`,
     ];
   } else if (args.shape === 'surround') {
     lines = [
-      `${args.hero} in mezzo, come una torta. Il cerchio ha già i candelini.`,
-      `Intorno a ${args.hero}. Non è un abbraccio, è un inventario.`,
+      `${args.hero} al centro, torta senza candeline. Il cerchio le porta lui.`,
+      `Intorno a ${args.hero}: non è un ballo, è un inventario con le zanne.`,
     ];
   } else if (args.shape === 'peel') {
     lines = [
-      `Il tank balla col bruto. ${args.hero}, tu sei il dessert.`,
-      `${args.hero} dietro le quinte non è al sicuro. Il bruto tiene la porta.`,
+      `Il tank balla col bruto. ${args.hero}, tu sei il dolce in fondo.`,
+      `${args.hero} crede di stare dietro le quinte. Il bruto tiene il sipario.`,
     ];
   } else if (args.shape === 'hold') {
     lines = [
-      `State larghi, che eleganza. ${args.hero} lo prendiamo dove la parata non arriva.`,
-      `Niente mischia. ${args.hero}, da qui si vede meglio il tuo errore preferito.`,
+      `State larghi, che eleganza. ${args.hero}, la parata da qui è un ricordo.`,
+      `Niente mischia. ${args.hero}, da lontano il tuo errore ha un bel profilo.`,
     ];
   } else {
     lines = [
-      `${args.hero}, vi studiamo e già ridiamo in anticipo.`,
-      `${args.hero}, il vizio non c'è ancora. Quando arriva, festa storta.`,
+      `${args.hero}, vi studiamo e il sorriso arriva prima del colpo.`,
+      `${args.hero}, il vizio non c'è ancora. Quando spunta, facciamo festa storta.`,
     ];
   }
   return { who: args.who, text: lineOf(lines, salt, args.avoid) };

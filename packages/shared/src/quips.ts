@@ -12,6 +12,8 @@ export interface QuipFacts {
   shape: string;
   /** What the hero is doing right now, in plain words. Comic material. */
   detail?: string;
+  /** What this hero is, so the joke is not interchangeable. */
+  job?: string;
   /** Last line already shown. The model should not repeat it. */
   avoid?: string;
 }
