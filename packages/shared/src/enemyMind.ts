@@ -154,6 +154,16 @@ export function sufferRead(marks: { family: AttackFamily; landed: boolean }[]): 
   return { family, resisted };
 }
 
+/** Same read, in Italian and with an image the taunt can steal. */
+export function sufferSentenceIt(name: string, read: SufferRead): string {
+  const fam = read.family ? FAMILY_IT[read.family] : '';
+  const stop = read.resisted ? FAMILY_IT[read.resisted] : '';
+  if (fam && stop) return `${name} prende ${fam} in faccia a ripetizione, però para bene ${stop}`;
+  if (fam) return `${name} prende ${fam} in faccia a ripetizione, non riesce proprio a evitarli`;
+  if (stop) return `${name} para bene ${stop}, tutto il resto gli passa sopra`;
+  return `${name} non ha ancora un punto debole evidente`;
+}
+
 export function sufferSentence(name: string, read: SufferRead): string {
   if (read.family && read.resisted) return `${name} suffers ${read.family} and stops ${read.resisted}. Do more ${read.family}.`;
   if (read.family) return `${name} suffers ${read.family}. Do more of that.`;
