@@ -31,6 +31,7 @@ import { spawnBossRelicChest } from './bossLootSystem';
 import { awardXp, levelFromXp } from './progress';
 import { Act, EState, type HeroId, type InputCmd, type PlayerState } from './types';
 import type { JevAdvisor } from './jevMind';
+import type { QuipWriter } from './quips';
 import { World, type PlayerStats, type WorldOpts } from './world';
 import {
   ALL_HUBS,
@@ -138,11 +139,22 @@ export class GameHost {
   private readonly archive?: GearArchive;
   /** Tactical Jev advisor. Absent when the server has no TypeSafe key. */
   private readonly jev?: JevAdvisor;
+  /** Lite model for enemy one-liners. Absent: the written taunt is used. */
+  private readonly quips?: QuipWriter;
 
-  constructor(io: HostIO, code: string, seed: number, archive?: GearArchive, isPublic = false, jev?: JevAdvisor) {
+  constructor(
+    io: HostIO,
+    code: string,
+    seed: number,
+    archive?: GearArchive,
+    isPublic = false,
+    jev?: JevAdvisor,
+    quips?: QuipWriter,
+  ) {
     this.io = io;
     this.archive = archive;
     this.jev = jev;
+    this.quips = quips;
     this.code = code;
     this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
@@ -580,7 +592,7 @@ export class GameHost {
   /** New room, fresh foe ids: drop cached Jev answers before they latch onto the wrong body. */
   private openWorld(opts: WorldOpts): World {
     this.jev?.reset();
-    return new World({ ...opts, jev: this.jev });
+    return new World({ ...opts, jev: this.jev, quips: this.quips });
   }
 
   private mission(): MissionDef {

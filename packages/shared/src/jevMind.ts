@@ -126,6 +126,8 @@ export interface CaptainAnswer {
   punishConfidence: number;
   shape: RoomOrder['shape'];
   shapeConfidence: number;
+  tone: RoomOrder['tone'];
+  toneConfidence: number;
   elites: JevRawAnswer[];
 }
 
@@ -425,6 +427,7 @@ function accept(sample: JevSample, raw: JevRawAnswer, now: number, minConfidence
 
 const FAMILIES: AttackFamily[] = ['blue', 'red', 'shot', 'blast', 'rush'];
 const SHAPES = ['surround', 'peel', 'hold'] as const;
+const TONES = ['cruel', 'mock', 'dry'] as const;
 
 export function sanitizeRoomBrief(input: unknown): RoomBrief | null {
   if (!input || typeof input !== 'object') return null;
@@ -515,6 +518,15 @@ export function buildCaptainBody(brief: RoomBrief, model: string): {
         hold: 'Ranged foes keep their distance. Do not bunch up.',
       },
     },
+    voice: {
+      type: 'choice',
+      instructions: 'Which tone fits a one-line taunt about how this hero is actually fighting?',
+      criteria: {
+        cruel: 'Cold and pleased. The weakness is obvious and they will press it.',
+        mock: 'A joke. The hero keeps making the same mistake.',
+        dry: 'Flat, like a note in a ledger. No flourish.',
+      },
+    },
   };
   if (brief.heroes.length > 1) {
     const targets: Record<string, string> = {};
@@ -558,6 +570,8 @@ export function readCaptain(brief: RoomBrief, body: unknown): CaptainAnswer {
     punishConfidence: 0,
     shape: null,
     shapeConfidence: 0,
+    tone: null,
+    toneConfidence: 0,
     elites: [],
   };
   if (!body || typeof body !== 'object') return empty;
@@ -567,9 +581,11 @@ export function readCaptain(brief: RoomBrief, body: unknown): CaptainAnswer {
   const focus = readChoice(bag, 'focus');
   const punish = readChoice(bag, 'punish');
   const shape = readChoice(bag, 'shape');
+  const voice = readChoice(bag, 'voice');
   const hero = focus ? brief.heroes.find((h) => h.alias === focus.choice) : undefined;
   const punishChoice = punish?.choice;
   const shapeChoice = shape?.choice;
+  const toneChoice = voice?.choice;
   const elites: JevRawAnswer[] = [];
   for (const elite of brief.elites) {
     const attack = readChoice(bag, `atk_${elite.enemyId}`);
@@ -586,6 +602,8 @@ export function readCaptain(brief: RoomBrief, body: unknown): CaptainAnswer {
     punishConfidence: punish?.confidence ?? 0,
     shape: SHAPES.includes(shapeChoice as (typeof SHAPES)[number]) ? (shapeChoice as RoomOrder['shape']) : null,
     shapeConfidence: shape?.confidence ?? 0,
+    tone: TONES.includes(toneChoice as (typeof TONES)[number]) ? (toneChoice as RoomOrder['tone']) : null,
+    toneConfidence: voice?.confidence ?? 0,
     elites,
   };
 }
@@ -684,7 +702,8 @@ export function createJevAdvisor(opts: JevAdvisorOptions): JevAdvisor {
             const punish = answer.punishConfidence >= minConfidence ? answer.punish : null;
             const shape = answer.shapeConfidence >= minConfidence ? answer.shape : null;
             const focusId = answer.focusConfidence >= minConfidence ? answer.focusId : null;
-            if (punish || shape || focusId) roomOrder = { focusId, punish, shape, until: now + roomTtl };
+            const tone = answer.toneConfidence >= minConfidence ? answer.tone : null;
+            if (punish || shape || focusId || tone) roomOrder = { focusId, punish, shape, tone, until: now + roomTtl };
             for (const elite of brief.elites) {
               const raw = answer.elites.find((row) => row.enemyId === elite.enemyId);
               if (!raw) continue;

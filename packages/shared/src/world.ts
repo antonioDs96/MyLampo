@@ -30,6 +30,7 @@ import {
   steerMode,
   sufferRead,
   sufferSentence,
+  tauntLine,
   type AttackFamily,
   type HunterView,
   type MindHint,
@@ -38,6 +39,7 @@ import {
   type SufferRead,
 } from './enemyMind';
 import { jevEligible, legalAttackSnaps, type JevAdvisor, type RoomBrief } from './jevMind';
+import type { QuipFacts, QuipWriter } from './quips';
 import { HEROES, type AttackDef } from './heroes';
 import { getItem, rollDice } from './itemsCatalog';
 import {
@@ -186,6 +188,8 @@ export interface WorldOpts {
    * Peek is synchronous; the advisor never blocks a tick.
    */
   jev?: JevAdvisor;
+  /** Optional lite model for one-line taunts. Absent: the written line is used at once. */
+  quips?: QuipWriter;
 }
 
 const tmp: Point = { x: 0, z: 0 };
@@ -197,6 +201,7 @@ export class World {
   readonly pvp: boolean;
   readonly noRevive: boolean;
   readonly jev?: JevAdvisor;
+  readonly quips?: QuipWriter;
   time = 0;
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
@@ -250,6 +255,10 @@ export class World {
   private readonly suffer = new Map<string, { t: number; family: AttackFamily; landed: boolean }[]>();
   /** Colour of the swing this foe committed last. */
   private readonly lastSwing = new Map<number, 'blue' | 'red'>();
+  private lastTauntKey = '';
+  private lastTauntAt = -99;
+  /** Holds the written line until a lite model answers, or the wait runs out. */
+  private waitingQuip: { key: string; since: number; who: string; text: string } | null = null;
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
@@ -260,6 +269,7 @@ export class World {
     this.pvp = !!opts.pvp;
     this.noRevive = !!opts.noRevive;
     this.jev = opts.jev;
+    this.quips = opts.quips;
     this.waves = opts.waves ?? [];
     this.ctx = { layout: this.layout, enemies: this.lite, allies: this.allies };
     if (this.waves.length > 0) {
@@ -2012,6 +2022,64 @@ export class World {
     this.jev.noteRoom(brief);
   }
 
+  private emitTaunt(who: string, text: string): void {
+    this.lastTauntAt = this.time;
+    this.events.push({ e: 'taunt', who, text });
+  }
+
+  /** One banner when the read, or Jev's order, actually changes. */
+  private maybeTaunt(): void {
+    if (this.waitingQuip) {
+      const ready = this.quips?.take(this.waitingQuip.key);
+      if (ready) {
+        this.emitTaunt(this.waitingQuip.who, ready);
+        this.waitingQuip = null;
+        return;
+      }
+      if (!this.quips || this.time - this.waitingQuip.since >= 0.8) {
+        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text);
+        this.waitingQuip = null;
+      }
+      return;
+    }
+    if (this.safe || this.time - this.lastTauntAt < 8) return;
+    const order = this.roomOrder();
+    const focus = order?.focusId ? this.players.get(order.focusId) : undefined;
+    const prey = focus && focus.act !== Act.Downed ? focus : this.alivePrey()[0];
+    if (!prey) return;
+    const read = sufferRead((this.suffer.get(prey.id) ?? []).filter((mark) => this.time - mark.t <= 6));
+    if (!order && !read.family && !read.resisted) return;
+    const key = order
+      ? `${order.focusId}|${order.punish}|${order.shape}|${order.tone}|${read.family}|${read.resisted}`
+      : `local|${prey.id}|${read.family}|${read.resisted}`;
+    if (key === this.lastTauntKey) return;
+    const elite = this.enemies.find((e) => e.state !== EState.Dead && jevEligible(ENEMIES[e.type]));
+    const line = tauntLine({
+      who: elite ? ENEMIES[elite.type].name : 'Il branco',
+      hero: HEROES[prey.hero].short,
+      read,
+      punish: order?.punish ?? null,
+      shape: order?.shape ?? null,
+      tone: order?.tone ?? 'mock',
+    });
+    this.lastTauntKey = key;
+    if (!this.quips) {
+      this.emitTaunt(line.who, line.text);
+      return;
+    }
+    const facts: QuipFacts = {
+      key,
+      who: line.who,
+      hero: HEROES[prey.hero].short,
+      tone: order?.tone ?? 'mock',
+      suffers: sufferSentence(HEROES[prey.hero].short, read),
+      punish: order?.punish && order.punish !== 'mix' ? order.punish : read.family,
+      shape: order?.shape ?? '',
+    };
+    this.quips.ask(facts);
+    this.waitingQuip = { key, since: this.time, who: line.who, text: line.text };
+  }
+
   private stepEnemy(e: EnemyState, dt: number): void {
     const def = ENEMIES[e.type];
     let frozen = false;
@@ -2732,6 +2800,7 @@ export class World {
     this.stepHeroRegen(dt);
     this.noteCaptain();
     this.jev?.pump(this.time);
+    this.maybeTaunt();
     if (this.enemies.some((e) => e.state === EState.Dead && e.t > CORPSE_TIME)) {
       this.enemies = this.enemies.filter((e) => !(e.state === EState.Dead && e.t > CORPSE_TIME));
     }

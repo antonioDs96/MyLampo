@@ -915,6 +915,10 @@ export class Game {
       case 'say':
         this.hud.say(ev.who, ev.text);
         break;
+      case 'taunt':
+        this.hud.banner(ev.who, ev.text, 3.6);
+        this.hud.say(ev.who, ev.text);
+        break;
       case 'hint':
         this.hud.hint(ev.text);
         break;

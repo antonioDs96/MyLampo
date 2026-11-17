@@ -6,6 +6,7 @@ export * from './arcadeKits';
 export * from './enemies';
 export * from './enemyMind';
 export * from './jevMind';
+export * from './quips';
 export * from './layout';
 export * from './missions';
 export * from './lore';
