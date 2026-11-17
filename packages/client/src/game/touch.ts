@@ -46,7 +46,7 @@ export function prefersTouchLayout(): boolean {
 
 /**
  * On-screen controls: a movement stick on the left, action buttons on the right,
- * and a drag anywhere else to orbit the camera.
+ * and a sideways drag anywhere else to turn the camera around the hero.
  */
 export class TouchControls {
   readonly root: HTMLElement;
@@ -73,6 +73,7 @@ export class TouchControls {
 
   onPause: () => void = () => {};
   onSheet: () => void = () => {};
+  onPing: () => void = () => {};
   /** Fires when the controls become visible or hide. */
   onLayout: (shown: boolean) => void = () => {};
 
@@ -102,7 +103,8 @@ export class TouchControls {
       'div',
       { class: 'touch-util' },
       this.utilButton('Pausa', 'Pausa e comandi', () => this.onPause()),
-      this.utilButton('Scheda', 'Scheda del personaggio', () => this.onSheet()),
+      this.utilButton('Scheda', "Scheda dell'eroe", () => this.onSheet()),
+      this.utilButton('Segnala', 'Segnala un punto alla Compagnia', () => this.onPing()),
     );
 
     this.root = h('div', { class: 'touch-root hidden' }, this.look, this.zone, cluster, util);
@@ -205,7 +207,7 @@ export class TouchControls {
     this.zone.addEventListener('pointerdown', (e) => {
       if (!this._shown || this.stickId !== null || e.button !== 0) return;
       const target = e.target as Element | null;
-      if (target?.closest('button, a, input, .belt-slot, .level-card')) return;
+      if (target?.closest('button, a, input')) return;
       this.stickId = e.pointerId;
       this.base.classList.add('live');
       const rect = this.zone.getBoundingClientRect();
