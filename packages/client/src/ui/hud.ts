@@ -1,4 +1,4 @@
-import { Act, HEROES, PS, TICK_HZ, TUNING, type HeroDef, type PlayerState, type VoteChoice } from '@malampu/shared';
+import { Act, HEROES, PS, TICK_HZ, TUNING, dodgePlan, type HeroDef, type PlayerState, type VoteChoice } from '@malampu/shared';
 import { h, portrait } from './dom';
 
 /** What the Choice Terminal shows. */
@@ -219,8 +219,7 @@ export class Hud {
     this.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${Math.ceil(p.maxHp || hero.hp)}`;
     this.stFill.style.transform = `scaleX(${Math.max(0, p.stamina / (p.maxStamina || hero.stamina))})`;
     this.stFill.classList.toggle('low', p.stamina < hero.dodge.cost);
-    const tp = hero.dodge.teleport;
-    const teleportReady = !!tp && p.dodgeCd <= 0 && p.stamina >= tp.cost;
+    const teleportReady = dodgePlan(p, hero).charged;
     this.stFill.classList.toggle('charged', teleportReady || hero.dodge.kind === 'blink');
     this.ultFill.style.transform = `scaleX(${Math.min(1, p.ult / 100)})`;
     const fury = Math.max(0, Math.min(1, p.fury / TUNING.furyMax));
@@ -416,6 +415,15 @@ export class Hud {
   setDowned(text: string | null): void {
     this.downedBox.classList.toggle('hidden', !text);
     if (text && this.downedBox.textContent !== text) this.downedBox.textContent = text;
+  }
+
+  /** The vigour bar jolts when an action is refused for lack of it. */
+  staminaDenied(): void {
+    const bar = this.stFill.parentElement;
+    if (!bar) return;
+    bar.classList.remove('denied');
+    void bar.offsetWidth;
+    bar.classList.add('denied');
   }
 
   callout(text: string, cls = ''): void {

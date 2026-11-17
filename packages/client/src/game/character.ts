@@ -23,6 +23,7 @@ import {
   type PlayerState,
 } from '@malampu/shared';
 import type { Assets, CharTemplate } from './assets';
+import { attackClipTime } from './attackClip';
 import { CLIP_FALLBACK, type Look, type RGB } from './looks';
 
 const BODY_PART = /_(ArmLeft|ArmRight|Body|Head|Head_Hooded|LegLeft|LegRight|Eyes|Jaw|Skull)$/;
@@ -558,17 +559,6 @@ export function posePlayer(view: CharacterView, p: PlayerState, dt: number, opts
   }
 }
 
-/** Clip time for an enemy attack: a stretched anticipation, then the swing in real time. */
-export function attackClipTime(animStart: number, impact: number, windup: number, t: number): number {
-  const swing = Math.min(0.16, impact - animStart, windup);
-  const lead = windup - swing;
-  if (t < lead) {
-    const u = lead > 0 ? t / lead : 1;
-    return animStart + (impact - swing - animStart) * (u * u * (3 - 2 * u));
-  }
-  return impact - (windup - t);
-}
-
 export function poseEnemy(view: CharacterView, e: EnemySnap, def: EnemyDef, dt: number, frozen: boolean): void {
   if (frozen) return;
   const look = view.look;
@@ -579,14 +569,13 @@ export function poseEnemy(view: CharacterView, e: EnemySnap, def: EnemyDef, dt: 
     case EState.Windup: {
       const a = def.attacks[e.atk];
       if (!a) break;
-      view.play(a.anim, attackClipTime(a.animStart, a.impact, a.windup, e.t), false);
+      view.play(a.anim, attackClipTime(a.animStart, a.impact, a.windup, e.t, a.extraHits, a.hitGap), false);
       break;
     }
     case EState.Recover: {
       const a = def.attacks[e.atk];
       if (!a) break;
-      const extra = (a.extraHits ?? 0) * (a.hitGap ?? 0);
-      const time = a.impact + extra + e.t;
+      const time = a.impact + e.t;
       if (time < view.duration(a.anim) - 0.05) view.play(a.anim, time, false);
       else locomotionEnemy(view, look, def, dt);
       break;

@@ -147,6 +147,13 @@ export interface InputCmd {
   aim: number;
   /** Locked enemy id, 0 when none. */
   lock: number;
+  /**
+   * Server clock (ms) the client was showing when it produced this command, 0 when unknown.
+   * It tells the server what the player had seen, so a dodge or a parry is judged against
+   * the picture on their screen instead of an estimate of their lag. Filled in by the host
+   * from the input message; it does not travel inside the packed command.
+   */
+  vt?: number;
 }
 
 export interface PlayerState {

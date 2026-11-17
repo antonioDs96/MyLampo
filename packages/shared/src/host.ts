@@ -242,7 +242,12 @@ export class GameHost {
     switch (msg.t) {
       case 'i': {
         const cmds = unpackCmds(msg.c);
-        for (const cmd of cmds) c.queue.push(cmd);
+        const seen = Number(msg.v);
+        const vt = Number.isFinite(seen) && seen > 0 ? seen : 0;
+        for (const cmd of cmds) {
+          cmd.vt = vt;
+          c.queue.push(cmd);
+        }
         if (c.queue.length > MAX_QUEUE) c.queue.splice(0, c.queue.length - STEPS_PER_TICK * 4);
         break;
       }
@@ -822,6 +827,7 @@ export class GameHost {
   private tick(): void {
     this.clock += TICK_MS;
     const world = this.world;
+    world.clock = this.clock;
     for (const c of this.clients.values()) {
       if (!world.players.has(c.id)) {
         c.queue.length = 0;
