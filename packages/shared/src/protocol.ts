@@ -1,29 +1,85 @@
+import type { BountyVerdict } from './bounties';
+import type { CityId, Stage } from './campaign';
+import type { Loadout } from './cosmetics';
+import type { Purse } from './economy';
 import { ENEMY_IDS } from './enemies';
+import type { Profile } from './profile';
 import type { PlayerStats } from './world';
-import { ES, type EnemyState, type EnemyTypeId, type GameEvent, type HeroId, type InputCmd, type PlayerState, type Projectile, type Zone } from './types';
+import { ES, type EnemyState, type EnemyTypeId, type GameEvent, type HeroId, type InputCmd, type PingKind, type PlayerState, type Projectile, type Zone } from './types';
 
-export type Phase = 'hub' | 'mission' | 'victory' | 'defeat';
+/**
+ * select: the 3D Hero Selection screen, until the whole lobby confirms.
+ * hub: La Taverna di Carl.
+ * run: an Environment, a City Boss arena or the Region Boss.
+ */
+export type Phase = 'select' | 'hub' | 'run';
 
 export interface LobbyPlayer {
   id: string;
   name: string;
   hero: HeroId | '';
-  /** Level of the currently selected hero (1 if none). */
-  level: number;
-  /** Total XP on the selected hero. */
-  xp: number;
+  /** Pressed "Conferma Pronto" on the Hero Selection screen. */
+  ready: boolean;
+  /** Stable index 0..8: the colour of this player on the radar and on pointers. */
+  slot: number;
+  look: Loadout;
+  /** Title text bought from Saraya ('' = none). */
+  title: string;
 }
 
-export interface LobbyContract {
-  id: string;
-  kind: string;
+export type VoteChoice = 'extract' | 'continue';
+
+/** The Choice Terminal at the Extraction Portal. Both outcomes need unanimity. */
+export interface VoteState {
+  /** Who opened the portal. */
+  by: string;
+  votes: Record<string, VoteChoice | ''>;
+  /** Label of the stage "Go on" leads to. */
+  next: string;
+  /** Fervor bonus (0..1) the next stage would carry. */
+  nextFervor: number;
+}
+
+export interface RunState {
+  stage: Stage;
+  label: string;
   name: string;
-  brief: string;
-  danger: number;
-  rewardHint: string;
-  biome: string;
-  hubId: string;
-  missionSeed: string;
+  /** Consecutive stages entered without saving. */
+  streak: number;
+  /** Fervor loot bonus of the current stage (0..1). */
+  fervor: number;
+  /** Company drop-rate bonus (0..0.3). */
+  company: number;
+  bounty: string;
+  bountyState: BountyVerdict;
+}
+
+export type ReportKind = 'extract' | 'wipe' | 'city' | 'region';
+
+/** Shown in the hub after an expedition ends. */
+export interface RunReport {
+  /** Increments with every report, so a client shows each one once. */
+  n: number;
+  kind: ReportKind;
+  label: string;
+  /** What each player put in the bank. */
+  banked: Record<string, Purse>;
+  /** What the Death Tax burned for each player. */
+  taxed: Record<string, Purse>;
+  /** Contract paid at extraction ('' = none). */
+  bounty: string;
+  bountyPaid: number;
+  stats: Record<string, PlayerStats>;
+}
+
+/** What the Map Table offers, from the Host's profile. */
+export interface TableState {
+  checkpoint: Partial<Record<CityId, number>>;
+  cleared: CityId[];
+  regionBoss: boolean;
+  regionCleared: boolean;
+  bounties: boolean;
+  bounty: string;
 }
 
 export interface LobbyState {
@@ -32,40 +88,22 @@ export interface LobbyState {
   /** True when anyone may walk in without a private code. */
   public: boolean;
   phase: Phase;
-  mission: string;
-  stage: number;
   players: LobbyPlayer[];
-  stats: Record<string, PlayerStats>;
-  /** XP gained this run per player (set on victory/defeat). */
-  xpGain: Record<string, number>;
-  /** Active regional hub (mur | badiscar | sanarica). */
-  hubId?: string;
-  /** Procedural contracts on the board [F]. */
-  contracts?: LobbyContract[];
-  /** Selected procedural contract id (if any). */
-  contractId?: string;
-  /** Objective HUD line for procedural runs. */
-  objective?: string;
+  table: TableState;
+  run: RunState | null;
+  vote: VoteState | null;
+  report: RunReport | null;
 }
 
 export interface WorldInfo {
   /** Increments every time the world is rebuilt. */
   wid: number;
-  kind: 'hub' | 'mission';
+  kind: 'hub' | 'run';
   layoutId: string;
-  mission: string;
-  stage: number;
-  stages: number;
   title: string;
-  /** The map changed shape around the players instead of moving them. */
-  mutation: boolean;
-  /** Deterministic procedural seed (clients rebuild the same ZoneMap). */
-  missionSeed?: string;
-  hubId?: string;
-  biome?: string;
-  /** Procedural mission kind. */
-  contractKind?: string;
-  zoneIndex?: number;
+  /** "Badiscar · Ambiente 2 di 3" */
+  label: string;
+  blurb: string;
 }
 
 export interface EnemySnap {
@@ -109,26 +147,6 @@ export interface ZoneSnap {
   dur: number;
 }
 
-export interface WaveInfo {
-  n: number;
-  of: number;
-  left: number;
-  state: string;
-}
-
-export interface LootSnap {
-  dropId: string;
-  kind: string;
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  amount: number;
-  gem?: string;
-  itemId?: string;
-  rarity?: string;
-}
-
 export interface Snapshot {
   w: number;
   /** Server clock in ms. */
@@ -139,60 +157,56 @@ export interface Snapshot {
   e: number[][];
   pr: ProjSnap[];
   z: ZoneSnap[];
+  /** Public events. Instanced loot travels in the private `mine` message. */
   ev: GameEvent[];
-  wave: WaveInfo;
-  /** Ground loot (gems, coins, equipment orbs). */
-  loot?: LootSnap[];
+  /** State of every point of interest, in layout order (0 locked, 1 ready, 2 used). */
+  poi: number[];
+  /** Highest flooded elevation. */
+  flood: number;
+  /** Synergy buffs active on the party. */
+  syn: string[];
+  /** Living foes. */
+  left: number;
+  /** Seconds since this map started. */
+  time: number;
 }
 
 export type ClientMsg =
   | { t: 'i'; c: number[] }
+  /** Hero Selection: highlight a hero ('' releases it). */
   | { t: 'hero'; hero: string }
-  | { t: 'mission'; id: string }
-  | { t: 'start' }
-  | { t: 'retry' }
-  | { t: 'hub' }
-  | { t: 'ping'; at: number }
-  | { t: 'rtt'; ms: number }
-  /** Sync local hero XP book (heroId → total xp). */
-  | { t: 'progress'; xp: Record<string, number> }
-  /** Name the server-side profile whose hero sheets should be loaded. */
+  /** Hero Selection: "Conferma Pronto" (or take it back). */
+  | { t: 'ready'; on: boolean }
+  /** Hub: go back to the Hero Selection screen. */
+  | { t: 'reselect' }
+  /** Map Table (Host only): start a City run or dare the Region Boss. */
+  | { t: 'run'; city: string }
+  /** Choice Terminal. */
+  | { t: 'vote'; choice: string }
+  /** Ping system: mark a spot in the world and on the radar. */
+  | { t: 'mark'; kind: PingKind; x: number; z: number }
+  /** Iej. */
+  | { t: 'tree'; op: 'buy' | 'respec'; slot: string; path?: string }
+  /** Saraya. */
+  | { t: 'cosm'; op: 'buy' | 'equip'; id: string; slot?: string }
+  /** Eleonora (Host only). An empty id tears the contract up. */
+  | { t: 'bounty'; id: string }
+  /** Name the server-side profile to load. */
   | { t: 'profile'; id: string }
-  /** Use consumable in belt slot 0–3. */
-  | { t: 'useBelt'; slot: number }
-  /** Pick Megabonk level-up card 0–2. */
-  | { t: 'pickCard'; index: number }
-  /** Spend one ASI point into an ability. */
-  | { t: 'asi'; ability: string }
-  /** Inventory actions from the character sheet. */
-  | { t: 'inv'; op: 'equip' | 'salvage' | 'belt'; uid: string; slot?: number }
-  /** Switch regional hub (mur | badiscar | sanarica). */
-  | { t: 'hubSelect'; hubId: string }
-  /** Select a procedural contract from the board. */
-  | { t: 'contract'; id: string }
-  /** Start the elevation dungeon for a map region (mur, jugianel, badiscar, …). */
-  | { t: 'dungeon'; region: string }
-  /** Capture/tramortire prompt [F] on a capture quest. */
-  | { t: 'capture' };
+  | { t: 'ping'; at: number }
+  | { t: 'rtt'; ms: number };
 
 export type ServerMsg =
   | { t: 'welcome'; id: string }
   | { t: 'lobby'; s: LobbyState }
   | { t: 'world'; w: WorldInfo }
   | { t: 'snap'; s: Snapshot }
+  /** Private: instanced loot events and the unbanked satchel of this player. */
+  | { t: 'mine'; ev: GameEvent[]; sat: Purse }
+  /** Private: the permanent profile of this player. */
+  | { t: 'profile'; p: Profile }
   | { t: 'pong'; at: number }
-  | { t: 'error'; text: string }
-  | {
-      t: 'xp';
-      id: string;
-      hero: HeroId;
-      gained: number;
-      xp: number;
-      level: number;
-      prevLevel: number;
-    }
-  /** Full inventory sync for a player (sheet / belt / PE). */
-  | { t: 'inv'; id: string; inv: unknown };
+  | { t: 'error'; text: string };
 
 const CMD_FIELDS = 6;
 

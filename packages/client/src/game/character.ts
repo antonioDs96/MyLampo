@@ -552,6 +552,7 @@ export function posePlayer(view: CharacterView, p: PlayerState, dt: number, opts
       view.play('Death_A', t, false);
       break;
     case Act.Revive:
+    case Act.Channel:
       view.play('Interact', t, true);
       break;
   }

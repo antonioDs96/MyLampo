@@ -1,0 +1,172 @@
+import { describe, expect, it } from 'vitest';
+import {
+  allStageLayouts,
+  assemble,
+  canStep,
+  cellElevation,
+  CHUNK_IDS,
+  CHUNK_W,
+  CHUNKS,
+  CITIES,
+  CITY_IDS,
+  ELEV_WALL,
+  ENEMIES,
+  HUB_LAYOUT,
+  NODE_ORDER,
+  parseLayout,
+  REGION,
+  CELL,
+  type Layout,
+} from '../src';
+
+/** Cells reachable on foot from the first hero spawn, stepping at most one terrace at a time. */
+function reach(layout: Layout): Set<number> {
+  const s = layout.playerSpawns[0]!;
+  const start = Math.floor(s.z / CELL) * layout.w + Math.floor(s.x / CELL);
+  const seen = new Set<number>([start]);
+  const queue = [start];
+  while (queue.length) {
+    const at = queue.pop()!;
+    const cx = at % layout.w;
+    const cz = Math.floor(at / layout.w);
+    const here = cellElevation(layout, cx, cz);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (nx < 0 || nz < 0 || nx >= layout.w || nz >= layout.h) continue;
+      const to = cellElevation(layout, nx, nz);
+      if (to === ELEV_WALL || !canStep(here, to)) continue;
+      const k = nz * layout.w + nx;
+      if (!seen.has(k)) {
+        seen.add(k);
+        queue.push(k);
+      }
+    }
+  }
+  return seen;
+}
+
+function cellOf(layout: Layout, x: number, z: number): number {
+  return Math.floor(z / CELL) * layout.w + Math.floor(x / CELL);
+}
+
+function elevAt(layout: Layout, x: number, z: number): number {
+  return cellElevation(layout, Math.floor(x / CELL), Math.floor(z / CELL));
+}
+
+describe('micro-chunks', () => {
+  it('every chunk has rows of the shared width', () => {
+    for (const id of CHUNK_IDS) {
+      for (const row of CHUNKS[id]!.rows) expect(row.length, `${id}: "${row}"`).toBe(CHUNK_W);
+    }
+  });
+
+  it('assemble stacks chunks top to bottom and records the tension nodes', () => {
+    const built = assemble(['molo', 'ponte_rotto', 'bivio_scala', 'assedio_bastioni', 'arena_tonda']);
+    expect(built.nodes.map((n) => n.kind)).toEqual(NODE_ORDER);
+    expect(built.rows.length).toBe(built.nodes.reduce((n, s) => n + s.rows, 0));
+  });
+
+  it('a trailing ~ mirrors the chunk', () => {
+    const plain = assemble(['bivio_torre']).rows;
+    const flipped = assemble(['bivio_torre~']).rows;
+    expect(flipped).toEqual(plain.map((r) => [...r].reverse().join('')));
+  });
+
+  it('rejects unknown chunks', () => {
+    expect(() => assemble(['nope'])).toThrow();
+  });
+});
+
+describe('campaign geography', () => {
+  it('the Costa Est has three cities of three Environments and a City Boss each', () => {
+    expect(REGION.cities).toEqual(CITY_IDS);
+    for (const id of CITY_IDS) {
+      const city = CITIES[id];
+      expect(city.environments.length).toBe(3);
+      expect(ENEMIES[city.boss.boss].rank).toBe('city');
+      for (const env of city.environments) {
+        expect(env.nodes.map((n) => n.kind)).toEqual(NODE_ORDER);
+        expect(ENEMIES[env.miniBoss].rank).toBe('mini');
+      }
+    }
+    expect(ENEMIES[REGION.boss.boss].rank).toBe('region');
+  });
+
+  it('maps are fixed: parsing twice gives the same garrison', () => {
+    const def = CITIES.badiscar.environments[0]!.layout;
+    const a = parseLayout(def);
+    const b = parseLayout(def);
+    expect(a.placed).toEqual(b.placed);
+    expect(a.pois).toEqual(b.pois);
+  });
+
+  for (const def of allStageLayouts()) {
+    it(`${def.id}: rectangular, nine spawns, everything reachable`, () => {
+      const w = def.rows[0]!.length;
+      for (const row of def.rows) expect(row.length, row).toBe(w);
+      const layout = parseLayout(def);
+      expect(layout.playerSpawns.length).toBeGreaterThanOrEqual(9);
+      const seen = reach(layout);
+      for (const s of layout.playerSpawns) expect(seen.has(cellOf(layout, s.x, s.z)), 'spawn').toBe(true);
+      for (const p of layout.pois) expect(seen.has(cellOf(layout, p.x, p.z)), `${p.kind} ${p.id}`).toBe(true);
+      for (const f of layout.placed) expect(seen.has(cellOf(layout, f.x, f.z)), `foe ${f.type}`).toBe(true);
+      for (const f of layout.shadows) expect(seen.has(cellOf(layout, f.x, f.z)), `shadow ${f.type}`).toBe(true);
+      for (const n of layout.npcs) expect(seen.has(cellOf(layout, n.x, n.z)), `npc ${n.id}`).toBe(true);
+    });
+  }
+
+  for (const id of CITY_IDS) {
+    for (const env of CITIES[id].environments) {
+      it(`${env.id}: safe landing, shrine in a basin, chest on the heights, portal behind the Mini-Boss`, () => {
+        const layout = parseLayout(env.layout);
+        const kinds = layout.pois.map((p) => p.kind);
+        expect(kinds.filter((k) => k === 'portal').length).toBe(1);
+        expect(kinds.filter((k) => k === 'shrine').length).toBeGreaterThanOrEqual(1);
+        expect(kinds.filter((k) => k === 'chest').length).toBeGreaterThanOrEqual(1);
+        for (const p of layout.pois) {
+          if (p.kind === 'shrine') expect(elevAt(layout, p.x, p.z)).toBe(-1);
+          if (p.kind === 'chest') expect(elevAt(layout, p.x, p.z)).toBe(2);
+        }
+        // L'Approdo: elevation 0, and nothing hostile in it.
+        const approdo = env.nodes[0]!;
+        const end = (approdo.row + approdo.rows) * CELL;
+        for (const s of layout.playerSpawns) expect(elevAt(layout, s.x, s.z)).toBe(0);
+        for (const f of layout.placed) expect(f.z).toBeGreaterThan(end);
+        for (const f of layout.shadows) expect(f.z).toBeGreaterThan(end);
+        // Exactly one Mini-Boss, standing in the last node.
+        const bosses = layout.placed.filter((f) => f.type === env.miniBoss);
+        expect(bosses.length).toBe(1);
+        const last = env.nodes[env.nodes.length - 1]!;
+        expect(bosses[0]!.z).toBeGreaterThan(last.row * CELL);
+        // Shadow spawn points exist for companies larger than four.
+        expect(layout.shadows.length).toBeGreaterThanOrEqual(6);
+      });
+    }
+  }
+
+  it('boss arenas place exactly their boss and no portal', () => {
+    const arenas = [...CITY_IDS.map((c) => CITIES[c].boss), REGION.boss];
+    for (const a of arenas) {
+      const layout = parseLayout(a.layout);
+      expect(layout.placed.map((f) => f.type)).toEqual([a.boss]);
+      expect(layout.pois.length).toBe(0);
+    }
+  });
+
+  it('the Leviathan arena has dry platforms above both flood levels', () => {
+    const layout = parseLayout(REGION.boss.layout);
+    let high = 0;
+    for (let cz = 0; cz < layout.h; cz++) {
+      for (let cx = 0; cx < layout.w; cx++) if (cellElevation(layout, cx, cz) === 2) high++;
+    }
+    expect(high).toBeGreaterThanOrEqual(24);
+  });
+
+  it('the tavern hosts Carl, Iej, Saraya, Eleonora and no enemies', () => {
+    const layout = parseLayout(HUB_LAYOUT);
+    expect(layout.npcs.map((n) => n.id).sort()).toEqual(['carl', 'eleonora', 'iej', 'saraya']);
+    expect(layout.placed.length).toBe(0);
+    expect(layout.dummySpawns.length).toBe(2);
+  });
+});

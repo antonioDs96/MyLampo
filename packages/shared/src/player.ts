@@ -6,7 +6,7 @@ import { DT, TICK_HZ, TUNING } from './constants';
 import { HEROES, type AbilityDef, type AttackDef, type HeroDef } from './heroes';
 import { collide, standElevation, type Layout, type Point } from './layout';
 import { angleDiff, approachAngle, clamp, yawOf } from './math';
-import { isMonolithSilenceAt, moveSpeedMulAt } from './proceduralBiomes';
+import { statIframeBonus, statSpeedMul } from './stats';
 import { Act, Btn, PS, type HeroId, type InputCmd, type PlayerState, type Status } from './types';
 
 export interface EnemyLite {
@@ -27,10 +27,21 @@ export interface AllyLite {
   downed: boolean;
 }
 
+/** A point of interest a hero can channel on: Synergy Chest, Healing Shrine, Extraction Portal. */
+export interface PoiLite {
+  id: number;
+  kind: 'chest' | 'shrine' | 'portal';
+  x: number;
+  z: number;
+  /** Can be channelled right now. */
+  ready: boolean;
+}
+
 export interface StepCtx {
   layout: Layout;
   enemies: EnemyLite[];
   allies: AllyLite[];
+  pois: PoiLite[];
 }
 
 export type PlayerEvent =
@@ -46,6 +57,8 @@ export type PlayerEvent =
   | { type: 'execStart'; target: number }
   | { type: 'execute'; target: number }
   | { type: 'revive'; target: string }
+  | { type: 'channel'; poi: number }
+  | { type: 'poi'; poi: number }
   | { type: 'fail'; why: 'stamina' | 'cooldown' | 'silence' | 'ult' };
 
 const T = (s: number): number => s * TICK_HZ;
@@ -76,6 +89,9 @@ export function newPlayer(
     maxStamina: stamina,
     dmgMul: vitals?.dmgMul ?? 1,
     ult: 0,
+    cdMul: 1,
+    ultMul: 1,
+    fury: 0,
     act: Act.Idle,
     t: 0,
     combo: 0,
@@ -164,9 +180,9 @@ function findEnemy(ctx: StepCtx, id: number): EnemyLite | undefined {
 function pickTarget(p: PlayerState, hero: HeroDef, def: AttackDef | null, cmd: InputCmd, ctx: StepCtx, reach: number): number {
   const lock = findEnemy(ctx, cmd.lock);
   if (lock) return lock.id;
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
   const ranged = hero.ranged && (!def || !!def.proj || def.charged === 'pull');
-  const want = ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
+  // Top-down: every hero strikes where the player aims (the cursor, or the stick).
+  const want = cmd.aim;
   let best = 0;
   let bestScore = Infinity;
   for (const e of ctx.enemies) {
@@ -221,9 +237,7 @@ function startAttack(p: PlayerState, hero: HeroDef, heavy: boolean, cmd: InputCm
   p.combo = combo;
   setAct(p, heavy ? Act.Heavy : Act.Attack);
   p.tgt = pickTarget(p, hero, def, cmd, ctx, def.proj ? def.proj.range : def.range + def.lunge + 3);
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  const fallback = hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
-  faceTarget(p, ctx, fallback, Math.PI * 2);
+  faceTarget(p, ctx, cmd.aim, Math.PI * 2);
 
   if (heavy && def.charged === 'behind' && p.charge >= 1) {
     const e = findEnemy(ctx, p.tgt);
@@ -273,13 +287,15 @@ export function dodgePlan(p: PlayerState, hero: HeroDef): {
   const d = hero.dodge;
   const tp = d.teleport;
   const charged = !!tp && d.kind !== 'blink' && p.dodgeCd <= 0 && p.stamina >= tp.cost;
+  // Destrezza stretches the invulnerability window of every dodge.
+  const extra = statIframeBonus(hero.id);
   if (d.kind === 'blink') {
-    return { blink: true, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd, charged: false };
+    return { blink: true, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd + extra, charged: false };
   }
   if (charged && tp) {
-    return { blink: true, cost: tp.cost, dist: tp.dist, dur: tp.dur, iEnd: tp.dur, charged: true };
+    return { blink: true, cost: tp.cost, dist: tp.dist, dur: tp.dur, iEnd: tp.dur + extra, charged: true };
   }
-  return { blink: false, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd, charged: false };
+  return { blink: false, cost: d.cost, dist: d.dist, dur: d.dur, iEnd: d.iEnd + extra, charged: false };
 }
 
 function blinkAlong(p: PlayerState, ctx: StepCtx, dist: number): void {
@@ -344,14 +360,13 @@ function startAbility(p: PlayerState, hero: HeroDef, ult: boolean, silenced: boo
       ev.push({ type: 'fail', why: 'cooldown' });
       return false;
     }
-    p.cd = T(hero.ability.cd);
+    p.cd = T(hero.ability.cd) * p.cdMul;
     if (hero.ability.dash) p.iframes = Math.max(p.iframes, T(hero.ability.castAt));
   }
   setAct(p, ult ? Act.Ult : Act.Ability);
   p.combo = 0;
   p.tgt = pickTarget(p, hero, null, cmd, ctx, hero.ranged ? 40 : 14);
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  faceTarget(p, ctx, hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw, Math.PI * 2);
+  faceTarget(p, ctx, cmd.aim, Math.PI * 2);
   ev.push({ type: 'abilityStart', ult });
   return true;
 }
@@ -388,6 +403,39 @@ function startRevive(p: PlayerState, ctx: StepCtx): boolean {
   return false;
 }
 
+export function channelTime(kind: PoiLite['kind']): number {
+  return kind === 'chest' ? TUNING.chestChannel : kind === 'shrine' ? TUNING.shrineChannel : TUNING.portalChannel;
+}
+
+function nearPoi(p: PlayerState, ctx: StepCtx, slack = 0): PoiLite | undefined {
+  let best: PoiLite | undefined;
+  let bestD: number = TUNING.interactRange + slack;
+  for (const poi of ctx.pois) {
+    if (!poi.ready) continue;
+    const d = Math.hypot(poi.x - p.x, poi.z - p.z);
+    if (d <= bestD) {
+      bestD = d;
+      best = poi;
+    }
+  }
+  return best;
+}
+
+/** Channelling leaves the hero defenceless: any hit, any step, or letting go of the key breaks it. */
+function startChannel(p: PlayerState, ctx: StepCtx, ev: PlayerEvent[]): boolean {
+  for (const a of ctx.allies) {
+    if (a.downed && a.id !== p.id && Math.hypot(a.x - p.x, a.z - p.z) <= TUNING.reviveRange) return false;
+  }
+  const poi = nearPoi(p, ctx);
+  if (!poi) return false;
+  setAct(p, Act.Channel);
+  p.combo = 0;
+  p.tgt = poi.id;
+  p.yaw = yawOf(poi.x - p.x, poi.z - p.z);
+  ev.push({ type: 'channel', poi: poi.id });
+  return true;
+}
+
 function consumeBuffer(p: PlayerState, hero: HeroDef, silenced: boolean, cmd: InputCmd, ctx: StepCtx, ev: PlayerEvent[], allow: number): boolean {
   const b = p.buf & allow;
   if (!b) return false;
@@ -397,7 +445,7 @@ function consumeBuffer(p: PlayerState, hero: HeroDef, silenced: boolean, cmd: In
   else if (b === Btn.Ability) ok = startAbility(p, hero, false, silenced, cmd, ctx, ev);
   else if (b === Btn.Heavy) ok = startCharge(p, hero, cmd, ctx, ev);
   else if (b === Btn.Light) ok = startAttack(p, hero, false, cmd, ctx, ev);
-  else if (b === Btn.Interact) ok = startExecute(p, ctx, ev);
+  else if (b === Btn.Interact) ok = startExecute(p, ctx, ev) || startChannel(p, ctx, ev);
   p.buf = 0;
   p.bufT = 0;
   return ok;
@@ -439,10 +487,11 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
   const pressed = cmd.buttons & ~p.prev;
   p.prev = cmd.buttons;
 
-  let speedMul = moveSpeedMulAt(ctx.layout, p.x, p.z);
+  let speedMul = statSpeedMul(hero.id);
   let rate = 1;
-  let silenced = isMonolithSilenceAt(ctx.layout, p.x, p.z);
+  let silenced = false;
   let bubble = false;
+  let regenMul = 1;
   if (hero.id === 'fabyorn') {
     const max = p.maxHp || hero.hp;
     if (max > 0 && p.hp / max <= TUNING.fabyornLowHp) rate *= 1 + TUNING.fabyornLowHpRate;
@@ -473,9 +522,14 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       case PS.Stealth:
         speedMul *= 1.25;
         break;
+      case PS.Frenzy:
+        rate *= 1 + TUNING.frenzyRate;
+        break;
+      case PS.Surge:
+        regenMul = TUNING.surgeRegenMul;
+        break;
       case PS.Slow:
         // Ostinata: threats and the Eclipse's drag do not change Dalìth's pace.
-        // Lactose cramps are PS.Cramp and still bend her.
         if (hero.id === 'dalith') {
           p.st.splice(i, 1);
           break;
@@ -507,10 +561,15 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
     return;
   }
 
-  if (p.stamDelay > 0) p.stamDelay -= 1;
+  // The ultimate is on a cooldown: it comes back with time, faster for sharp minds.
+  if (p.ult < 100 && p.act !== Act.Ult && hero.ult.cd > 0) {
+    p.ult = Math.min(100, p.ult + (100 / T(hero.ult.cd)) * p.ultMul);
+  }
+
+  if (p.stamDelay > 0) p.stamDelay -= regenMul;
   else {
     const regen = p.act === Act.Block ? TUNING.staminaRegenBlocking : TUNING.staminaRegen;
-    p.stamina = Math.min(p.maxStamina || hero.stamina, p.stamina + regen * DT);
+    p.stamina = Math.min(p.maxStamina || hero.stamina, p.stamina + regen * regenMul * DT);
   }
 
   if (pressed) {
@@ -629,8 +688,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       p.t += 1;
       const lock = findEnemy(ctx, cmd.lock);
       if (lock) p.tgt = lock.id;
-      const fallback = hero.ranged ? cmd.aim : moving ? yawOf(mx, mz) : p.yaw;
-      faceTarget(p, ctx, fallback, turn);
+      faceTarget(p, ctx, cmd.aim, turn);
       vx = mx * speed * TUNING.chargeMoveMul;
       vz = mz * speed * TUNING.chargeMoveMul;
       if (p.buf === Btn.Dodge) {
@@ -757,6 +815,27 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       const at = T(TUNING.executeAt);
       if (prevT < at && p.t >= at) ev.push({ type: 'execute', target: p.tgt });
       if (p.t >= T(TUNING.executeDur)) setAct(p, Act.Idle);
+      break;
+    }
+
+    case Act.Channel: {
+      p.t += 1;
+      const poi = ctx.pois.find((o) => o.id === p.tgt);
+      const ok =
+        (cmd.buttons & Btn.Interact) !== 0 &&
+        !moving &&
+        !!poi &&
+        poi.ready &&
+        Math.hypot(poi.x - p.x, poi.z - p.z) <= TUNING.interactRange + 0.6;
+      if (!ok || !poi) {
+        setAct(p, Act.Idle);
+      } else {
+        p.yaw = approachAngle(p.yaw, yawOf(poi.x - p.x, poi.z - p.z), turn);
+        if (p.t >= T(channelTime(poi.kind))) {
+          ev.push({ type: 'poi', poi: poi.id });
+          setAct(p, Act.Idle);
+        }
+      }
       break;
     }
 

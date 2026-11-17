@@ -17,7 +17,7 @@ import {
   Vector3,
   VertexData,
 } from '@babylonjs/core';
-import { CELL, cellElevation, ELEV_WALL, getZone, isSolidCell, REGIONS, STEP_HEIGHT, type Layout, type Theme } from '@malampu/shared';
+import { CELL, cellElevation, CITIES, CITY_IDS, ELEV_WALL, isSolidCell, STEP_HEIGHT, type Layout, type Theme } from '@malampu/shared';
 import type { Assets } from './assets';
 import { EnvironmentManager, type ReliefBiome } from './environment';
 
@@ -46,6 +46,7 @@ interface ThemeDef {
 }
 
 /** Chiaroscuro palettes. Terraces stay matte; skirts are darker so the step reads at a glance. */
+// The camera hangs some 40 units above the hero: the haze is kept thin so the floor keeps its colour.
 const RELIEF_PALETTE: Record<
   ReliefBiome,
   { floor: string; skirt: string; sun: [number, number, number]; hemi: [number, number, number]; fog: [number, number, number]; density: number; spec: [number, number, number] }
@@ -56,7 +57,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.62, 0.74, 0.98],
     hemi: [0.45, 0.5, 0.62],
     fog: [0.42, 0.4, 0.38],
-    density: 0.022,
+    density: 0.0085,
     spec: [0, 0, 0],
   },
   wild: {
@@ -65,7 +66,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.55, 0.7, 0.85],
     hemi: [0.28, 0.4, 0.32],
     fog: [0.04, 0.1, 0.07],
-    density: 0.02,
+    density: 0.009,
     spec: [0.04, 0.02, 0.02],
   },
   coastal: {
@@ -74,7 +75,7 @@ const RELIEF_PALETTE: Record<
     sun: [0.7, 0.78, 0.9],
     hemi: [0.35, 0.42, 0.5],
     fog: [0.5, 0.58, 0.62],
-    density: 0.018,
+    density: 0.0075,
     spec: [0.28, 0.34, 0.38],
   },
 };
@@ -261,6 +262,8 @@ export class Arena {
     // Per-cell floor meshes explode vertex count on procedural maps — use one ground plane instead.
     // Relief maps need a slab per terrace, so they take the cheap box path.
     const flatFloor = w * h > 280 && !hasRelief;
+    // Only walls are cut away in front of the hero: the ground always stays.
+    const floors = new Batch(assets);
     const slabs = new Batch(assets);
     const skirts = new Batch(assets);
 
@@ -291,7 +294,7 @@ export class Arena {
           const r = hash(cx, cz, 1);
           const floor = theme.floor[Math.floor(r * theme.floor.length)]!;
           const turn = floor.includes('wood') ? 0 : Math.floor(hash(cx, cz, 2) * 4) * (Math.PI / 2);
-          env.add(floor, x, fy, z, turn);
+          floors.add(floor, x, fy, z, turn);
         }
 
         // A wall on every edge that borders a solid cell, facing into the room.
@@ -357,11 +360,13 @@ export class Arena {
     type BreakablePiece = { model: string; x: number; y: number; z: number; rot: number; s?: number };
     const pendingBreakables: { x: number; z: number; kind: string; pieces: BreakablePiece[] }[] = [];
 
+    const feetAt = (x: number, z: number): number => terrace(Math.floor(x / CELL), Math.floor(z / CELL)) * STEP_HEIGHT;
     for (const p of layout.props) {
       const r = hash(Math.round(p.x), Math.round(p.z), 9);
+      const py = feetAt(p.x, p.z);
       switch (p.kind) {
         case 'pillar':
-          env.add(theme.pillarScale > 1 ? 'pillar_decorated' : 'pillar', p.x, 0, p.z, p.rot, 1, theme.pillarScale, 1);
+          env.add(theme.pillarScale > 1 ? 'pillar_decorated' : 'pillar', p.x, py, p.z, p.rot, 1, theme.pillarScale, 1);
           break;
         case 'barrels':
           pendingBreakables.push({
@@ -369,8 +374,8 @@ export class Arena {
             z: p.z,
             kind: 'barrels',
             pieces: [
-              { model: r < 0.5 ? 'barrel_large' : 'barrel_large_decorated', x: p.x, y: 0, z: p.z, rot: p.rot },
-              { model: 'barrel_small', x: p.x + 0.9, y: 0, z: p.z + 0.5, rot: p.rot, s: 0.9 },
+              { model: r < 0.5 ? 'barrel_large' : 'barrel_large_decorated', x: p.x, y: py, z: p.z, rot: p.rot },
+              { model: 'barrel_small', x: p.x + 0.9, y: py, z: p.z + 0.5, rot: p.rot, s: 0.9 },
             ],
           });
           break;
@@ -379,39 +384,53 @@ export class Arena {
             x: p.x,
             z: p.z,
             kind: 'crates',
-            pieces: [{ model: 'crates_stacked', x: p.x, y: 0, z: p.z, rot: p.rot }],
+            pieces: [{ model: 'crates_stacked', x: p.x, y: py, z: p.z, rot: p.rot }],
           });
           break;
         case 'table':
-          env.add(r < 0.6 ? 'table_medium_decorated_A' : 'table_medium', p.x, 0, p.z, p.rot);
+          env.add(r < 0.6 ? 'table_medium_decorated_A' : 'table_medium', p.x, py, p.z, p.rot);
           break;
         case 'keg':
           pendingBreakables.push({
             x: p.x,
             z: p.z,
             kind: 'keg',
-            pieces: [{ model: 'keg', x: p.x, y: 0, z: p.z, rot: p.rot }],
+            pieces: [{ model: 'keg', x: p.x, y: py, z: p.z, rot: p.rot }],
           });
           break;
         case 'rubble': {
           const s = 0.7;
-          env.add('rubble_half', p.x - Math.cos(p.rot) * 2 * s, 0, p.z + Math.sin(p.rot) * 2 * s, p.rot, s);
+          env.add('rubble_half', p.x - Math.cos(p.rot) * 2 * s, py, p.z + Math.sin(p.rot) * 2 * s, p.rot, s);
           break;
         }
         case 'brazier':
-          env.add('column', p.x, 0, p.z, 0, 1.15, 1, 1.15);
-          env.add('torch_lit', p.x, 1.85, p.z, 0, 1.5);
-          this.flames.push({ x: p.x, y: 3, z: p.z, color: theme.torch, big: true });
+          env.add('column', p.x, py, p.z, 0, 1.15, 1, 1.15);
+          env.add('torch_lit', p.x, py + 1.85, p.z, 0, 1.5);
+          this.flames.push({ x: p.x, y: py + 3, z: p.z, color: theme.torch, big: true });
           break;
         case 'council':
-          env.add('table_medium', p.x, 0, p.z, 0, 1.9, 1, 1.9);
-          env.add('candle_triple', p.x - 1.3, 1, p.z - 1.3, 0.6);
-          env.add('candle_lit', p.x + 1.35, 1, p.z + 1.2, 0);
-          env.add('coin_stack_large', p.x + 1.3, 1, p.z - 1.2, 0, 0.45);
-          env.add('bottle_A_green', p.x - 1.4, 1, p.z + 1.1, 0);
-          this.flames.push({ x: p.x - 1.3, y: 1.95, z: p.z - 1.3, color: [1, 0.75, 0.35], big: false });
+          env.add('table_medium', p.x, py, p.z, 0, 1.9, 1, 1.9);
+          env.add('candle_triple', p.x - 1.3, py + 1, p.z - 1.3, 0.6);
+          env.add('candle_lit', p.x + 1.35, py + 1, p.z + 1.2, 0);
+          env.add('coin_stack_large', p.x + 1.3, py + 1, p.z - 1.2, 0, 0.45);
+          env.add('bottle_A_green', p.x - 1.4, py + 1, p.z + 1.1, 0);
+          this.flames.push({ x: p.x - 1.3, y: py + 1.95, z: p.z - 1.3, color: [1, 0.75, 0.35], big: false });
           this.addCouncilMap(p.x, p.z);
           break;
+      }
+    }
+
+    // Points of interest: what glows above them is drawn by the game, frame by frame.
+    for (const poi of layout.pois) {
+      const py = feetAt(poi.x, poi.z);
+      if (poi.kind === 'chest') {
+        env.add('chest_gold', poi.x, py, poi.z, Math.PI, 1.5);
+      } else if (poi.kind === 'shrine') {
+        env.add('column', poi.x, py, poi.z, 0, 1.3, 0.55, 1.3);
+        env.add('candle_triple', poi.x, py + 2.25, poi.z, 0, 1.4);
+        this.flames.push({ x: poi.x, y: py + 3.1, z: poi.z, color: [0.45, 1, 0.6], big: true });
+      } else {
+        for (const side of [-1, 1]) env.add('pillar_decorated', poi.x + side * 2.6, py, poi.z, 0, 0.9, 1, 0.9);
       }
     }
 
@@ -426,7 +445,14 @@ export class Arena {
       envMesh.material = envMat;
       this.owned.push(envMesh);
     }
-    const biome = getZone(layout)?.biome;
+    const floorMesh = floors.build('floors', scene);
+    if (floorMesh) {
+      const floorTiles = envMat.clone('envFloor');
+      floorTiles.clipPlane = null;
+      floorMesh.material = floorTiles;
+      this.owned.push(floorTiles, floorMesh);
+    }
+    const biome = layout.def.biome;
     const palette = hasRelief ? RELIEF_PALETTE[biome ?? 'urban'] : null;
     if (palette) {
       const slabMat = new StandardMaterial('terraces', scene);
@@ -434,7 +460,6 @@ export class Arena {
       slabMat.specularColor = new Color3(...palette.spec);
       slabMat.specularPower = biome === 'coastal' ? 48 : 8;
       slabMat.maxSimultaneousLights = 8;
-      slabMat.clipPlane = cutPlane;
       const slabMesh = slabs.build('terraces', scene);
       if (slabMesh) {
         slabMesh.material = slabMat;
@@ -445,7 +470,6 @@ export class Arena {
       skirtMat.specularColor = Color3.Black();
       skirtMat.emissiveColor = Color3.FromHexString(palette.skirt).scale(0.35);
       skirtMat.maxSimultaneousLights = 8;
-      skirtMat.clipPlane = cutPlane;
       const skirtMesh = skirts.build('skirts', scene);
       if (skirtMesh) {
         skirtMesh.material = skirtMat;
@@ -459,7 +483,6 @@ export class Arena {
       const floorMat = new StandardMaterial('arenaFloorMat', scene);
       floorMat.diffuseColor = Color3.FromHexString(theme.floor[0]?.includes('wood') ? '#5a4030' : '#3a3a42');
       floorMat.specularColor = Color3.Black();
-      floorMat.clipPlane = cutPlane;
       ground.material = floorMat;
       ground.isPickable = false;
       ground.freezeWorldMatrix();
@@ -547,11 +570,14 @@ export class Arena {
     }
 
     if (palette && biome) {
-      const zone = getZone(layout);
-      const warm: { x: number; z: number }[] = [{ x: layout.center.x, z: layout.center.z }];
-      for (const g of zone?.gates ?? []) warm.push({ x: (g.cx + g.width * 0.5) * CELL, z: (g.cz + 0.5) * CELL });
+      // Warm pools of light where the party lands and around what is worth reaching.
+      const warm: { x: number; z: number }[] = [];
+      const landing = layout.playerSpawns[0];
+      if (landing) warm.push(landing);
+      for (const poi of layout.pois) warm.push(poi);
+      if (warm.length === 0) warm.push(layout.center);
       for (const spot of warm.slice(0, 4)) {
-        const lamp = new PointLight('lamp', new Vector3(spot.x, 2.4, spot.z), scene);
+        const lamp = new PointLight('lamp', new Vector3(spot.x, feetAt(spot.x, spot.z) + 2.4, spot.z), scene);
         lamp.diffuse = new Color3(1, 0.58, 0.24);
         lamp.specular = Color3.Black();
         lamp.intensity = 1.35;
@@ -575,26 +601,47 @@ export class Arena {
     grad.addColorStop(1, '#a8834e');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = 'rgba(70,40,20,0.55)';
-    ctx.lineWidth = 3;
-    const map = (px: number, py: number): [number, number] => [((px - 560) / 520) * size, ((py - 420) / 440) * size];
+    // The Costa Est: a ragged coast, the open sea to the east, three cities and what sleeps offshore.
+    ctx.fillStyle = 'rgba(60,110,130,0.55)';
     ctx.beginPath();
-    REGIONS.forEach((r, i) => {
-      const [mx, my] = map(r.x, r.y);
-      if (i === 0) ctx.moveTo(mx, my);
-      else ctx.lineTo(mx, my);
-    });
+    ctx.moveTo(size * 0.62, 0);
+    ctx.bezierCurveTo(size * 0.74, size * 0.3, size * 0.5, size * 0.55, size * 0.68, size);
+    ctx.lineTo(size, size);
+    ctx.lineTo(size, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(70,40,20,0.7)';
+    ctx.lineWidth = 4;
     ctx.stroke();
-    for (const r of REGIONS) {
-      const [mx, my] = map(r.x, r.y);
-      ctx.fillStyle = r.color;
+    const spots: [number, number][] = [
+      [0.56, 0.2],
+      [0.5, 0.5],
+      [0.58, 0.8],
+    ];
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    spots.forEach(([u, v], i) => (i === 0 ? ctx.moveTo(u * size, v * size) : ctx.lineTo(u * size, v * size)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 26px serif';
+    ctx.textAlign = 'right';
+    CITY_IDS.forEach((id, i) => {
+      const [u, v] = spots[i] ?? [0.5, 0.5];
+      ctx.fillStyle = '#7a1f1f';
       ctx.beginPath();
-      ctx.arc(mx, my, r.mission ? 16 : 10, 0, Math.PI * 2);
+      ctx.arc(u * size, v * size, 14, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#2a160a';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.stroke();
-    }
+      ctx.fillStyle = '#2a160a';
+      ctx.fillText(CITIES[id].name, u * size - 22, v * size + 9);
+    });
+    ctx.strokeStyle = '#10343c';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(size * 0.84, size * 0.48, 26, 0.4, Math.PI * 1.7);
+    ctx.stroke();
     tex.update();
     const mat = new StandardMaterial('councilMap', this.scene);
     mat.diffuseTexture = tex;

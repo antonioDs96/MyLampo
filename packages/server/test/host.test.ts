@@ -1,401 +1,511 @@
 import { describe, expect, it } from 'vitest';
 import {
   Act,
+  BOUNTY_BY_ID,
+  CELL,
+  CITIES,
+  DEATH_TAX,
+  ENEMIES,
   EState,
-  GameHost,
   HEROES,
-  HERO_IDS,
+  HUB_LAYOUT,
   MAX_PLAYERS,
-  MISSIONS,
-  MemoryGearArchive,
-  type GroundDrop,
+  MemoryProfileArchive,
+  TUNING,
+  emptyProfile,
+  nodeCost,
+  packCmds,
+  sanitizeName,
+  type ClientMsg,
   type HeroId,
 } from '@malampu/shared';
 import { Party } from './party';
 
-const TEAM: HeroId[] = ['alexios', 'jusef', 'rycard', 'fabyorn'];
+const ALL: HeroId[] = ['jusef', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'vyncent', 'albereth', 'dalith'];
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-describe('lobby', () => {
-  it('the first player hosts, heroes are exclusive and the room holds the whole company', () => {
+function company(heroes: HeroId[], seed = 7, archive?: MemoryProfileArchive): Party {
+  const party = new Party(seed, 1, archive);
+  for (const h of heroes) party.add(h);
+  return party;
+}
+
+/** Kills the Mini-Boss, walks nobody anywhere and opens the Choice Terminal. */
+function openPortal(party: Party): void {
+  const world = party.host.world;
+  const boss = world.enemies.find((e) => e.id === world.bossId)!;
+  world.damageEnemy(boss, 999999, 0, null, { raw: true });
+  // The boss loot would blur the arithmetic of the tests below.
+  world.drops = [];
+  world.portalBy = party.ids[0]!;
+  party.run(0.2, undefined, false);
+}
+
+function wipe(party: Party): void {
+  for (const p of party.host.world.players.values()) {
+    p.hp = 0;
+    p.act = Act.Downed;
+  }
+  party.run(4, () => party.host.phase === 'hub', false);
+}
+
+describe('hero selection', () => {
+  it('nobody spawns until the whole lobby confirms, then everyone enters the tavern together', () => {
     const party = new Party();
-    for (const hero of HERO_IDS) party.add(hero);
-    expect(party.ids).toHaveLength(MAX_PLAYERS);
-    expect(party.lobby.host).toBe('bot1');
-    expect(party.lobby.players.map((p) => p.hero)).toEqual(HERO_IDS);
-
-    expect(party.host.join('late', 'In più')).toBe(false);
-
-    party.host.onMessage('bot2', { t: 'hero', hero: HERO_IDS[0]! });
-    expect(party.errors.at(-1)).toMatch(/già stato scelto/);
-    expect(party.lobby.players[1]!.hero).toBe(HERO_IDS[1]);
-  });
-
-  it('only the host starts a mission, and everyone needs a hero first', () => {
-    const party = new Party();
-    party.add('alexios');
-    party.add('jusef');
-    party.host.join('undecided', 'Indeciso');
-
-    party.host.onMessage('bot2', { t: 'start' });
+    const a = party.add('jusef', 'Ada', false);
+    const b = party.add('alexios', 'Bo', false);
+    expect(party.host.phase).toBe('select');
+    expect(party.lobby.players.map((p) => p.ready)).toEqual([false, false]);
+    party.host.onMessage(a, { t: 'ready', on: true });
+    party.run(1);
+    expect(party.host.phase).toBe('select');
+    expect(party.host.world.players.size).toBe(0);
+    // Taking it back is allowed while the lobby gathers.
+    party.host.onMessage(a, { t: 'ready', on: false });
+    expect(party.lobby.players[0]!.ready).toBe(false);
+    party.host.onMessage(a, { t: 'ready', on: true });
+    party.host.onMessage(b, { t: 'ready', on: true });
     expect(party.host.phase).toBe('hub');
-
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('hub');
-    expect(party.errors.at(-1)).toMatch(/Indeciso/);
-
-    party.host.leave('undecided');
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('mission');
+    expect([...party.host.world.players.keys()].sort()).toEqual([a, b]);
+    expect(party.worlds.at(-1)).toMatchObject({ kind: 'hub', layoutId: HUB_LAYOUT.id, title: 'La Taverna di Carl' });
   });
 
-  it('drops a late hero into a mission that has already started', () => {
+  it('needs a hero to confirm, and heroes are exclusive', () => {
     const party = new Party();
-    party.add('alexios');
-    party.host.onMessage(party.host.hostId, { t: 'start' });
-    expect(party.host.phase).toBe('mission');
-
-    expect(party.host.join('late', 'Nemo')).toBe(true);
-    party.host.onMessage('late', { t: 'hero', hero: 'jusef' });
-    party.run(0.2);
-
-    expect(party.snap!.p.map((p) => p.id)).toContain('late');
-    expect(party.lobby.players.find((p) => p.id === 'late')?.hero).toBe('jusef');
+    party.host.join('x', 'Ics');
+    party.host.onMessage('x', { t: 'ready', on: true });
+    expect(party.errors).toHaveLength(1);
+    expect(party.host.phase).toBe('select');
+    party.add('jusef', 'Ada', false);
+    party.host.onMessage('x', { t: 'hero', hero: 'jusef' });
+    expect(party.errors).toHaveLength(2);
+    expect(party.lobby.players.find((p) => p.id === 'x')!.hero).toBe('');
   });
 
-  it('hands the room to the next player when the host leaves', () => {
-    const party = new Party();
-    party.add('alexios');
-    party.add('jusef');
+  it('the first player hosts and the room holds nine', () => {
+    const party = company(ALL);
+    expect(party.host.playerCount).toBe(MAX_PLAYERS);
+    expect(party.host.hostId).toBe('bot1');
+    expect(party.host.join('late', 'Tardi')).toBe(false);
+    expect(new Set(party.lobby.players.map((p) => p.slot)).size).toBe(9);
+    expect(party.host.world.players.size).toBe(9);
     party.host.leave('bot1');
-    expect(party.lobby.host).toBe('bot2');
-    expect(party.lobby.players).toHaveLength(1);
-    party.host.onMessage('bot2', { t: 'start' });
-    expect(party.host.phase).toBe('mission');
+    expect(party.host.hostId).toBe('bot2');
+  });
+
+  it('a late arrival picks, confirms and joins the company where it is', () => {
+    const party = company(['jusef']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    expect(party.host.phase).toBe('run');
+    const late = party.add('alexios', 'Tardi', false);
+    expect(party.host.world.players.has(late)).toBe(false);
+    party.host.onMessage(late, { t: 'ready', on: true });
+    expect(party.host.world.players.has(late)).toBe(true);
+  });
+
+  it('going back to Hero Selection is only possible in the tavern', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot2', { t: 'reselect' });
+    expect(party.host.world.players.has('bot2')).toBe(false);
+    party.host.onMessage('bot2', { t: 'hero', hero: 'rycard' });
+    party.host.onMessage('bot2', { t: 'ready', on: true });
+    expect(party.host.world.players.get('bot2')!.hero).toBe('rycard');
+    party.host.onMessage('bot1', { t: 'run', city: 'ujian' });
+    party.host.onMessage('bot2', { t: 'reselect' });
+    expect(party.host.world.players.has('bot2')).toBe(true);
   });
 
   it('strips markup and control characters from names', () => {
-    const party = new Party();
-    party.host.join('x', '  <b>Carl</b>\u0007 il Taverniere davvero troppo lungo ');
-    const name = party.lobby.players[0]!.name;
-    expect(name).not.toMatch(/[<>\u0000-\u001f]/);
-    expect(name.length).toBeLessThanOrEqual(18);
-    party.host.join('y', '   ');
-    expect(party.lobby.players[1]!.name).toBe('Viandante');
+    expect(sanitizeName('  <b>Ada</b>\u0007 ')).toBe('bAda/b');
+    expect(sanitizeName('')).toBe('Viandante');
+    expect(sanitizeName('x'.repeat(40))).toHaveLength(18);
+  });
+});
+
+describe('map table', () => {
+  it('only the Host starts a run, on a City of the Costa Est', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot2', { t: 'run', city: 'badiscar' });
+    expect(party.host.phase).toBe('hub');
+    party.host.onMessage('bot1', { t: 'run', city: 'terre_rosse' });
+    expect(party.host.phase).toBe('hub');
+    expect(party.errors.at(-1)).toMatch(/sigillata/);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    expect(party.host.phase).toBe('run');
+    expect(party.lobby.run).toMatchObject({ stage: { kind: 'env', city: 'badiscar', index: 0 }, streak: 0, fervor: 0 });
+    expect(party.worlds.at(-1)).toMatchObject({ kind: 'run', layoutId: CITIES.badiscar.environments[0]!.layout.id });
+    expect(party.lobby.run!.company).toBeCloseTo(0.1);
+  });
+
+  it('the Region Boss stays sealed until the three City Bosses have fallen', () => {
+    const archive = new MemoryProfileArchive();
+    const party = company(['jusef'], 3, archive);
+    party.host.onMessage('bot1', { t: 'run', city: 'boss' });
+    expect(party.host.phase).toBe('hub');
+    expect(party.lobby.table.regionBoss).toBe(false);
+    const p = emptyProfile();
+    p.cleared = ['badiscar', 'ujian', 'kaza'];
+    archive.save(uuid(1), p);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(1) });
+    expect(party.lobby.table.regionBoss).toBe(true);
+    party.host.onMessage('bot1', { t: 'run', city: 'boss' });
+    expect(party.lobby.run!.stage).toEqual({ kind: 'regionBoss' });
+    expect(party.host.world.enemies.some((e) => e.type === 'leviatano')).toBe(true);
+  });
+
+  it('a run starts from the City checkpoint of the Host', () => {
+    const archive = new MemoryProfileArchive();
+    const p = emptyProfile();
+    p.checkpoint.ujian = 2;
+    archive.save(uuid(2), p);
+    const party = company(['jusef'], 3, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(2) });
+    party.host.onMessage('bot1', { t: 'run', city: 'ujian' });
+    expect(party.lobby.run!.stage).toEqual({ kind: 'env', city: 'ujian', index: 2 });
+  });
+});
+
+describe('extraction portal and push-your-luck', () => {
+  it('both outcomes need unanimity', () => {
+    const party = company(['jusef', 'alexios', 'rycard']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    openPortal(party);
+    expect(party.lobby.vote).not.toBeNull();
+    expect(Object.keys(party.lobby.vote!.votes).sort()).toEqual(['bot1', 'bot2', 'bot3']);
+    expect(party.lobby.vote!.nextFervor).toBeCloseTo(0.2);
+    party.host.onMessage('bot1', { t: 'vote', choice: 'continue' });
+    party.host.onMessage('bot2', { t: 'vote', choice: 'continue' });
+    party.host.onMessage('bot3', { t: 'vote', choice: 'extract' });
+    party.run(1, undefined, false);
+    expect(party.lobby.run!.stage).toMatchObject({ index: 0 });
+    expect(party.lobby.vote!.votes.bot3).toBe('extract');
+    // The dissenter changes their mind.
+    party.host.onMessage('bot3', { t: 'vote', choice: 'continue' });
+    expect(party.lobby.run!.stage).toMatchObject({ kind: 'env', index: 1 });
+    expect(party.lobby.vote).toBeNull();
+  });
+
+  it('going on keeps wounds and loot, resets buffs and grows the Fervor up to the City Boss', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    const fervor: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const world = party.host.world;
+      const p = world.players.get('bot1')!;
+      p.hp = 40 + i;
+      p.fury = 90;
+      world.synergy.push('might');
+      world.satchelOf('bot1').gems += 10;
+      world.players.get('bot2')!.hp = 0;
+      world.players.get('bot2')!.act = Act.Downed;
+      openPortal(party);
+      party.voteAll('continue');
+      const next = party.host.world;
+      expect(next).not.toBe(world);
+      const q = next.players.get('bot1')!;
+      expect(q.hp).toBe(40 + i);
+      expect(q.fury).toBe(0);
+      expect(next.synergy).toHaveLength(0);
+      // A hero who was down walks into the next stage on a fifth of their health.
+      const down = next.players.get('bot2')!;
+      expect(down.act).not.toBe(Act.Downed);
+      expect(down.hp).toBe(Math.round(HEROES.alexios.hp * TUNING.carryDownedHp));
+      expect(party.satchel.get('bot1')!.gems).toBe(10 * (i + 1));
+      fervor.push(party.lobby.run!.fervor);
+    }
+    expect(fervor).toEqual([0.2, 0.5, 1]);
+    expect(party.lobby.run!.stage).toEqual({ kind: 'cityBoss', city: 'badiscar' });
+    expect(party.host.world.streak).toBe(3);
+    expect(party.host.world.enemies.some((e) => e.type === CITIES.badiscar.boss.boss)).toBe(true);
+  });
+
+  it('extracting banks the satchel, saves the checkpoint and resets the Fervor', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot1', { t: 'run', city: 'kaza' });
+    party.host.world.satchelOf('bot1').gems += 30;
+    openPortal(party);
+    party.voteAll('continue');
+    party.host.world.satchelOf('bot1').gems += 12;
+    party.host.world.satchelOf('bot2').threads += 2;
+    openPortal(party);
+    party.voteAll('extract');
+    expect(party.host.phase).toBe('hub');
+    expect(party.profiles.get('bot1')!.gems).toBeGreaterThanOrEqual(42);
+    expect(party.profiles.get('bot2')!.threads).toBeGreaterThanOrEqual(2);
+    expect(party.profiles.get('bot1')!.checkpoint.kaza).toBe(2);
+    expect(party.profiles.get('bot2')!.checkpoint.kaza).toBe(2);
+    expect(party.lobby.report).toMatchObject({ kind: 'extract' });
+    expect(party.lobby.report!.banked.bot1!.gems).toBe(party.profiles.get('bot1')!.gems);
+    expect(party.lobby.table.checkpoint.kaza).toBe(2);
+    // The next run starts from the next Environment, without Fervor.
+    party.host.onMessage('bot1', { t: 'run', city: 'kaza' });
+    expect(party.lobby.run).toMatchObject({ stage: { kind: 'env', city: 'kaza', index: 2 }, streak: 0, fervor: 0 });
+  });
+
+  it('a wipe burns 30% of the loot of the failed Environment only and restarts from it', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    party.host.world.satchelOf('bot1').gems += 100;
+    openPortal(party);
+    expect(party.profiles.get('bot1')!.gems).toBe(0);
+    party.voteAll('continue');
+    const carried = party.satchel.get('bot1')!.gems;
+    expect(carried).toBe(100);
+    const world = party.host.world;
+    world.satchelOf('bot1').gems += 50;
+    world.satchelOf('bot1').threads += 10;
+    wipe(party);
+    expect(party.host.phase).toBe('hub');
+    const report = party.lobby.report!;
+    expect(report.kind).toBe('wipe');
+    expect(report.taxed.bot1).toEqual({ gems: Math.ceil(50 * DEATH_TAX), threads: Math.ceil(10 * DEATH_TAX) });
+    expect(party.profiles.get('bot1')!.gems).toBe(carried + 50 - 15);
+    expect(party.profiles.get('bot1')!.threads).toBe(7);
+    expect(party.profiles.get('bot1')!.checkpoint.badiscar).toBe(1);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    expect(party.lobby.run).toMatchObject({ stage: { kind: 'env', index: 1 }, streak: 0 });
+  });
+
+  it('killing the City Boss clears the City, pays out and resets its checkpoint', () => {
+    const archive = new MemoryProfileArchive();
+    const p = emptyProfile();
+    p.checkpoint.badiscar = 3;
+    archive.save(uuid(3), p);
+    const party = company(['jusef', 'alexios'], 5, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(3) });
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    expect(party.lobby.run!.stage).toEqual({ kind: 'cityBoss', city: 'badiscar' });
+    const world = party.host.world;
+    const boss = world.enemies.find((e) => e.id === world.bossId)!;
+    expect(ENEMIES[boss.type].rank).toBe('city');
+    world.damageEnemy(boss, 999999, 0, world.players.get('bot1')!, { raw: true });
+    party.run(8, () => party.host.phase === 'hub');
+    expect(party.host.phase).toBe('hub');
+    expect(party.lobby.report).toMatchObject({ kind: 'city' });
+    for (const id of ['bot1', 'bot2']) {
+      const profile = party.profiles.get(id)!;
+      expect(profile.cleared).toEqual(['badiscar']);
+      expect(profile.checkpoint.badiscar).toBe(0);
+      expect(profile.gems).toBeGreaterThanOrEqual(300);
+      expect(profile.threads).toBeGreaterThanOrEqual(15);
+    }
+    expect(archive.load(uuid(3))!.cleared).toEqual(['badiscar']);
+    expect(party.lobby.table.bounties).toBe(true);
+  });
+
+  it('walking out mid-run is taxed like a fall', () => {
+    const archive = new MemoryProfileArchive();
+    const party = company(['jusef', 'alexios'], 5, archive);
+    party.host.onMessage('bot2', { t: 'profile', id: uuid(4) });
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    party.host.world.satchelOf('bot2').gems += 10;
+    party.host.leave('bot2');
+    expect(archive.load(uuid(4))!.gems).toBe(7);
+    expect(party.host.phase).toBe('run');
+  });
+});
+
+describe('instanced loot and the snapshot', () => {
+  it('drops travel in private messages, never in the shared snapshot', () => {
+    const party = company(['jusef', 'alexios']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    const world = party.host.world;
+    const p = world.players.get('bot1')!;
+    const e = world.spawnEnemy('nostromo_senzocchi', p.x, p.z + 3);
+    world.damageEnemy(e, 99999, 0, p, { raw: true });
+    party.run(2, undefined, false);
+    expect(party.seen.some((ev) => ev.e === 'drop' || ev.e === 'take')).toBe(false);
+    for (const id of ['bot1', 'bot2']) {
+      const mine = party.mine.get(id)!;
+      expect(mine.some((ev) => ev.e === 'drop')).toBe(true);
+      expect(mine.every((ev) => !('to' in ev) || ev.to === id)).toBe(true);
+    }
+    expect(party.satchel.get('bot1')!.gems).toBeGreaterThanOrEqual(10);
+  });
+
+  it('carries points of interest, flood level and Synergy buffs', () => {
+    const party = company(['jusef']);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    party.run(0.2, undefined, false);
+    const snap = party.snap!;
+    expect(snap.poi.length).toBe(party.host.world.pois.length);
+    expect(snap.poi.length).toBeGreaterThanOrEqual(3);
+    expect(snap.flood).toBeLessThan(-2);
+    expect(snap.syn).toEqual([]);
+    expect(snap.left).toBeGreaterThan(10);
+    party.host.world.synergy.push('regen');
+    party.run(0.2, undefined, false);
+    expect(party.snap!.syn).toEqual(['regen']);
+  });
+
+  it('pings reach everyone and are rate limited', () => {
+    const party = company(['jusef', 'alexios']);
+    const send = (kind: string) => party.host.onMessage('bot1', { t: 'mark', kind, x: 10, z: 12 } as ClientMsg);
+    send('danger');
+    send('danger');
+    send('nonsense');
+    party.run(0.2, undefined, false);
+    const pings = party.seen.filter((ev) => ev.e === 'ping');
+    expect(pings).toEqual([{ e: 'ping', by: 'bot1', kind: 'danger', x: 10, z: 12 }]);
+  });
+});
+
+describe('the tavern services', () => {
+  it('Iej sells nodes for banked Gemme, only in the tavern, and refunds every respec', () => {
+    const archive = new MemoryProfileArchive();
+    const p = emptyProfile();
+    p.gems = 500;
+    archive.save(uuid(5), p);
+    const party = company(['jusef'], 5, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(5) });
+    const base = party.host.world.players.get('bot1')!.cdMul;
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'potenza' });
+    expect(party.profiles.get('bot1')!.gems).toBe(500 - nodeCost('e', 1));
+    expect(party.host.world.players.get('bot1')!.cdMul).toBeLessThan(base);
+    expect(archive.load(uuid(5))!.trees.jusef!.e).toEqual({ path: 'potenza', tier: 1 });
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'dominio' });
+    expect(party.errors).toHaveLength(1);
+    party.host.onMessage('bot1', { t: 'tree', op: 'respec', slot: '' });
+    expect(party.profiles.get('bot1')!.gems).toBe(500);
+    expect(party.host.world.players.get('bot1')!.cdMul).toBe(base);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'potenza' });
+    expect(party.profiles.get('bot1')!.gems).toBe(500);
+  });
+
+  it("Saraya's cosmetics show up in the lobby and change nothing in the simulation", () => {
+    const archive = new MemoryProfileArchive();
+    const p = emptyProfile();
+    p.threads = 200;
+    archive.save(uuid(6), p);
+    const party = company(['jusef'], 5, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(6) });
+    const before = JSON.stringify(party.host.world.players.get('bot1'));
+    party.host.onMessage('bot1', { t: 'cosm', op: 'buy', id: 'pal_oro' });
+    party.host.onMessage('bot1', { t: 'cosm', op: 'equip', id: 'pal_oro' });
+    party.host.onMessage('bot1', { t: 'cosm', op: 'buy', id: 'title_naufrago' });
+    party.host.onMessage('bot1', { t: 'cosm', op: 'equip', id: 'title_naufrago' });
+    const me = party.lobby.players[0]!;
+    expect(me.look.palette).toBe('pal_oro');
+    expect(me.title).toBe('il Naufrago');
+    expect(party.profiles.get('bot1')!.threads).toBe(200 - 18 - 10);
+    expect(JSON.stringify(party.host.world.players.get('bot1'))).toBe(before);
+  });
+
+  it('Eleonora deals with the Host once a City is cleared, and pays everyone at extraction', () => {
+    const archive = new MemoryProfileArchive();
+    const p = emptyProfile();
+    archive.save(uuid(7), p);
+    const party = company(['jusef', 'alexios'], 5, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(7) });
+    party.host.onMessage('bot1', { t: 'bounty', id: 'contro_il_tempo' });
+    expect(party.lobby.table.bounty).toBe('');
+    expect(party.errors).toHaveLength(1);
+
+    const unlocked = emptyProfile();
+    unlocked.cleared = ['ujian'];
+    archive.save(uuid(8), unlocked);
+    const second = company(['jusef', 'alexios'], 5, archive);
+    second.host.onMessage('bot1', { t: 'profile', id: uuid(8) });
+    second.host.onMessage('bot2', { t: 'bounty', id: 'contro_il_tempo' });
+    expect(second.lobby.table.bounty).toBe('');
+    second.host.onMessage('bot1', { t: 'bounty', id: 'contro_il_tempo' });
+    expect(second.lobby.table.bounty).toBe('contro_il_tempo');
+    second.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    expect(second.lobby.run!.bounty).toBe('contro_il_tempo');
+    second.run(2, undefined, false);
+    openPortal(second);
+    second.voteAll('extract');
+    const reward = BOUNTY_BY_ID.contro_il_tempo!.reward;
+    expect(second.lobby.report).toMatchObject({ bounty: 'contro_il_tempo', bountyPaid: reward });
+    expect(second.profiles.get('bot1')!.threads).toBeGreaterThanOrEqual(reward);
+    expect(second.profiles.get('bot2')!.threads).toBeGreaterThanOrEqual(reward);
+    expect(second.lobby.table.bounty).toBe('');
   });
 });
 
 describe('simulation', () => {
   it('acknowledges inputs and moves heroes at the speed the rules allow', () => {
-    const party = new Party();
-    const id = party.add('alexios');
-    party.run(0.5);
-    const before = party.snap!.p.find((p) => p.id === id)!;
-    const x0 = before.x;
-    for (let i = 0; i < 20; i++) {
-      // Far more input than one tick may carry: the surplus must not turn into speed.
-      const cmds = [];
-      for (let k = 0; k < 30; k++) cmds.push(1000 + i * 30 + k, 1000, 0, 0, 0, 0);
-      party.host.onMessage(id, { t: 'i', c: cmds });
+    const party = company(['jusef']);
+    const id = party.ids[0]!;
+    const start = { ...party.host.world.players.get(id)! };
+    let seq = 0;
+    for (let t = 0; t < 20; t++) {
+      const cmds = [0, 1, 2].map(() => ({ seq: ++seq, mx: 1, mz: 0, buttons: 0, aim: 0, lock: 0 }));
+      party.host.onMessage(id, { t: 'i', c: packCmds(cmds) });
       party.now += 50;
       party.host.update(party.now);
     }
-    const after = party.snap!.p.find((p) => p.id === id)!;
-    const moved = after.x - x0;
-    expect(moved).toBeGreaterThan(1);
-    // One second of real time: nobody outruns twice their top speed, however much they send.
-    expect(moved).toBeLessThan(8.5 * 2);
-    expect(party.snap!.ack[id]).toBeGreaterThan(1000);
+    const p = party.host.world.players.get(id)!;
+    expect(party.snap!.ack[id]).toBe(seq);
+    expect(p.x - start.x).toBeGreaterThan(HEROES.jusef.speed * 0.8);
+    expect(p.x - start.x).toBeLessThan(HEROES.jusef.speed * 1.25);
+    // Flooding the host with inputs does not make the hero faster.
+    const flood = Array.from({ length: 300 }, () => ({ seq: ++seq, mx: 1, mz: 0, buttons: 0, aim: 0, lock: 0 }));
+    const x = p.x;
+    party.host.onMessage(id, { t: 'i', c: packCmds(flood) });
+    party.now += 50;
+    party.host.update(party.now);
+    expect(p.x - x).toBeLessThan(HEROES.jusef.speed * 0.3);
   });
 
   it('ignores malformed messages', () => {
-    const party = new Party();
-    const id = party.add('alexios');
-    const bad: unknown[] = [null, 42, 'ciao', {}, { t: 'i', c: 'x' }, { t: 'i', c: [NaN, 1, 2] }, { t: 'hero', hero: 'drago' }, { t: 'mission', id: 7 }, { t: 'rtt', ms: 'molto' }];
-    for (const msg of bad) party.host.onMessage(id, msg as never);
-    party.run(0.3);
+    const party = company(['jusef']);
+    const id = party.ids[0]!;
+    const junk = [null, 5, {}, { t: 'i', c: 'x' }, { t: 'hero', hero: 42 }, { t: 'run' }, { t: 'vote' }, { t: 'tree' }, { t: 'cosm' }, { t: 'mark' }];
+    for (const j of junk) expect(() => party.host.onMessage(id, j as unknown as ClientMsg)).not.toThrow();
+    party.run(1);
     expect(party.host.phase).toBe('hub');
-    expect(party.snap!.p).toHaveLength(1);
+  });
+
+  it('nobody can be downed in the tavern', () => {
+    const party = company(['jusef']);
+    const world = party.host.world;
+    expect(world.safe).toBe(true);
+    expect(world.enemies.every((e) => ENEMIES[e.type].dummy)).toBe(true);
+    party.run(20);
+    expect(world.players.get('bot1')!.act).not.toBe(Act.Downed);
   });
 });
 
-describe('missions played by bots', () => {
-  it('a party of four clears the first mission, stage after stage', () => {
-    const party = new Party(2024);
-    for (const hero of TEAM) party.add(hero);
-    const result = party.playMission('kaza', 900);
-    expect(result.phase).toBe('victory');
-    const mission = MISSIONS.find((m) => m.id === 'kaza')!;
-    expect(result.worlds.filter((w) => w.kind === 'mission').map((w) => w.stage)).toEqual(mission.stages.map((_, i) => i));
-    expect(Object.keys(result.lobby.stats)).toHaveLength(TEAM.length);
-    for (const st of Object.values(result.lobby.stats)) expect(st.dmg).toBeGreaterThan(0);
-
-    party.host.onMessage(party.host.hostId, { t: 'hub' });
+describe('expeditions played by bots', () => {
+  it('a party of four fights through the first Environment and reaches the Choice Terminal', () => {
+    const party = company(['alexios', 'jusef', 'rycard', 'fabyorn'], 21);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    const done = party.run(600, () => party.lobby.vote !== null || party.host.phase === 'hub');
+    expect(done).toBe(true);
+    expect(party.host.phase).toBe('run');
+    expect(party.host.world.bossDead).toBe(true);
+    expect(party.seen.some((ev) => ev.e === 'clear')).toBe(true);
+    party.voteAll('extract');
     expect(party.host.phase).toBe('hub');
-    expect(party.host.info.kind).toBe('hub');
+    // Whatever was still on the ground is swept into the satchel when the company leaves.
+    for (const id of party.ids) expect(party.profiles.get(id)!.gems).toBeGreaterThanOrEqual(50);
+    expect(party.profiles.get('bot1')!.checkpoint.badiscar).toBe(1);
+    expect(party.errors).toEqual([]);
   });
 
-  it('a lone hero who stands still is defeated and may retry the stage', () => {
-    const party = new Party(7);
-    const id = party.add('gabryel');
-    party.host.onMessage(id, { t: 'start' });
-    for (let i = 0; i < 20 * 240 && party.host.phase === 'mission'; i++) party.tick(false);
-    expect(party.host.phase).toBe('defeat');
-    expect(party.downs).toBeGreaterThan(0);
-
-    party.host.onMessage(id, { t: 'retry' });
-    expect(party.host.phase).toBe('mission');
-    party.run(0.2);
-    const me = party.snap!.p.find((p) => p.id === id)!;
-    expect(me.hp).toBeGreaterThan(0);
-  });
-
-  it('every mission ends for a full company, and allies get revived along the way', () => {
-    let revives = 0;
-    for (const mission of MISSIONS) {
-      // Imperfect bots so someone goes down and gets picked back up (roster is tankier after the arcade rebalance).
-      const party = new Party(99, 0.55);
-      for (const hero of HERO_IDS) party.add(hero);
-      const result = party.playMission(mission.id, 1500);
-      expect(['victory', 'defeat'], mission.id).toContain(result.phase);
-      expect(result.errors).toEqual([]);
-      revives += result.revives;
-    }
-    expect(revives).toBeGreaterThan(0);
-  });
-
-  it('refuses last-standing arenas with a single hero', () => {
-    const party = new Party();
-    party.add('alexios');
-    party.host.onMessage('bot1', { t: 'mission', id: 'arena_fossa' });
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('hub');
-    expect(party.errors.at(-1)).toMatch(/almeno due eroi/);
-  });
-
-  it('ends an arena when only one hero is still standing', () => {
-    const party = new Party(42);
-    party.add('alexios');
-    party.add('jusef');
-    party.host.onMessage('bot1', { t: 'mission', id: 'arena_fossa' });
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('mission');
-    expect(party.host.world.pvp).toBe(true);
-    expect(party.host.world.noRevive).toBe(true);
-
-    const victim = party.host.world.players.get('bot2')!;
-    victim.hp = 0;
-    victim.act = Act.Downed;
-    for (let i = 0; i < 80 && party.host.phase === 'mission'; i++) party.tick(false);
-    expect(party.host.phase).toBe('victory');
-  });
-
-  it('a boss arena starts with its champion wave', () => {
-    const party = new Party(5);
-    for (const hero of TEAM) party.add(hero);
-    party.host.onMessage('bot1', { t: 'mission', id: 'boss_klaus' });
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('mission');
-    expect(party.host.info.layoutId).toBe('boss_tamburo');
-    expect(party.host.world.pvp).toBe(false);
-    party.run(5);
-    expect(party.host.world.enemies.some((e) => e.type === 'klaus')).toBe(true);
-  });
-
-  it('lets a player release and change hero in the hub', () => {
-    const party = new Party(3);
-    party.add('alexios');
-    party.add('jusef');
-    party.host.onMessage('bot1', { t: 'progress', xp: { alexios: 0 } });
-    expect(party.lobby.players[0]!.level).toBe(1);
-
-    party.host.onMessage('bot1', { t: 'hero', hero: '' });
-    expect(party.lobby.players[0]!.hero).toBe('');
-    party.host.onMessage('bot1', { t: 'hero', hero: 'anthon' });
-    expect(party.lobby.players[0]!.hero).toBe('anthon');
-    expect(party.host.world.players.get('bot1')!.hero).toBe('anthon');
-    expect(party.host.world.players.get('bot1')!.maxHp).toBeGreaterThanOrEqual(HEROES.anthon.hp);
-
-    // Mid-mission swaps stay blocked.
-    party.host.onMessage('bot1', { t: 'start' });
-    expect(party.host.phase).toBe('mission');
-    party.host.onMessage('bot1', { t: 'hero', hero: 'rycard' });
-    expect(party.errors.at(-1)).toMatch(/taverna/);
-    expect(party.lobby.players[0]!.hero).toBe('anthon');
-  });
-});
-
-describe('loot stays in the inventory', () => {
-  it('keeps picked-up gear across the next stage, the hub and a hero swap', () => {
-    const party = new Party(7);
-    const id = party.add('fabyorn');
-    party.host.onMessage(id, { t: 'mission', id: 'kaza' });
-    party.host.onMessage(id, { t: 'start' });
-    expect(party.host.phase).toBe('mission');
-
+  it('a lone hero who stands still falls, pays the Death Tax and wakes up in the tavern', () => {
+    const party = company(['gabryel'], 4);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
     const world = party.host.world;
-    const hero = world.players.get(id)!;
-    const drop: GroundDrop = {
-      dropId: 'd-loot',
-      kind: 'equipment',
-      x: hero.x,
-      z: hero.z,
-      vx: 0,
-      vz: 0,
-      vy: 0,
-      amount: 1,
-      itemId: 'longsword',
-      age: 0,
-      ttl: 120,
-    };
-    world.loot.push(drop);
-    for (let i = 0; i < 3; i++) party.tick(false);
-
-    const looted = world.getInventory(id)!;
-    expect(looted.bag.some((i) => i.itemId === 'longsword')).toBe(true);
-    looted.gold = 55;
-    looted.tomes.push('fortuna');
-
-    world.waveState = 'done';
-    party.run(5);
-    expect(party.host.stage).toBe(1);
-    expect(party.host.phase).toBe('mission');
-
-    const staged = party.host.world.getInventory(id)!;
-    expect(staged.bag.some((i) => i.itemId === 'longsword')).toBe(true);
-    expect(staged.gold).toBe(55);
-    expect(staged.tomes).toContain('fortuna');
-    expect(staged.mainHand?.itemId).toBe('greatsword');
-
-    party.host.onMessage(id, { t: 'hub' });
-    expect(party.host.phase).toBe('hub');
-    const hub = party.host.world.getInventory(id)!;
-    expect(hub.bag.some((i) => i.itemId === 'longsword')).toBe(true);
-    expect(hub.gold).toBe(55);
-    expect(hub.tomes).toContain('fortuna');
-
-    party.host.onMessage(id, { t: 'hero', hero: 'anthon' });
-    expect(party.host.world.getInventory(id)!.hero).toBe('anthon');
-    expect(party.host.world.getInventory(id)!.bag.some((i) => i.itemId === 'longsword')).toBe(false);
-    party.host.onMessage(id, { t: 'hero', hero: 'fabyorn' });
-    const back = party.host.world.getInventory(id)!;
-    expect(back.hero).toBe('fabyorn');
-    expect(back.bag.some((i) => i.itemId === 'longsword')).toBe(true);
-    expect(back.gold).toBe(55);
-    expect(back.tomes).toContain('fortuna');
+    const p = world.players.get('bot1')!;
+    const foe = world.enemies.find((e) => e.state === EState.Idle && !ENEMIES[e.type].ranged)!;
+    p.x = foe.x;
+    p.z = foe.z - CELL;
+    const ended = party.run(120, () => party.host.phase === 'hub', false);
+    expect(ended).toBe(true);
+    expect(party.lobby.report!.kind).toBe('wipe');
+    expect(party.host.world.safe).toBe(true);
+    expect(party.host.world.players.get('bot1')!.hp).toBe(HEROES.gabryel.hp);
   });
 
-  it('reloads each hero from the server archive in a new session', () => {
-    const archive = new MemoryGearArchive();
-    const profile = '11111111-1111-4111-8111-111111111111';
-    const io = { send() {}, broadcast() {} };
-    const first = new GameHost(io, 'A', 1, archive);
-    first.join('p', 'Ada');
-    first.onMessage('p', { t: 'profile', id: profile });
-    first.onMessage('p', { t: 'hero', hero: 'fabyorn' });
-    const inv = first.world.getInventory('p')!;
-    inv.bag.push({ uid: 'loot-sword', itemId: 'longsword', qty: 1 });
-    inv.gold = 40;
-    inv.tomes.push('fortuna');
-    first.onMessage('p', { t: 'hero', hero: 'jusef' });
-    first.leave('p');
-
-    const second = new GameHost(io, 'B', 2, archive);
-    second.join('p2', 'Ada');
-    second.onMessage('p2', { t: 'profile', id: profile });
-    second.onMessage('p2', { t: 'hero', hero: 'fabyorn' });
-    const again = second.world.getInventory('p2')!;
-    expect(again.mainHand?.itemId).toBe('greatsword');
-    expect(again.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
-    expect(again.gold).toBe(40);
-    expect(again.tomes).toContain('fortuna');
-
-    second.onMessage('p2', { t: 'hero', hero: 'jusef' });
-    const jusef = second.world.getInventory('p2')!;
-    expect(jusef.mainHand?.itemId).toBe('rapier');
-    expect(jusef.bag.some((i) => i.uid === 'loot-sword')).toBe(false);
-    expect(jusef.gold).toBe(15);
-  });
-
-  it('keeps session loot when the server book is read again', () => {
-    const archive = new MemoryGearArchive();
-    const profile = '22222222-2222-4222-8222-222222222222';
-    const io = { send() {}, broadcast() {} };
-    const host = new GameHost(io, 'A', 3, archive);
-    host.join('p', 'Ada');
-    host.onMessage('p', { t: 'profile', id: profile });
-    host.onMessage('p', { t: 'hero', hero: 'fabyorn' });
-    const inv = host.world.getInventory('p')!;
-    inv.bag.push({ uid: 'loot-sword', itemId: 'longsword', qty: 1 });
-    inv.gold = 40;
-    host.leave('p');
-
-    const live = new GameHost(io, 'B', 4, archive);
-    live.join('p2', 'Ada');
-    live.onMessage('p2', { t: 'hero', hero: 'fabyorn' });
-    live.onMessage('p2', { t: 'profile', id: profile });
-    const restored = live.world.getInventory('p2')!;
-    expect(restored.bag.some((i) => i.uid === 'loot-sword')).toBe(true);
-    expect(restored.gold).toBe(40);
-    restored.bag.push({ uid: 'session-mace', itemId: 'mace', qty: 1 });
-    restored.gold = 90;
-    live.onMessage('p2', { t: 'profile', id: profile });
-    const after = live.world.getInventory('p2')!;
-    expect(after.mainHand?.itemId).toBe('greatsword');
-    expect(after.gold).toBe(90);
-    expect(after.bag.map((i) => i.uid).sort()).toEqual(['loot-sword', 'session-mace']);
-  });
-
-  it('drops a boss relic into the hero who is already on the field', () => {
-    const party = new Party(5);
-    const id = party.add('fabyorn');
-    party.host.world.relicGrants.push({
-      hero: 'fabyorn',
-      itemId: 'boss_urban_fabyorn',
-      banner: 'Reliquia del Boss · Mannaia → fabyorn',
-    });
-    party.run(0.1);
-    const inv = party.host.world.getInventory(id)!;
-    expect(inv.bag.map((i) => i.itemId)).toContain('boss_urban_fabyorn');
-    expect(inv.relic).toBeNull();
-  });
-
-  it('holds a boss relic until the named hero is chosen', () => {
-    const party = new Party(5);
-    const id = party.add('fabyorn');
-    party.host.world.relicGrants.push({
-      hero: 'jusef',
-      itemId: 'boss_coastal_jusef',
-      banner: 'Reliquia del Boss · Stocco → jusef',
-    });
-    party.run(0.1);
-    expect(party.host.world.getInventory(id)!.bag.some((i) => i.itemId.startsWith('boss_'))).toBe(false);
-    party.host.onMessage(id, { t: 'hero', hero: 'jusef' });
-    const inv = party.host.world.getInventory(id)!;
-    expect(inv.hero).toBe('jusef');
-    expect(inv.bag.map((i) => i.itemId)).toContain('boss_coastal_jusef');
-  });
-
-  it('does not leave a boss relic on the ground for the next room to delete', () => {
-    const party = new Party(9);
-    const id = party.add('fabyorn');
-    party.host.onMessage(id, { t: 'start' });
-    const world = party.host.world;
-    const p = world.players.get(id)!;
-    world.spawnEnemy('klaus', p.x + 2, p.z);
-    const boss = world.enemies.find((e) => e.type === 'klaus')!;
-    let guard = 0;
-    while (boss.state !== EState.Dead && guard++ < 40) world.damageEnemy(boss, 900, 0, p, { raw: true });
-    expect(boss.state).toBe(EState.Dead);
-    expect(world.loot.some((d) => d.itemId?.startsWith('boss_'))).toBe(false);
-    const grant = world.relicGrants[0]!;
-    expect(grant.itemId.startsWith('boss_')).toBe(true);
-    party.run(0.2);
-    if (grant.hero === 'fabyorn') {
-      expect(party.host.world.getInventory(id)!.bag.map((i) => i.itemId)).toContain(grant.itemId);
-    } else {
-      party.host.onMessage(id, { t: 'hub' });
-      party.host.onMessage(id, { t: 'hero', hero: grant.hero });
-      expect(party.host.world.getInventory(id)!.bag.map((i) => i.itemId)).toContain(grant.itemId);
-    }
+  it('nine heroes wake the shadow spawns', () => {
+    const party = company(ALL, 9);
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
+    const before = party.host.world.enemies.length;
+    party.run(40);
+    expect(party.seen.filter((ev) => ev.e === 'spawn').length).toBeGreaterThan(0);
+    expect(before).toBeGreaterThan(10);
   });
 });

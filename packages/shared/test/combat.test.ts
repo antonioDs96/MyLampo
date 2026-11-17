@@ -7,7 +7,7 @@ import {
   EState,
   hasStatus,
   HEROES,
-  makeInstance,
+  naturalArmor,
   parseLayout,
   PS,
   quantizeCmd,
@@ -39,8 +39,10 @@ function passiveEnemy(world: World, type: EnemyState['type'], x: number, z: numb
   return e;
 }
 
-function damageOf(type: EnemyState['type'], attackId: string): number {
-  return Math.round(ENEMIES[type].attacks.find((a) => a.id === attackId)!.dmg * TUNING.threatMul);
+function damageOf(type: EnemyState['type'], attackId: string, hero: PlayerState['hero'] = 'jusef'): number {
+  const atk = ENEMIES[type].attacks.find((a) => a.id === attackId)!;
+  const armor = atk.magic || atk.proj || atk.aoe ? 0 : naturalArmor(hero);
+  return Math.max(1, Math.round(atk.dmg * TUNING.threatMul * (1 - armor)));
 }
 
 function events(world: World, kind: GameEvent['e']): GameEvent[] {
@@ -93,8 +95,8 @@ describe('player actions', () => {
 
   it('light attacks damage and stagger an enemy in the arc, not one behind', () => {
     const { world, p } = setup();
-    const front = passiveEnemy(world, 'cultista', p.x, p.z + 2);
-    const back = passiveEnemy(world, 'cultista', p.x, p.z - 2.2);
+    const front = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2);
+    const back = passiveEnemy(world, 'predone_sahuagin', p.x, p.z - 2.2);
     p.yaw = 0;
     tap(world, 'a', Btn.Light, { lock: front.id });
     run(world, 'a', T(HEROES.jusef.light[0]!.hits[0]!) + 1, { lock: front.id });
@@ -121,7 +123,7 @@ describe('player actions', () => {
 
   it('charged heavy hits harder than a tapped one and costs stamina', () => {
     const quick = setup();
-    const e1 = passiveEnemy(quick.world, 'inquisitore', quick.p.x, quick.p.z + 2.5);
+    const e1 = passiveEnemy(quick.world, 'nostromo_senzocchi', quick.p.x, quick.p.z + 2.5);
     tap(quick.world, 'a', Btn.Heavy);
     expect(quick.p.act).toBe(Act.Charge);
     run(quick.world, 'a', 40);
@@ -130,7 +132,7 @@ describe('player actions', () => {
     expect(quick.p.stamina).toBeLessThan(HEROES.jusef.stamina);
 
     const slow = setup();
-    const e2 = passiveEnemy(slow.world, 'inquisitore', slow.p.x, slow.p.z + 2.5);
+    const e2 = passiveEnemy(slow.world, 'nostromo_senzocchi', slow.p.x, slow.p.z + 2.5);
     run(slow.world, 'a', T(TUNING.maxCharge) + 4, { buttons: Btn.Heavy });
     expect(slow.p.act).toBe(Act.Charge);
     run(slow.world, 'a', 40);
@@ -225,9 +227,9 @@ describe('player actions', () => {
     const { world, p } = setup();
     run(world, 'a', 600, { mx: -1 });
     expect(p.x).toBeCloseTo(4 + 0.5 + TUNING.playerRadius, 3);
-    const e = passiveEnemy(world, 'inquisitore', p.x + 4, p.z);
+    const e = passiveEnemy(world, 'nostromo_senzocchi', p.x + 4, p.z);
     run(world, 'a', 120, { mx: 1 });
-    expect(Math.hypot(p.x - e.x, p.z - e.z)).toBeGreaterThanOrEqual(TUNING.playerRadius + ENEMIES.inquisitore.radius - 0.2);
+    expect(Math.hypot(p.x - e.x, p.z - e.z)).toBeGreaterThanOrEqual(TUNING.playerRadius + ENEMIES.nostromo_senzocchi.radius - 0.2);
   });
 
   it('abilities respect cooldown, and the ultimate needs a full bar', () => {
@@ -267,18 +269,18 @@ describe('player actions', () => {
 describe('defence', () => {
   it('an unguarded hit hurts, flinches and knocks back', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    const w = windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w + 0.6));
-    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'tridente'));
     expect(events(world, 'phit')).toHaveLength(1);
     expect(p.z).toBeLessThan(world.layout.playerSpawns[0]!.z);
   });
 
   it('a dodge with i-frames avoids the hit; a last-moment dodge is perfect', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    const w = windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w) - 6);
     tap(world, 'a', Btn.Dodge, { mx: 1 });
     run(world, 'a', 30, { mx: 1 });
@@ -290,8 +292,8 @@ describe('defence', () => {
 
   it('an early dodge is not rewarded, and one ending too soon still gets hit', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'inquisitore', p.x, p.z + 3);
-    const w = windup(world, e, p, 'falciata');
+    const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
+    const w = windup(world, e, p, 'gancio');
     // Dodge on the spot far too early: i-frames are over when the blade lands.
     run(world, 'a', 2);
     tap(world, 'a', Btn.Dodge, { mz: 1 });
@@ -302,8 +304,8 @@ describe('defence', () => {
 
   it('a guard raised early blocks: chip damage and stamina drain', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    const w = windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block });
     expect(events(world, 'block')).toHaveLength(1);
     expect(events(world, 'parry')).toHaveLength(0);
@@ -313,8 +315,8 @@ describe('defence', () => {
 
   it('a guard raised just before impact is a perfect parry that staggers the attacker', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    const w = windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w) - 8);
     run(world, 'a', 20, { buttons: Btn.Block });
     expect(events(world, 'parry')).toHaveLength(1);
@@ -326,18 +328,18 @@ describe('defence', () => {
 
   it('red attacks go through a guard', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.6);
-    const w = windup(world, e, p, 'affondo');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.6);
+    const w = windup(world, e, p, 'carica');
     run(world, 'a', T(w) - 8);
     run(world, 'a', 30, { buttons: Btn.Block });
     expect(events(world, 'parry')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'affondo'));
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'carica'));
   });
 
   it("Alexios' guard stops red attacks", () => {
     const { world, p } = setup('alexios');
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.6);
-    const w = windup(world, e, p, 'affondo');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.6);
+    const w = windup(world, e, p, 'carica');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block });
     expect(events(world, 'block')).toHaveLength(1);
     expect(p.hp).toBeGreaterThan(HEROES.alexios.hp - 16);
@@ -346,17 +348,17 @@ describe('defence', () => {
   it('a guard does not cover the back', () => {
     const { world, p } = setup();
     const front = passiveEnemy(world, 'manichino', p.x, p.z + 3);
-    const e = passiveEnemy(world, 'cultista', p.x, p.z - 2.4);
-    const w = windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z - 2.4);
+    const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block, lock: front.id });
     expect(events(world, 'block')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
+    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'tridente'));
   });
 
   it('blocking with no stamina left breaks the guard', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'inquisitore', p.x, p.z + 3);
-    const w = windup(world, e, p, 'falciata');
+    const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
+    const w = windup(world, e, p, 'gancio');
     run(world, 'a', 4, { buttons: Btn.Block });
     p.stamina = 3;
     p.stamDelay = 600;
@@ -368,8 +370,8 @@ describe('defence', () => {
   it('lag forgiveness: a dodge arriving just after the hit still counts as perfect', () => {
     const { world, p } = setup();
     world.rtt.set('a', 120);
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    windup(world, e, p, 'tridente');
     // The server reaches the strike while the player's dodge is still in flight.
     while (e.state === EState.Windup) world.step(0.05);
     expect(p.hp).toBe(HEROES.jusef.hp);
@@ -384,8 +386,8 @@ describe('defence', () => {
   it('lag forgiveness: a late guard still parries, but the hit lands if nothing arrives', () => {
     const parried = setup();
     parried.world.rtt.set('a', 120);
-    const e1 = passiveEnemy(parried.world, 'cultista', parried.p.x, parried.p.z + 2.4);
-    windup(parried.world, e1, parried.p, 'fendente');
+    const e1 = passiveEnemy(parried.world, 'predone_sahuagin', parried.p.x, parried.p.z + 2.4);
+    windup(parried.world, e1, parried.p, 'tridente');
     while (e1.state === EState.Windup) parried.world.step(0.05);
     parried.world.step(0.05);
     run(parried.world, 'a', 30, { buttons: Btn.Block });
@@ -394,19 +396,19 @@ describe('defence', () => {
 
     const idle = setup();
     idle.world.rtt.set('a', 120);
-    const e2 = passiveEnemy(idle.world, 'cultista', idle.p.x, idle.p.z + 2.4);
-    windup(idle.world, e2, idle.p, 'fendente');
+    const e2 = passiveEnemy(idle.world, 'predone_sahuagin', idle.p.x, idle.p.z + 2.4);
+    windup(idle.world, e2, idle.p, 'tridente');
     while (e2.state === EState.Windup) idle.world.step(0.05);
     expect(idle.p.hp).toBe(HEROES.jusef.hp);
     for (let i = 0; i < 8; i++) idle.world.step(0.05);
-    expect(idle.p.hp).toBe(HEROES.jusef.hp - damageOf('cultista', 'fendente'));
+    expect(idle.p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'tridente'));
   });
 
   it('the grace window never exceeds its cap', () => {
     const { world, p } = setup();
     world.rtt.set('a', 5000);
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    windup(world, e, p, 'tridente');
     while (e.state === EState.Windup) world.step(0.05);
     const steps = Math.ceil(TUNING.graceMaxMs / 50) + 1;
     for (let i = 0; i < steps; i++) world.step(0.05);
@@ -416,8 +418,8 @@ describe('defence', () => {
   it('walking out of reach during the grace window avoids the hit', () => {
     const { world, p } = setup();
     world.rtt.set('a', 150);
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
-    windup(world, e, p, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    windup(world, e, p, 'tridente');
     while (e.state === EState.Windup) world.step(0.05);
     p.z -= 6;
     for (let i = 0; i < 8; i++) world.step(0.05);
@@ -427,9 +429,9 @@ describe('defence', () => {
   it('grace re-check uses the same melee volume as the strike (no phantom reach)', () => {
     const { world, p } = setup();
     world.rtt.set('a', 150);
-    const atk = ENEMIES.cultista.attacks.find((a) => a.id === 'fendente')!;
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.2);
-    windup(world, e, p, 'fendente');
+    const atk = ENEMIES.predone_sahuagin.attacks.find((a) => a.id === 'tridente')!;
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.2);
+    windup(world, e, p, 'tridente');
     while (e.state === EState.Windup) world.step(0.05);
     // Just outside the real hit volume — previously still allowed reach+1.1 and would punish this.
     const limit = atk.reach + TUNING.enemyHitPad + 0.05;
@@ -446,7 +448,7 @@ describe('defence', () => {
 describe('stagger, executions and co-op', () => {
   it('filling the stagger bar breaks the enemy and allows an execution', () => {
     const { world, p } = setup('fabyorn');
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2.4);
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
     e.hp = e.maxHp = 500;
     for (let i = 0; i < 40 && e.state !== EState.Broken; i++) {
       tap(world, 'a', Btn.Light, { lock: e.id });
@@ -469,7 +471,7 @@ describe('stagger, executions and co-op', () => {
 
   it('executions only chunk elites and bosses', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'klaus', p.x, p.z + 4);
+    const e = passiveEnemy(world, 'idra_carsica', p.x, p.z + 4);
     e.state = EState.Broken;
     e.t = 0;
     tap(world, 'a', Btn.Interact);
@@ -480,7 +482,7 @@ describe('stagger, executions and co-op', () => {
 
   it('stagger bars decay when the enemy is left alone', () => {
     const { world } = setup();
-    const e = passiveEnemy(world, 'inquisitore', 30, 30);
+    const e = passiveEnemy(world, 'nostromo_senzocchi', 30, 30);
     e.poise = 50;
     e.sinceHit = 0;
     for (let i = 0; i < 20 * 8; i++) world.step(0.05);
@@ -489,7 +491,7 @@ describe('stagger, executions and co-op', () => {
 
   it('an enemy flinched several times in a row stops being interrupted for a while', () => {
     const { world, p } = setup();
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2);
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2);
     e.hp = e.maxHp = 10000;
     e.maxPoise = 10000;
     for (let i = 0; i < TUNING.flinchLimit; i++) {
@@ -508,14 +510,17 @@ describe('stagger, executions and co-op', () => {
     expect(e.state).toBe(EState.Stagger);
   });
 
-  it('elites and bosses get a longer stagger bar when the party is larger', () => {
+  it('no damage sponges: vitals are the same for one hero or nine', () => {
     const solo = makeWorld();
     solo.addPlayer('a', 'jusef', 0);
     const big = makeWorld();
-    for (const [i, hero] of (['jusef', 'alexios', 'rycard', 'fabyorn'] as const).entries()) big.addPlayer(`p${i}`, hero, i);
-    expect(big.spawnEnemy('inquisitore', 20, 20).maxPoise).toBeGreaterThan(solo.spawnEnemy('inquisitore', 20, 20).maxPoise);
-    expect(big.spawnEnemy('cultista', 20, 20).maxPoise).toBe(solo.spawnEnemy('cultista', 20, 20).maxPoise);
-    expect(big.spawnEnemy('klaus', 20, 20).maxHp).toBeGreaterThan(solo.spawnEnemy('klaus', 20, 20).maxHp * 3);
+    for (const [i, hero] of (['jusef', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon'] as const).entries()) big.addPlayer(`p${i}`, hero, i);
+    for (const type of ['predone_sahuagin', 'nostromo_senzocchi', 'quartiermastro', 'idra_carsica', 'leviatano'] as const) {
+      const a = solo.spawnEnemy(type, 20, 20);
+      const b = big.spawnEnemy(type, 20, 20);
+      expect(b.maxHp, type).toBe(a.maxHp);
+      expect(b.maxPoise, type).toBe(a.maxPoise);
+    }
   });
 
   it('a hero at zero health is downed and can be revived by an ally', () => {
@@ -524,8 +529,8 @@ describe('stagger, executions and co-op', () => {
     const b = world.addPlayer('b', 'alexios', 0);
     b.x = a.x + 1.5;
     a.hp = 5;
-    const e = passiveEnemy(world, 'cultista', a.x, a.z + 2.4);
-    const w = windup(world, e, a, 'fendente');
+    const e = passiveEnemy(world, 'predone_sahuagin', a.x, a.z + 2.4);
+    const w = windup(world, e, a, 'tridente');
     run(world, 'a', T(w + 0.5));
     expect(a.act).toBe(Act.Downed);
     expect(world.allDown()).toBe(false);
@@ -574,8 +579,8 @@ describe('stagger, executions and co-op', () => {
     });
     const p = world.addPlayer('a', 'anthon', 0);
     p.hp = 2;
-    const e = passiveEnemy(world, 'inquisitore', p.x, p.z + 3);
-    const w = windup(world, e, p, 'falciata');
+    const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
+    const w = windup(world, e, p, 'gancio');
     run(world, 'a', T(w + 0.5));
     expect(p.hp).toBe(1);
     expect(p.act).not.toBe(Act.Downed);
@@ -585,7 +590,7 @@ describe('stagger, executions and co-op', () => {
 describe('enemies', () => {
   it('chase the player and telegraph before striking', () => {
     const { world, p } = setup();
-    const e = world.spawnEnemy('cultista', p.x, p.z + 14);
+    const e = world.spawnEnemy('predone_sahuagin', p.x, p.z + 14);
     e.cool = 0;
     let sawWindup = 0;
     for (let i = 0; i < 20 * 8 && p.hp === HEROES.jusef.hp; i++) {
@@ -598,7 +603,7 @@ describe('enemies', () => {
 
   it('limit how many attack one hero at once', () => {
     const { world, p } = setup();
-    const list = Array.from({ length: 6 }, (_, i) => world.spawnEnemy('cultista', p.x - 5 + i * 2, p.z + 5));
+    const list = Array.from({ length: 6 }, (_, i) => world.spawnEnemy('predone_sahuagin', p.x - 5 + i * 2, p.z + 5));
     for (const e of list) e.cool = 0;
     let max = 0;
     for (let i = 0; i < 20 * 6; i++) {
@@ -622,7 +627,7 @@ describe('enemies', () => {
       seed: 5,
     });
     const p = world.addPlayer('a', 'alexios', 0);
-    const e = world.spawnEnemy('cultista', world.layout.enemySpawns[0]!.x, world.layout.enemySpawns[0]!.z);
+    const e = world.spawnEnemy('predone_sahuagin', world.layout.enemySpawns[0]!.x, world.layout.enemySpawns[0]!.z);
     for (let i = 0; i < 20 * 12; i++) {
       world.step(0.05);
       p.hp = HEROES.alexios.hp;
@@ -632,7 +637,7 @@ describe('enemies', () => {
 
   it('frozen enemies do not act and take extra damage', () => {
     const { world, p } = setup('fabyorn');
-    const e = world.spawnEnemy('cultista', p.x, p.z + 3);
+    const e = world.spawnEnemy('predone_sahuagin', p.x, p.z + 3);
     e.state = EState.Chase;
     e.cool = 0;
     e.st.push({ k: ES.Frozen, t: 2, p: 0 });
@@ -646,50 +651,9 @@ describe('enemies', () => {
     expect(e.maxHp - e.hp).toBe(Math.round(10 * TUNING.frozenDamageMul));
   });
 
-  it('unstable creatures burst after dying', () => {
-    const { world, p } = setup();
-    const e = passiveEnemy(world, 'creatura', p.x, p.z + 1.5);
-    world.damageEnemy(e, 999, 0, p);
-    expect(e.state).toBe(EState.Dead);
-    for (let i = 0; i < 24; i++) world.step(0.05);
-    expect(p.hp).toBe(HEROES.jusef.hp - Math.round(ENEMIES.creatura.burst! * TUNING.threatMul));
-  });
-
-  it("Klaus' drum ring must be dodged through and his silence domes mute abilities", () => {
-    const { world, p } = setup();
-    const k = passiveEnemy(world, 'klaus', p.x, p.z + 12);
-    windup(world, k, p, 'rullo');
-    while (world.zones.length === 0) world.step(0.05);
-    expect(world.zones[0]!.kind).toBe('ring');
-    // Standing still while the ring passes: hit.
-    for (let i = 0; i < 40; i++) world.step(0.05);
-    expect(p.hp).toBeLessThan(HEROES.jusef.hp);
-
-    const second = setup();
-    const k2 = passiveEnemy(second.world, 'klaus', second.p.x, second.p.z + 12);
-    windup(second.world, k2, second.p, 'rullo');
-    while (second.world.zones.length === 0) second.world.step(0.05);
-    const ring = second.world.zones[0]!;
-    // Dodge toward the ring just as it arrives.
-    while (12 - ring.r > 1.2) {
-      second.world.step(0.05);
-      k2.state = EState.Recover;
-      k2.t = -99;
-    }
-    tap(second.world, 'a', Btn.Dodge, { mz: 1 });
-    run(second.world, 'a', 40, { mz: 1 });
-    expect(second.p.hp).toBe(HEROES.jusef.hp);
-    expect(events(second.world, 'pdodge')).toHaveLength(1);
-
-    windup(second.world, k2, second.p, 'silenzio');
-    k2.t = 0;
-    for (let i = 0; i < 40 && !second.world.zones.some((z) => z.kind === 'silence'); i++) second.world.step(0.05);
-    expect(second.world.zones.some((z) => z.kind === 'silence')).toBe(true);
-  });
-
   it('the boss changes phase as his health drops', () => {
     const { world, p } = setup();
-    const k = world.spawnEnemy('klaus', p.x, p.z + 10);
+    const k = world.spawnEnemy('idra_carsica', p.x, p.z + 10);
     k.state = EState.Chase;
     k.cool = 99;
     world.damageEnemy(k, k.maxHp * 0.4, 0, null, { raw: true });
@@ -700,32 +664,6 @@ describe('enemies', () => {
     for (let i = 0; i < 30; i++) world.step(0.05);
     // The roar calls reinforcements.
     expect(world.enemies.length).toBeGreaterThan(1);
-  });
-});
-
-describe('waves', () => {
-  it('spawn in order, scale with the party and finish with a clear event', () => {
-    const solo = makeWorld([{ spawns: [['cultista', 2]] }, { spawns: [['inquisitore', 1]] }]);
-    solo.addPlayer('a', 'jusef', 0);
-    for (let i = 0; i < 60; i++) solo.step(0.05);
-    expect(solo.waveIdx).toBe(0);
-    expect(solo.enemies).toHaveLength(2);
-
-    const party = makeWorld([{ spawns: [['cultista', 2]] }]);
-    for (const [i, h] of (['jusef', 'alexios', 'rycard', 'anthon'] as const).entries()) party.addPlayer(`p${i}`, h, i);
-    for (let i = 0; i < 80; i++) party.step(0.05);
-    // 4 heroes → ~3× solo grunt count and tougher HP (partyScale).
-    expect(party.enemies.length).toBeGreaterThanOrEqual(6);
-    expect(party.enemies[0]!.maxHp).toBeGreaterThan(ENEMIES.cultista.hp);
-
-    for (const e of solo.enemies) solo.damageEnemy(e, 9999, 0, null);
-    for (let i = 0; i < 20 * 5; i++) solo.step(0.05);
-    expect(solo.waveIdx).toBe(1);
-    expect(solo.enemies.filter((e) => e.state !== EState.Dead).map((e) => e.type)).toEqual(['inquisitore']);
-    for (const e of solo.enemies) solo.damageEnemy(e, 9999, 0, null);
-    for (let i = 0; i < 20; i++) solo.step(0.05);
-    expect(solo.waveState).toBe('done');
-    expect(events(solo, 'clear')).toHaveLength(1);
   });
 });
 
@@ -783,7 +721,7 @@ describe('impact physics', () => {
     // Player south of the barrel, cultist between them: the launch drives the body into the wood.
     p.x = barrel!.x;
     p.z = barrel!.z - 3.2;
-    const e = passiveEnemy(world, 'cultista', barrel!.x, barrel!.z - 1.35);
+    const e = passiveEnemy(world, 'predone_sahuagin', barrel!.x, barrel!.z - 1.35);
     world.damageEnemy(e, 20, 10, p, { kb: 10, heavy: true });
     for (let i = 0; i < 16; i++) world.step(0.05);
     expect(events(world, 'smash').length).toBeGreaterThan(0);
@@ -792,8 +730,8 @@ describe('impact physics', () => {
 
   it('a launched enemy can pinball into another', () => {
     const { world, p } = setup('fabyorn');
-    const a = passiveEnemy(world, 'cultista', p.x, p.z + 2.2);
-    const b = passiveEnemy(world, 'cultista', p.x, p.z + 3.6);
+    const a = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.2);
+    const b = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 3.6);
     world.damageEnemy(a, 12, 8, p, { kb: 8, heavy: true });
     for (let i = 0; i < 8; i++) world.step(0.05);
     expect(Math.hypot(b.kx, b.kz)).toBeGreaterThan(1);
@@ -810,7 +748,7 @@ describe('Dalìth', () => {
       anthon.x = p.x + (far ? 14 : 3);
       anthon.z = p.z;
     }
-    const e = passiveEnemy(world, 'cultista', p.x, p.z + 2);
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2);
     p.yaw = 0;
     tap(world, 'a', Btn.Light, { lock: e.id });
     run(world, 'a', T(HEROES.dalith.light[0]!.hits[0]!) + 1, { lock: e.id });
@@ -819,7 +757,7 @@ describe('Dalìth', () => {
 
   it('reads nearby bodies with the Danza della Memoria', () => {
     const { world, p } = setup('dalith');
-    const e = passiveEnemy(world, 'cultista', p.x + 2, p.z);
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x + 2, p.z);
     tap(world, 'a', Btn.Ability);
     run(world, 'a', T(HEROES.dalith.ability.dur) + 2);
     expect(hasStatus(e.st, ES.Confused)).toBe(true);
@@ -829,33 +767,17 @@ describe('Dalìth', () => {
 
   it('refuses to be slowed', () => {
     const slowed = setup('jusef');
-    const dog = passiveEnemy(slowed.world, 'mastino_guerra', slowed.p.x, slowed.p.z + 2.2);
-    const wind = windup(slowed.world, dog, slowed.p, 'morso');
+    const dog = passiveEnemy(slowed.world, 'granchio_pietra', slowed.p.x, slowed.p.z + 2.2);
+    const wind = windup(slowed.world, dog, slowed.p, 'pinza');
     run(slowed.world, 'a', T(wind + 0.6));
     expect(hasStatus(slowed.p.st, PS.Slow)).toBe(true);
 
     const { world, p } = setup('dalith');
-    const bite = passiveEnemy(world, 'mastino_guerra', p.x, p.z + 2.2);
-    const wind2 = windup(world, bite, p, 'morso');
+    const bite = passiveEnemy(world, 'granchio_pietra', p.x, p.z + 2.2);
+    const wind2 = windup(world, bite, p, 'pinza');
     run(world, 'a', T(wind2 + 0.6));
     expect(p.hp).toBeLessThan(HEROES.dalith.hp);
     expect(hasStatus(p.st, PS.Slow)).toBe(false);
-  });
-
-  it('keeps half of a healing potion and cramps', () => {
-    function drink(hero: 'dalith' | 'jusef') {
-      const { world, p } = setup(hero);
-      world.getInventory('a')!.belt[0] = makeInstance('potion_healing', 1);
-      p.hp = 10;
-      expect(world.useBelt('a', 0)).toBe(true);
-      return { world, p, gained: p.hp - 10 };
-    }
-    const dalith = drink('dalith');
-    const jusef = drink('jusef');
-    expect(dalith.gained).toBe(Math.max(1, Math.round(jusef.gained * 0.5)));
-    expect(hasStatus(dalith.p.st, PS.Cramp)).toBe(true);
-    expect(hasStatus(jusef.p.st, PS.Cramp)).toBe(false);
-    expect(dalith.world.events.some((e) => e.e === 'say' && e.who === 'Dalìth')).toBe(true);
   });
 
   it('dodges with a pirouette, even on full vigour', () => {
@@ -882,36 +804,5 @@ describe('Dalìth', () => {
     const far = hitCultist(true, true);
     expect(near).toBeGreaterThan(alone);
     expect(far).toBe(alone);
-  });
-});
-
-describe('last-standing PvP', () => {
-  it('heroes damage each other when pvp is on, and cannot revive when noRevive is on', () => {
-    const world = new World({ layout: parseLayout(ARENA), seed: 11, introDelay: 0, pvp: true, noRevive: true });
-    const a = world.addPlayer('a', 'jusef', 0);
-    const b = world.addPlayer('b', 'alexios', 1);
-    a.x = 4 * 4;
-    a.z = 4 * 4;
-    b.x = a.x;
-    b.z = a.z + 1.6;
-    a.yaw = yawOf(b.x - a.x, b.z - a.z);
-    const hp0 = b.hp;
-    tap(world, 'a', Btn.Light);
-    run(world, 'a', T(HEROES.jusef.light[0]!.dur) + 4);
-    for (let i = 0; i < 6; i++) world.step(0.05);
-    expect(b.hp).toBeLessThan(hp0);
-    expect(world.stats.get('a')!.dmg).toBeGreaterThan(0);
-
-    b.act = Act.Downed;
-    b.hp = 0;
-    a.act = Act.Idle;
-    a.ref = '';
-    // Interact near a downed rival: revive must stay disabled.
-    for (let i = 0; i < T(TUNING.reviveTime) + 10; i++) {
-      world.applyCommand('a', cmd({ buttons: Btn.Interact }));
-      if (i % 3 === 2) world.step(0.05);
-    }
-    expect(b.act).toBe(Act.Downed);
-    expect(events(world, 'revive')).toHaveLength(0);
   });
 });

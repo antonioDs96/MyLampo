@@ -1,18 +1,24 @@
 import { FreeCamera, Plane, type Scene, Vector3 } from '@babylonjs/core';
-import { angleDiff, clamp, ELEV_WALL, getCellElevation, rayDistance, standElevation, STEP_HEIGHT, wrapAngle, yawOf, type Layout } from '@malampu/shared';
+import { clamp, ELEV_WALL, getCellElevation, rayDistance, standElevation, STEP_HEIGHT, wrapAngle, type Layout } from '@malampu/shared';
 
-const PITCH_MIN = 0.08;
-const PITCH_MAX = 1.15;
+/** The tilt is part of the design: every elevation has to read at a glance, so it never changes. */
+export const ISO_PITCH = (60 * Math.PI) / 180;
+const DIST_MIN = 26;
+const DIST_MAX = 50;
+/** A wall closer than this, on the camera's side of the hero, would hide them. */
+const CUT_RANGE = 9;
 
-/** Third-person chase camera with lock-on framing, wall avoidance and shake. */
-export class ChaseCamera {
+/**
+ * Top-down isometric camera. The pitch is locked at 60 degrees; only the yaw turns
+ * (hold the middle mouse button), a full 360 degrees around the hero.
+ */
+export class IsoCamera {
   readonly camera: FreeCamera;
-  /** Direction the camera looks along the ground. */
+  /** Direction the camera looks along the ground. "Up" on the screen is this way. */
   yaw = 0;
-  pitch = 0.42;
-  distance = 9.2;
-  private shoulder = 0;
-  /** Scenery on the positive side of this plane hides the hero and must not be drawn. */
+  readonly pitch = ISO_PITCH;
+  distance = 38;
+  /** Walls on the positive side of this plane hide the hero and are not drawn. */
   readonly cutPlane = new Plane(0, 0, -1, -1000);
   private cutDist = 50;
   /** View axes, refreshed by update(). */
@@ -24,14 +30,13 @@ export class ChaseCamera {
   private hasFocus = false;
   private shake = 0;
   private shakeClock = 0;
-  private curDist = 9.2;
   private punch = 0;
 
-  constructor(scene: Scene) {
-    this.camera = new FreeCamera('chase', new Vector3(0, 6, -10), scene);
-    this.camera.fov = 0.92;
-    this.camera.minZ = 0.25;
-    this.camera.maxZ = 600;
+  constructor(private readonly scene: Scene) {
+    this.camera = new FreeCamera('iso', new Vector3(0, 30, -18), scene);
+    this.camera.fov = 0.7;
+    this.camera.minZ = 0.5;
+    this.camera.maxZ = 700;
     this.camera.inputs.clear();
     scene.activeCamera = this.camera;
   }
@@ -49,94 +54,59 @@ export class ChaseCamera {
     this.punch = Math.max(this.punch, amount);
   }
 
-  snap(x: number, z: number, yaw: number): void {
-    this.yaw = yaw;
+  snap(x: number, z: number, yaw?: number): void {
+    if (yaw !== undefined) this.yaw = yaw;
     this.hasFocus = false;
-    this.focus.set(x, 1.6, z);
+    this.focus.set(x, 1, z);
   }
 
-  rotate(dYaw: number, dPitch: number): void {
+  rotate(dYaw: number): void {
     this.yaw = wrapAngle(this.yaw + dYaw);
-    this.pitch = clamp(this.pitch + dPitch, PITCH_MIN, PITCH_MAX);
   }
 
-  update(
-    dt: number,
-    layout: Layout | null,
-    x: number,
-    z: number,
-    lock: { x: number; z: number; h: number } | null,
-    free: boolean,
-  ): void {
-    const tx = x;
-    const tz = z;
+  zoom(steps: number): void {
+    this.distance = clamp(this.distance + steps * 3, DIST_MIN, DIST_MAX);
+  }
+
+  update(dt: number, layout: Layout | null, x: number, z: number): void {
     if (!this.hasFocus) {
-      this.focus.set(tx, 1.6, tz);
+      this.focus.set(x, this.focus.y, z);
       this.hasFocus = true;
     }
-    const follow = 1 - Math.exp(-dt * 14);
-    this.focus.x += (tx - this.focus.x) * follow;
-    this.focus.z += (tz - this.focus.z) * follow;
-    const raw = layout ? getCellElevation(layout, tx, tz) : 0;
-    const feet = 1.6 + (raw === ELEV_WALL ? 0 : raw) * STEP_HEIGHT;
-    this.focus.y += (feet - this.focus.y) * follow;
-
-    let lookX = this.focus.x;
-    let lookZ = this.focus.z;
-    let lookY = this.focus.y + 0.15;
-    let dist = this.distance;
-    if (lock) {
-      const dx = lock.x - x;
-      const dz = lock.z - z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.6 && !free) {
-        const want = yawOf(dx, dz);
-        this.yaw = wrapAngle(this.yaw + angleDiff(want, this.yaw) * (1 - Math.exp(-dt * 6)));
-      }
-      // Frame the hero and the target together: look a bit toward the target and pull back with distance.
-      const k = clamp(d / 30, 0, 0.3);
-      lookX += dx * k;
-      lookZ += dz * k;
-      lookY = 1.75 + (lock.h * 0.5 - 1) * 0.25;
-      dist += clamp(d * 0.28, 0, 4.5);
-      const wantPitch = clamp(0.42 + d * 0.012, 0.3, 0.62);
-      this.pitch += (wantPitch - this.pitch) * (1 - Math.exp(-dt * 2.5));
-    }
+    const follow = 1 - Math.exp(-dt * 10);
+    this.focus.x += (x - this.focus.x) * follow;
+    this.focus.z += (z - this.focus.z) * follow;
+    const raw = layout ? getCellElevation(layout, x, z) : 0;
+    const feet = 1 + (raw === ELEV_WALL ? 0 : raw) * STEP_HEIGHT;
+    this.focus.y += (feet - this.focus.y) * (1 - Math.exp(-dt * 6));
 
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
-    // Over-the-shoulder while locked, so the hero does not hide the target's telegraphs.
-    this.shoulder += ((lock ? 1.1 : 0) - this.shoulder) * (1 - Math.exp(-dt * 4));
-    lookX += fz * this.shoulder;
-    lookZ -= fx * this.shoulder;
-    const horiz = Math.cos(this.pitch) * dist;
-    const want = horiz / Math.max(0.2, Math.cos(this.pitch));
-    this.curDist += (want - this.curDist) * (1 - Math.exp(-dt * 5));
     this.punch = Math.max(0, this.punch - dt * 3.5);
-    const d = this.curDist * (1 - this.punch * 0.08);
+    const d = this.distance * (1 - this.punch * 0.05);
     const back = Math.cos(this.pitch) * d;
 
-    // Walls between the camera and the hero are cut away instead of pulling the camera in:
+    // Walls between the camera and the hero are cut away, dollhouse style:
     // everything on the camera's side of a vertical plane just in front of the wall is hidden.
-    let cut = back + 4;
+    let cut = back + 30;
     if (layout) {
-      const wall = rayDistance(layout, lookX, lookZ, -fx, -fz, back + 1.5, standElevation(layout, x, z));
-      if (wall < back + 1.2) cut = Math.max(0.75, wall - 0.2);
+      const wall = rayDistance(layout, x, z, -fx, -fz, CUT_RANGE + 1, standElevation(layout, x, z));
+      if (wall < CUT_RANGE) cut = Math.max(0.75, wall - 0.2);
     }
-    this.cutDist = cut < this.cutDist ? cut : this.cutDist + (cut - this.cutDist) * (1 - Math.exp(-dt * 10));
+    this.cutDist = cut < this.cutDist ? cut : this.cutDist + (cut - this.cutDist) * (1 - Math.exp(-dt * 6));
     this.cutPlane.normal.set(-fx, 0, -fz);
-    this.cutPlane.d = fx * (lookX - fx * this.cutDist) + fz * (lookZ - fz * this.cutDist);
+    this.cutPlane.d = fx * (this.focus.x - fx * this.cutDist) + fz * (this.focus.z - fz * this.cutDist);
 
-    const cx = lookX - fx * back;
-    const cz = lookZ - fz * back;
-    const cy = lookY + Math.sin(this.pitch) * d;
+    const cx = this.focus.x - fx * back;
+    const cz = this.focus.z - fz * back;
+    const cy = this.focus.y + Math.sin(this.pitch) * d;
 
     this.shakeClock += dt;
     let sx = 0;
     let sy = 0;
     if (this.shake > 0.001) {
       const t = this.shakeClock;
-      const a = this.shake * this.shake * 0.55;
+      const a = this.shake * this.shake * 0.9;
       sx = (Math.sin(t * 71) + Math.sin(t * 113 + 1.3)) * 0.5 * a;
       sy = (Math.sin(t * 89 + 0.7) + Math.sin(t * 127 + 2.1)) * 0.5 * a;
       this.shake = Math.max(0, this.shake - dt * 2.6);
@@ -145,11 +115,32 @@ export class ChaseCamera {
     const rx = fz;
     const rz = -fx;
     this.camera.position.set(cx + rx * sx, cy + sy, cz + rz * sx);
-    this.look.set(lookX + rx * sx * 0.6, lookY + sy * 0.6, lookZ + rz * sx * 0.6);
+    this.look.set(this.focus.x + rx * sx, this.focus.y + sy, this.focus.z + rz * sx);
     this.camera.setTarget(this.look);
     this.look.subtractToRef(this.camera.position, this.forward).normalize();
     Vector3.CrossToRef(Vector3.UpReadOnly, this.forward, this.right);
     this.right.normalize();
     Vector3.CrossToRef(this.forward, this.right, this.up);
+  }
+
+  /**
+   * Where a point of the canvas (0..1 from the top-left corner) lands on the horizontal
+   * plane at height `y`. Returns false when the ray never reaches it.
+   */
+  groundPoint(u: number, v: number, y: number, out: { x: number; z: number }): boolean {
+    const cam = this.camera;
+    const aspect = this.scene.getEngine().getAspectRatio(cam);
+    const tan = Math.tan(cam.fov / 2);
+    // Camera-space direction of the pixel, then into the world with the view axes.
+    const px = (u * 2 - 1) * tan * aspect;
+    const py = (1 - v * 2) * tan;
+    const dx = this.forward.x + this.right.x * px + this.up.x * py;
+    const dy = this.forward.y + this.right.y * px + this.up.y * py;
+    const dz = this.forward.z + this.right.z * px + this.up.z * py;
+    if (dy > -0.02) return false;
+    const t = (y - cam.position.y) / dy;
+    out.x = cam.position.x + dx * t;
+    out.z = cam.position.z + dz * t;
+    return true;
   }
 }

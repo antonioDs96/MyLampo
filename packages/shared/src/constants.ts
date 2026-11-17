@@ -71,8 +71,6 @@ export const TUNING = {
   /** Extra reach granted to player attacks to cover what the attacker saw on screen. */
   lagPad: 0.45,
 
-  ultPerDamage: 0.11,
-  ultPerDamageTaken: 0.25,
   ultPerfectDodge: 8,
   ultPerfectParry: 10,
   ultExecute: 14,
@@ -115,32 +113,65 @@ export const TUNING = {
   maxMeleeAttackers: 4,
   maxRangedAttackers: 3,
 
-  /**
-   * Global enemy damage pressure. Minds still pick the punish;
-   * the room itself hits harder and from farther away.
-   */
-  threatMul: 1.25,
-  /** Solo max-HP multiplier. Party bonuses stack on top of this. */
-  hpMul: 1.25,
+  /** Global enemy damage pressure. It does not grow with the party: density does. */
+  threatMul: 1.1,
+  /** Max-HP multiplier of every enemy, whatever the party size. */
+  hpMul: 1.15,
+  /** +1 simultaneous attacker on a hero every N extra heroes. */
+  attackerEvery: 2,
 
-  /**
-   * Extra difficulty per hero beyond the first.
-   * Wave tables are solo baselines; counts, HP, threat and attacker slots grow from here.
-   */
-  party: {
-    /** Grunt max-HP bonus per extra hero. */
-    hpGrunt: 0.25,
-    /** Elite max-HP bonus per extra hero. */
-    hpElite: 0.75,
-    /** Boss (bar) max-HP bonus per extra hero. */
-    hpBoss: 1.25,
-    /** Elite/boss stagger-bar bonus per extra hero. */
-    poiseElite: 0.75,
-    /** Extra enemy damage fraction per extra hero (on top of threatMul). */
-    threatPer: 0.125,
-    /** +1 simultaneous attacker on a hero every N extra heroes. */
-    attackerEvery: 2,
-  },
+  /** Heroes downed in an Environment enter the next one with this fraction of HP. */
+  carryDownedHp: 0.2,
+
+  // --- Momentum (Fury) ---
+  furyMax: 100,
+  furyPerHit: 4,
+  furyPerfectDodge: 25,
+  furyEliteKill: 35,
+  /** Seconds without feeding the meter before it starts to drain, and the drain per second. */
+  furyHold: 4,
+  furyDecay: 12,
+  /** Thresholds: attack speed, crit chance, hyper stamina regen, life-steal aura. */
+  furyTiers: [25, 50, 75, 100],
+  frenzyRate: 0.2,
+  critBase: 0.05,
+  critKeen: 0.15,
+  critMul: 1.5,
+  surgeRegenMul: 2.5,
+  leechFraction: 0.06,
+  leechRange: 8,
+
+  // --- Points of interest ---
+  interactRange: 3,
+  chestChannel: 4,
+  shrineChannel: 1,
+  portalChannel: 0.6,
+  shrineRadius: 5.5,
+  shrineDuration: 12,
+  /** Fraction of max HP healed per second inside the shrine circle. */
+  shrineHeal: 0.05,
+  /** Distance at which a dormant shadow spawn wakes for a large party. */
+  shadowWake: 18,
+  /** Fraction of max HP the party recovers when a Mini-Boss falls. */
+  miniBossHeal: 0.25,
+
+  // --- Anti-zerg ---
+  /** Heroes clustered before a boss answers. */
+  zergCount: 3,
+  zergRadius: 7,
+  zergBlast: 8.5,
+  zergClusterRadius: 5,
+  zergWindup: 1.1,
+  zergCooldown: 6,
+  zergBase: 16,
+  zergGrowth: 1.35,
+  zergKnock: 16,
+  /** Seconds of crowd-control immunity a boss gains after being controlled. */
+  ccWard: 9,
+
+  // --- Flood (Il Leviatano) ---
+  floodDps: 9,
+  floodSlow: 0.35,
 
   /**
    * Idle garrison vision (world units) and cone half-angle (radians).

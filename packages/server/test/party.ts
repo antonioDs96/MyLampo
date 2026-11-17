@@ -6,10 +6,17 @@ import {
   GameHost,
   TICK_HZ,
   WORLD_HZ,
+  layoutDefById,
   packCmds,
+  parseLayout,
   unpackEnemy,
+  type GameEvent,
   type HeroId,
+  type Layout,
   type LobbyState,
+  type Profile,
+  type ProfileArchive,
+  type Purse,
   type ServerMsg,
   type Snapshot,
   type WorldInfo,
@@ -19,17 +26,6 @@ import { BotBrain } from './bot';
 const STEPS = TICK_HZ / WORLD_HZ;
 const TICK_MS = 1000 / WORLD_HZ;
 
-export interface PartyResult {
-  phase: string;
-  seconds: number;
-  stage: number;
-  lobby: LobbyState;
-  downs: number;
-  revives: number;
-  errors: string[];
-  worlds: WorldInfo[];
-}
-
 export class Party {
   readonly host: GameHost;
   readonly ids: string[] = [];
@@ -37,39 +33,63 @@ export class Party {
   snap: Snapshot | null = null;
   readonly worlds: WorldInfo[] = [];
   readonly errors: string[] = [];
+  /** Public events seen in snapshots, by kind. */
+  readonly seen: GameEvent[] = [];
+  /** Private messages, per player. */
+  readonly mine = new Map<string, GameEvent[]>();
+  readonly satchel = new Map<string, Purse>();
+  readonly profiles = new Map<string, Profile>();
   downs = 0;
   revives = 0;
   now = 0;
   private readonly brains = new Map<string, BotBrain>();
+  private layout: Layout | undefined;
 
-  constructor(seed = 12345, private readonly skill = 1) {
+  constructor(
+    seed = 12345,
+    private readonly skill = 1,
+    archive?: ProfileArchive,
+  ) {
     this.host = new GameHost(
       {
-        send: (_id, msg) => this.receive(msg, false),
-        broadcast: (msg) => this.receive(msg, true),
+        send: (id, msg) => this.receive(msg, id),
+        broadcast: (msg) => this.receive(msg, ''),
       },
       'TEST',
       seed,
+      archive,
     );
   }
 
-  private receive(msg: ServerMsg, shared: boolean): void {
+  private receive(msg: ServerMsg, to: string): void {
     if (msg.t === 'lobby') this.lobby = msg.s;
-    else if (msg.t === 'world' && shared) this.worlds.push(msg.w);
-    else if (msg.t === 'error') this.errors.push(msg.text);
+    else if (msg.t === 'world') {
+      if (!to) this.worlds.push(msg.w);
+      const def = layoutDefById(msg.w.layoutId);
+      this.layout = def ? parseLayout(def) : undefined;
+    } else if (msg.t === 'error') this.errors.push(msg.text);
+    else if (msg.t === 'mine') {
+      const list = this.mine.get(to) ?? [];
+      list.push(...msg.ev);
+      this.mine.set(to, list);
+      this.satchel.set(to, msg.sat);
+    } else if (msg.t === 'profile') this.profiles.set(to, msg.p);
     else if (msg.t === 'snap') {
       this.snap = msg.s;
       for (const ev of msg.s.ev) {
+        this.seen.push(ev);
         if (ev.e === 'down') this.downs++;
         else if (ev.e === 'revive') this.revives++;
       }
     }
   }
 
-  add(hero: HeroId, name = hero): string {
+  /** Joins, picks a hero and (by default) presses "Conferma Pronto". */
+  add(hero: HeroId, name: string = hero, ready = true): string {
     const id = `bot${this.ids.length + 1}`;
     this.host.join(id, name);
     this.host.onMessage(id, { t: 'hero', hero });
+    if (ready) this.host.onMessage(id, { t: 'ready', on: true });
     this.ids.push(id);
     this.brains.set(id, new BotBrain(this.skill));
     return id;
@@ -78,6 +98,7 @@ export class Party {
   /** Advances one host tick, with every bot playing from the latest snapshot. */
   tick(play = true): void {
     const snap = this.snap;
+    const portal = this.host.world.pois.find((p) => p.kind === 'portal' && p.state === 1);
     for (const id of this.ids) {
       const brain = this.brains.get(id)!;
       const me = snap?.p.find((p) => p.id === id);
@@ -85,7 +106,9 @@ export class Party {
       for (let i = 0; i < STEPS; i++) {
         if (play && snap && me && snap.w === this.host.info.wid) {
           const enemies = snap.e.map(unpackEnemy);
-          cmds.push(brain.think({ me, players: snap.p, enemies, projectiles: snap.pr }));
+          cmds.push(
+            brain.think({ me, players: snap.p, enemies, projectiles: snap.pr, layout: this.layout, goal: portal, zones: snap.z }),
+          );
         } else {
           cmds.push(brain.idle());
         }
@@ -96,29 +119,17 @@ export class Party {
     this.host.update(this.now);
   }
 
-  run(seconds: number, until?: () => boolean): void {
+  run(seconds: number, until?: () => boolean, play = true): boolean {
     const ticks = Math.round(seconds * WORLD_HZ);
     for (let i = 0; i < ticks; i++) {
-      this.tick();
-      if (until?.()) return;
+      this.tick(play);
+      if (until?.()) return true;
     }
+    return false;
   }
 
-  playMission(mission: string, maxSeconds: number): PartyResult {
-    const hostId = this.host.hostId;
-    this.host.onMessage(hostId, { t: 'mission', id: mission });
-    this.host.onMessage(hostId, { t: 'start' });
-    const start = this.now;
-    this.run(maxSeconds, () => this.host.phase === 'victory' || this.host.phase === 'defeat');
-    return {
-      phase: this.host.phase,
-      seconds: (this.now - start) / 1000,
-      stage: this.host.stage,
-      lobby: this.lobby,
-      downs: this.downs,
-      revives: this.revives,
-      errors: this.errors,
-      worlds: this.worlds,
-    };
+  /** Everyone at the Choice Terminal presses the same button. */
+  voteAll(choice: 'extract' | 'continue'): void {
+    for (const id of this.ids) this.host.onMessage(id, { t: 'vote', choice });
   }
 }

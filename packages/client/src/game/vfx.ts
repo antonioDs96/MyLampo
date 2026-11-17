@@ -170,7 +170,7 @@ export interface BurstOpts {
 }
 
 const MAX_PARTICLES = 2400;
-const STRIDE = 16;
+const STRIDE = 17;
 
 export class Vfx {
   private readonly sprites: Batch;
@@ -192,6 +192,11 @@ export class Vfx {
   private readonly fwd = new Vector3(0, 0, 1);
   private readonly camPos = new Vector3();
   clock = 0;
+  /**
+   * Height of the floor under a point. Every effect is placed relative to it, so the same
+   * call works on any terrace.
+   */
+  ground: (x: number, z: number) => number = () => 0;
 
   constructor(private readonly scene: Scene) {
     const material = (tex: Texture | null, name: string, add: boolean): StandardMaterial => {
@@ -318,39 +323,50 @@ export class Vfx {
 
   // ---------------------------------------------------------------- immediate drawing (this frame only)
 
-  disc(x: number, z: number, r: number, c: RGB, a: number, y = DECAL_Y): void {
+  /** Ground marks. `y` is an absolute height; left out, the mark lies on the floor under it. */
+  disc(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     this.discs.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
-  ring(x: number, z: number, r: number, c: RGB, a: number, y = DECAL_Y): void {
+  ring(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     this.rings.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
   glow(x: number, z: number, r: number, c: RGB, a: number): void {
-    this.glows.flat(x, DECAL_Y - 0.02, z, r, r, 0, c[0], c[1], c[2], a);
+    this.glows.flat(x, this.ground(x, z) + DECAL_Y - 0.02, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
-  sector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number, y = DECAL_Y): void {
+  sector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     if (arcDeg >= 359) this.disc(x, z, r, c, a, y);
     else this.sectorBatch(arcDeg).flat(x, y, z, r, r, yaw, c[0], c[1], c[2], a);
   }
 
   dome(x: number, z: number, r: number, c: RGB, a: number, dark = false): void {
     const b = dark ? this.darkDomes : this.domes;
-    b.flat(x, 0, z, r, r, 0, c[0], c[1], c[2], a);
+    b.flat(x, this.ground(x, z), z, r, r, 0, c[0], c[1], c[2], a);
     // Height follows the radius.
     b.buffer[(b.count - 1) * 16 + 5] = r;
   }
 
-  /** Camera-facing glow. */
+  /** Camera-facing glow, `y` above the floor. */
   sprite(x: number, y: number, z: number, size: number, c: RGB, a: number): void {
+    this.spriteAt(x, y + this.ground(x, z), z, size, c, a);
+  }
+
+  /** Camera-facing glow at an absolute height. */
+  spriteAt(x: number, y: number, z: number, size: number, c: RGB, a: number): void {
     const r = this.right;
     const u = this.up;
     this.sprites.axes(x, y, z, r.x * size, r.y * size, r.z * size, u.x * size, u.y * size, u.z * size, c[0], c[1], c[2], a);
   }
 
-  /** Soft line between two points. */
+  /** Soft line between two points, each `y` above its own floor. */
   beam(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, width: number, c: RGB, a: number): void {
+    this.beamAt(x0, y0 + this.ground(x0, z0), z0, x1, y1 + this.ground(x1, z1), z1, width, c, a);
+  }
+
+  /** Soft line between two absolute points. */
+  beamAt(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, width: number, c: RGB, a: number): void {
     const dx = (x1 - x0) / 2;
     const dy = (y1 - y0) / 2;
     const dz = (z1 - z0) / 2;
@@ -377,7 +393,7 @@ export class Vfx {
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
     life: number, size: number, c: RGB,
-    gravity: number, drag: number, stretch: number, kind: number,
+    gravity: number, drag: number, stretch: number, kind: number, floor: number,
   ): void {
     if (this.alive >= MAX_PARTICLES) return;
     const o = this.alive++ * STRIDE;
@@ -398,6 +414,7 @@ export class Vfx {
     p[o + 13] = drag;
     p[o + 14] = stretch;
     p[o + 15] = kind;
+    p[o + 16] = floor;
   }
 
   burst(x: number, y: number, z: number, n: number, c: RGB, o: BurstOpts = {}): void {
@@ -406,6 +423,8 @@ export class Vfx {
     const size = o.size ?? 0.16;
     const flat = o.flat ?? 0;
     const radius = o.radius ?? 0;
+    const floor = this.ground(x, z);
+    y += floor;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const el = (Math.random() * 2 - 1) * (1 - flat);
@@ -417,25 +436,29 @@ export class Vfx {
         x + dx * radius, y + el * radius * (1 - flat), z + dz * radius,
         dx * s, el * Math.abs(s) + (o.up ?? 0) * (0.5 + Math.random() * 0.5), dz * s,
         life * (0.6 + Math.random() * 0.4), size * (0.6 + Math.random() * 0.8), c,
-        o.gravity ?? 0, o.drag ?? 2.5, o.stretch ?? 0, 0,
+        o.gravity ?? 0, o.drag ?? 2.5, o.stretch ?? 0, 0, floor,
       );
     }
   }
 
   /** Sparks thrown in a cone around a direction. */
   spray(x: number, y: number, z: number, dx: number, dz: number, n: number, c: RGB, speed = 11, life = 0.32): void {
+    const floor = this.ground(x, z);
+    y += floor;
     for (let i = 0; i < n; i++) {
       const s = speed * (0.4 + Math.random() * 0.6);
       this.emit(
         x, y, z,
         (dx + (Math.random() - 0.5) * 1.1) * s, (Math.random() - 0.25) * s * 0.9, (dz + (Math.random() - 0.5) * 1.1) * s,
         life * (0.6 + Math.random() * 0.5), 0.07 + Math.random() * 0.06, c,
-        16, 1.5, 0.09, 0,
+        16, 1.5, 0.09, 0, floor,
       );
     }
   }
 
   puff(x: number, y: number, z: number, n: number, c: RGB, spread = 1, rise = 1.2, life = 0.9, size = 0.9): void {
+    const floor = this.ground(x, z);
+    y += floor;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const d = Math.random() * spread;
@@ -443,7 +466,7 @@ export class Vfx {
         x + Math.sin(a) * d, y + Math.random() * 0.4, z + Math.cos(a) * d,
         Math.sin(a) * 0.8, rise * (0.5 + Math.random()), Math.cos(a) * 0.8,
         life * (0.7 + Math.random() * 0.6), size * (0.6 + Math.random() * 0.7), c,
-        0, 1.2, 0, 1,
+        0, 1.2, 0, 1, floor,
       );
     }
   }
@@ -480,7 +503,7 @@ export class Vfx {
       const s = size * (0.5 + a * 1.1);
       const r = this.right;
       const up = this.up;
-      this.sprite(p.x, p.y, p.z, s * 0.55, c, a);
+      this.spriteAt(p.x, p.y, p.z, s * 0.55, c, a);
       this.sprites.axes(p.x, p.y, p.z, r.x * s * 1.9, r.y * s * 1.9, r.z * s * 1.9, up.x * s * 0.1, up.y * s * 0.1, up.z * s * 0.1, c[0], c[1], c[2], a);
       this.sprites.axes(p.x, p.y, p.z, r.x * s * 0.1, r.y * s * 0.1, r.z * s * 0.1, up.x * s * 1.9, up.y * s * 1.9, up.z * s * 1.9, c[0], c[1], c[2], a);
     });
@@ -488,6 +511,7 @@ export class Vfx {
 
   /** Blade trail: an arc sweeping in front of the attacker. */
   slash(x: number, y: number, z: number, yaw: number, range: number, c: RGB, dir: number, tilt: number, dur = 0.2, width = 1): void {
+    y += this.ground(x, z);
     this.add(dur, (u) => {
       const sweep = yaw + dir * (-0.9 + u * 1.5);
       const a = (1 - u) * (1 - u);
@@ -521,16 +545,17 @@ export class Vfx {
   /** Vertical bolt from the sky. */
   bolt(x: number, z: number, c: RGB): void {
     const kinks = Array.from({ length: 6 }, () => [(Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.4]);
+    const floor = this.ground(x, z);
     this.add(0.28, (u) => {
       const a = 1 - u;
       let px = x;
       let pz = z;
-      let py = 0;
+      let py = floor;
       for (let i = 0; i < kinks.length; i++) {
         const nx = x + kinks[i]![0]! * (i + 1) * 0.35;
         const nz = z + kinks[i]![1]! * (i + 1) * 0.35;
-        const ny = (i + 1) * 2.4;
-        this.beam(px, py, pz, nx, ny, nz, 0.22, c, a);
+        const ny = floor + (i + 1) * 2.4;
+        this.beamAt(px, py, pz, nx, ny, nz, 0.22, c, a);
         px = nx;
         pz = nz;
         py = ny;
@@ -589,8 +614,9 @@ export class Vfx {
       let vy = (p[o + 4]! - p[o + 12]! * dt) * drag;
       let vz = p[o + 5]! * drag;
       let y = p[o + 1]! + vy * dt;
-      if (y < 0.05 && vy < 0 && p[o + 12]! > 0) {
-        y = 0.05;
+      const floor = p[o + 16]! + 0.05;
+      if (y < floor && vy < 0 && p[o + 12]! > 0) {
+        y = floor;
         vy = -vy * 0.35;
         vx *= 0.6;
         vz *= 0.6;

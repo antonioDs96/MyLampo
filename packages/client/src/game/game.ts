@@ -1,80 +1,88 @@
-import { Matrix, type Scene, Vector3 } from '@babylonjs/core';
+import { Color3, Matrix, type Mesh, MeshBuilder, type Scene, StandardMaterial, Vector3 } from '@babylonjs/core';
 import {
   Act,
   angleDiff,
+  BOUNTY_BY_ID,
   Btn,
+  channelTime,
   clonePlayer,
+  COSMETIC_BY_ID,
   currentAttack,
   DT,
+  ELEV_WALL,
+  emptyProfile,
+  emptyPurse,
   ENEMIES,
   enemyHas,
   ES,
   EState,
+  FLOOD_DRY,
+  getCellElevation,
   HEROES,
   HUB_LAYOUT,
   INTERP_DELAY_MS,
+  layoutDefById,
   lerp,
   lerpAngle,
-  ELEV_WALL,
-  getCellElevation,
+  loadoutOf,
   losClear,
-  standElevation,
-  STEP_HEIGHT,
   MAX_PLAYERS,
-  EXTRA_PLAYS,
-  MEGABONK_TOMES,
-  MISSIONS,
-  parseLayout,
+  NPCS,
   packCmds,
+  parseLayout,
+  personaOf,
   PS,
   quantizeCmd,
+  standElevation,
+  STEP_HEIGHT,
   stepPlayer,
+  synergyInfo,
   TICK_HZ,
   TUNING,
   unpackEnemy,
-  xpProgress,
   yawOf,
-  personaOf,
-  buildHub,
-  createProceduralRuntime,
-  currentLayout,
-  getItem,
-  zoneMapToLayout,
-  type HubId,
-  type MissionKind,
   type AllyLite,
   type AttackDef,
   type ClientMsg,
+  type DropKind,
   type EnemyAttackDef,
   type EnemyLite,
   type EnemySnap,
   type GameEvent,
   type HeroId,
-  type HeroInventory,
   type InputCmd,
   type Layout,
-  type LayoutDef,
   type LobbyState,
+  type NpcId,
+  type PingKind,
   type PlayerEvent,
   type PlayerState,
+  type PoiKind,
+  type PoiLite,
+  type Profile,
+  type Purse,
   type ServerMsg,
   type Snapshot,
+  type StepCtx,
   type WorldInfo,
 } from '@malampu/shared';
-import { CharacterSheet } from '../ui/characterSheet';
+import { HeroSelect, SLOT_COLORS } from '../ui/heroSelect';
+import { HeroSheet } from '../ui/heroSheet';
 import { Hud, type PartyEntry } from '../ui/hud';
 import { Menus } from '../ui/menus';
+import { Radar } from '../ui/radar';
 import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
-import { HttpGearArchive } from '../net/gear';
+import { profileId, SoloProfileArchive } from '../net/profile';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
-import { ChaseCamera } from './camera';
+import { IsoCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
+import { HeroStage } from './heroStage';
 import { Input, type InputFrame } from './input';
+import { screenToWorld } from './stick';
 import { TouchControls } from './touch';
-import { ENEMY_LOOKS, HERO_LOOKS, type RGB } from './looks';
-import { loadProgress, mergeProgress, profileId, type ProgressBook } from './progress';
+import { dressHero, ENEMY_LOOKS, lookKey, NPC_LOOKS, type RGB } from './looks';
 import { Vfx } from './vfx';
 
 const BLUE: RGB = [0.25, 0.65, 1];
@@ -85,6 +93,8 @@ const VIOLET: RGB = [0.62, 0.25, 1];
 const GREEN: RGB = [0.35, 1, 0.5];
 const ICE: RGB = [0.55, 0.9, 1];
 const DARK: RGB = [0.12, 0.04, 0.2];
+const TOXIC: RGB = [0.5, 0.95, 0.25];
+const EMBER: RGB = [1, 0.45, 0.12];
 
 const PROJ_COLOR: Record<string, RGB> = {
   bolt: [0.85, 0.92, 1],
@@ -95,7 +105,23 @@ const PROJ_COLOR: Record<string, RGB> = {
   orb: [0.7, 0.3, 1],
   orb_big: [0.8, 0.35, 1],
   dark: [1, 0.2, 0.45],
+  harpoon: [0.8, 0.85, 0.9],
+  spore: TOXIC,
 };
+
+const PING_COLOR: Record<PingKind, string> = { rally: '#58b4ff', danger: '#ff4d3d', chest: '#f2c14e', elite: '#c084fc' };
+const PING_RGB: Record<PingKind, RGB> = { rally: BLUE, danger: RED, chest: GOLD, elite: VIOLET };
+const PING_TEXT: Record<PingKind, string> = { rally: 'Raduno', danger: 'Pericolo', chest: 'Forziere', elite: 'Élite' };
+const PING_LIFE = 9;
+
+const POI_COLOR: Record<PoiKind, string> = { chest: '#f2c14e', shrine: '#5fe08a', portal: '#c084fc' };
+const POI_NAME: Record<PoiKind, string> = { chest: 'Forziere di Sinergia', shrine: 'Santuario di Cura', portal: 'Portale di Estrazione' };
+const CHANNEL_TEXT: Record<PoiKind, string> = { chest: 'Apri il forziere…', shrine: 'Attivi il santuario…', portal: 'Apri il portale…' };
+
+const DROP_RGB: Record<DropKind, RGB> = { gem: [0.5, 0.7, 1], thread: [0.85, 0.35, 1], orb: GREEN };
+const DROP_TEXT: Record<DropKind, string> = { gem: "Gemme dell'Eclissi", thread: "Fili d'Ombra", orb: 'Globo di cura' };
+/** Loot within this distance drifts toward its owner. */
+const DROP_MAGNET = 7;
 
 function hexColor(hex: string): RGB {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -103,9 +129,6 @@ function hexColor(hex: string): RGB {
 }
 
 const HERO_COLOR = Object.fromEntries(Object.values(HEROES).map((h) => [h.id, hexColor(h.color)])) as Record<HeroId, RGB>;
-
-const LAYOUTS = new Map<string, LayoutDef>([[HUB_LAYOUT.id, HUB_LAYOUT]]);
-for (const m of [...MISSIONS, ...EXTRA_PLAYS]) for (const s of m.stages) LAYOUTS.set(s.layout.id, s.layout);
 
 interface Frame {
   recv: number;
@@ -117,6 +140,8 @@ interface Frame {
 interface HeroView {
   view: CharacterView;
   hero: HeroId;
+  /** Model and cosmetics this view was built for. */
+  key: string;
   act: number;
   combo: number;
   t: number;
@@ -139,13 +164,40 @@ interface EnemyView {
   dustTimer: number;
   /** Smoothed visual feet height. NaN until the first placement. */
   y: number;
+  /** 0 while dug into a channel, 1 on the surface. */
+  surfaced: number;
+}
+
+interface NpcView {
+  id: NpcId;
+  view: CharacterView | null;
+  x: number;
+  z: number;
+}
+
+/** Instanced loot lying on the ground: only this client knows about it. */
+interface DropView {
+  id: number;
+  kind: DropKind;
+  x: number;
+  z: number;
+  amount: number;
+  age: number;
+}
+
+interface PingMark {
+  by: string;
+  kind: PingKind;
+  x: number;
+  z: number;
+  age: number;
 }
 
 const FAIL_TEXT: Record<string, string> = {
   stamina: 'Vigore insufficiente',
-  cooldown: 'Abilità in ricarica',
+  cooldown: 'Speciale in ricarica',
   silence: 'Silenzio: nessuna abilità',
-  ult: 'Suprema non ancora pronta',
+  ult: 'Ultimate non ancora pronta',
 };
 
 export class Game {
@@ -154,9 +206,15 @@ export class Game {
   private readonly touch: TouchControls;
   readonly menus: Menus;
   readonly audio = new Audio();
-  private readonly cam: ChaseCamera;
+  private readonly cam: IsoCamera;
+  private readonly stage: HeroStage;
+  private readonly select: HeroSelect;
+  private readonly sheet: HeroSheet;
+  private readonly radar = new Radar();
   private readonly vfx: Vfx;
   private readonly shadow;
+  private readonly water: Mesh;
+  private waterY = 0;
   private conn: Connection | null = null;
   private myId = '';
   private myName = '';
@@ -185,9 +243,11 @@ export class Game {
   private prevButtons = 0;
   private readonly heroViews = new Map<string, HeroView>();
   private readonly enemyViews = new Map<number, EnemyView>();
+  private npcViews: NpcView[] = [];
   private readonly blades: { id: number; who: string; text: string; until: number }[] = [];
   private enemiesLite: EnemyLite[] = [];
   private alliesLite: AllyLite[] = [];
+  private poisLite: PoiLite[] = [];
   private readonly scratch: PlayerEvent[] = [];
   private readonly events: PlayerEvent[] = [];
   private readonly tmp = new Vector3();
@@ -197,9 +257,19 @@ export class Game {
   private heroShown: HeroId | '' = '';
   private lastPhase = '';
   private fps = 60;
-  private progress: ProgressBook = loadProgress();
-  private inventory: HeroInventory | null = null;
-  private readonly sheet: CharacterSheet;
+  /** What survives a run: banked currencies, Skill Tree, cosmetics, checkpoints. */
+  private profile: Profile = emptyProfile();
+  /** Unbanked loot of the current expedition. */
+  private satchel: Purse = emptyPurse();
+  private readonly drops = new Map<number, DropView>();
+  private pings: PingMark[] = [];
+  private flood = FLOOD_DRY;
+  /** Where the cursor lands on the ground. */
+  private readonly aimAt = { x: 0, z: 0 };
+  private aim = 0;
+  private meFeet = 0;
+  private stageOn = false;
+  private readonly moveDir = { x: 0, z: 0 };
 
   constructor(
     private readonly scene: Scene,
@@ -210,74 +280,57 @@ export class Game {
     this.touch = new TouchControls(ui);
     this.input = new Input(canvas, this.touch);
     this.input.onPadStart = () => this.onKey('KeyH');
-    this.cam = new ChaseCamera(scene);
+    this.stage = new HeroStage(scene, assets);
+    this.cam = new IsoCamera(scene);
     this.vfx = new Vfx(scene);
+    this.vfx.ground = (x, z) => this.groundY(x, z);
     this.shadow = makeShadowSource(scene);
+    this.water = this.makeWater();
     this.hud = new Hud(ui);
-    this.sheet = new CharacterSheet(ui);
+    this.hud.radarSlot.append(this.radar.canvas);
+    this.sheet = new HeroSheet(ui);
+    this.sheet.onClose = () => this.toggleSheet();
+    this.select = new HeroSelect(ui, {
+      pick: (hero) => this.send({ t: 'hero', hero }),
+      ready: (on) => this.send({ t: 'ready', on }),
+      leave: () => this.leave(''),
+      sound: (id) => this.audio.play(id),
+    });
     this.hud.onOpenSheet = () => this.toggleSheet();
+    this.hud.onVote = (choice) => this.send({ t: 'vote', choice });
     this.touch.onPause = () => this.onKey('KeyH');
     this.touch.onSheet = () => this.toggleSheet();
-    this.touch.onLayout = (shown) => {
-      if (!shown) return;
-      this.input.releaseLock();
-    };
-    this.hud.onUseBelt = (slot) => this.send({ t: 'useBelt', slot });
-    this.hud.onPickCard = (index) => this.send({ t: 'pickCard', index });
-    this.sheet.onAction = (a) => {
-      if (a.t === 'close') {
-        this.sheet.setVisible(false);
-        this.syncInput();
-        return;
-      }
-      if (a.t === 'useBelt') this.send({ t: 'useBelt', slot: a.slot });
-      else if (a.t === 'asi') this.send({ t: 'asi', ability: a.ability });
-      else if (a.t === 'equip') this.send({ t: 'inv', op: 'equip', uid: a.uid });
-      else if (a.t === 'salvage') this.send({ t: 'inv', op: 'salvage', uid: a.uid });
-      else if (a.t === 'belt') this.send({ t: 'inv', op: 'belt', uid: a.uid, slot: a.slot });
-    };
+    this.touch.onPing = () => this.input.pressPing();
     this.menus = new Menus(ui, {
       create: (name) => void this.connect(name, null, false),
       join: (name, code) => void this.connect(name, code, false),
       joinPublic: (name) => void this.connect(name, null, false, true),
       solo: (name) => void this.connect(name, null, true),
-      pickHero: (id) => this.send({ t: 'hero', hero: id }),
-      releaseHero: () => this.send({ t: 'hero', hero: '' }),
-      selectMission: (id) => this.send({ t: 'mission', id }),
-      selectHub: (hubId) => this.send({ t: 'hubSelect', hubId }),
-      selectContract: (id) => this.send({ t: 'contract', id }),
-      startDungeon: (regionId) => this.send({ t: 'dungeon', region: regionId }),
-      startMission: () => this.send({ t: 'start' }),
-      retry: () => this.send({ t: 'retry' }),
-      toHub: () => this.send({ t: 'hub' }),
-      changeHero: () => {
-        this.send({ t: 'hub' });
-        // Hub world arrives async; open the roster as soon as we're back.
-        window.setTimeout(() => this.menus.openHeroes(true), 80);
-      },
+      send: (msg) => this.send(msg),
+      changeHero: () => this.changeHero(),
       leave: () => this.leave(''),
       sound: (id) => this.audio.play(id),
       changed: () => this.syncInput(),
-      progressOf: (id) => this.progress[id] ?? 0,
-      weaponDamageTypes: () => {
-        const w = this.inventory?.mainHand ? getItem(this.inventory.mainHand.itemId) : undefined;
-        return w?.weapon?.damageType ? [w.weapon.damageType] : [];
-      },
     });
     this.input.onKey = (code) => this.onKey(code);
-    document.addEventListener('pointerlockchange', () => {
-      // Esc releases the mouse before the page sees the key: treat it as "pause".
-      // Touch layout releases the lock on purpose, and must not open the pause menu.
-      if (this.touch.shown) return;
-      // A lock granted while the roster or a menu is up swallows clicks until Esc.
-      if (this.input.pointerLocked && this.uiPaused) {
-        this.input.releaseLock();
-        return;
-      }
-      if (!this.input.pointerLocked && this.input.enabled && this.info && document.hasFocus() && !this.input.script) this.openHelp();
-    });
     window.addEventListener('pointerdown', () => this.audio.unlock(), { capture: true });
     window.addEventListener('keydown', () => this.audio.unlock(), { capture: true });
+  }
+
+  /** The toxic water the Leviatano raises: one flat sheet, lifted to the flooded elevation. */
+  private makeWater(): Mesh {
+    const mat = new StandardMaterial('flood', this.scene);
+    mat.disableLighting = true;
+    mat.emissiveColor = new Color3(0.16, 0.5, 0.2);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.alpha = 0.62;
+    mat.backFaceCulling = false;
+    const mesh = MeshBuilder.CreateGround('flood', { width: 600, height: 600 }, this.scene);
+    mesh.material = mat;
+    mesh.isPickable = false;
+    mesh.setEnabled(false);
+    return mesh;
   }
 
   // ---------------------------------------------------------------- session
@@ -287,7 +340,7 @@ export class Game {
     this.audio.play('ui');
     this.myName = name;
     if (solo) {
-      const archive = new HttpGearArchive(serverEndpoint());
+      const archive = new SoloProfileArchive(serverEndpoint());
       await archive.prefetch(profileId());
       this.attach(new LocalConnection(name, archive));
       return;
@@ -307,13 +360,8 @@ export class Game {
     conn.onClose = (reason) => this.leave(reason);
     this.lastPing = 0;
     this.rtt = 0;
-    this.progress = loadProgress();
-    this.sendProgress();
-  }
-
-  private sendProgress(): void {
+    // The profile lives with the host: tell it which one is ours.
     this.send({ t: 'profile', id: profileId() });
-    this.send({ t: 'progress', xp: this.progress as Record<string, number> });
   }
 
   private leave(reason: string): void {
@@ -326,13 +374,22 @@ export class Game {
     this.heroShown = '';
     this.lastPhase = '';
     this.frames = [];
+    this.profile = emptyProfile();
+    this.satchel = emptyPurse();
+    this.drops.clear();
+    this.pings = [];
+    this.flood = FLOOD_DRY;
+    this.water.setEnabled(false);
     this.clearViews(true);
     this.arena?.dispose();
     this.arena = null;
     this.layout = null;
     this.vfx.clear();
     this.hud.setVisible(false);
+    this.hud.setVote(null);
     this.hud.clearTexts();
+    this.select.setVisible(false);
+    this.sheet.setVisible(false);
     this.audio.setMood('off');
     this.menus.title(reason);
     this.syncInput();
@@ -342,56 +399,65 @@ export class Game {
     this.conn?.send(msg);
   }
 
-  private syncInput(): void {
-    // No hero yet means the roster is up, or about to be. Capturing the mouse
-    // in that window makes the cards ignore clicks until Esc.
-    const on = !!this.info && !this.uiPaused && !!this.myHero();
-    const was = this.input.enabled;
-    this.input.setEnabled(on);
-    this.touch.setGameplay(on);
-    if (!on) this.input.releaseLock();
-    else if (!was && !this.touch.shown) this.input.requestLock();
+  private get myPlayer() {
+    return this.lobby?.players.find((p) => p.id === this.myId);
   }
 
-  /** Help / council / bestiary / scheda — freeze solo sim and stop local prediction. */
+  private myHero(): HeroId | '' {
+    return this.myPlayer?.hero ?? '';
+  }
+
+  /** True while the Hero Selection screen is where this player belongs. */
+  private get selecting(): boolean {
+    const me = this.myPlayer;
+    return !!this.info && !!this.lobby && !!me && (!me.ready || this.lobby.phase === 'select');
+  }
+
+  /** Shows the screen this player should be looking at: Hero Selection, or the world. */
+  private syncScreens(): void {
+    const selecting = this.selecting;
+    if (selecting) {
+      if (this.sheet.isOpen) this.sheet.setVisible(false);
+      if (this.menus.open && this.menus.panel !== 'help') this.menus.close();
+    }
+    this.select.setVisible(selecting);
+    if (!selecting && this.info?.kind === 'hub') this.menus.maybeReport();
+    this.syncInput();
+  }
+
+  private syncInput(): void {
+    const on = !!this.info && !this.uiPaused;
+    this.input.setEnabled(on);
+    this.touch.setGameplay(on);
+  }
+
+  /** Menus, the Hero Sheet and Hero Selection: freeze the solo sim and stop local prediction. */
   private get uiPaused(): boolean {
-    return this.menus.open || this.sheet.isOpen;
+    return this.menus.open || this.sheet.isOpen || this.select.visible;
   }
 
   private toggleSheet(): void {
     const hero = this.myHero();
-    if (!hero || !this.inventory) {
-      this.menus.toast('Scegli un eroe per aprire la scheda.');
-      return;
-    }
+    if (!hero || this.select.visible) return;
     if (!this.sheet.isOpen) {
-      this.sheet.render(hero, this.inventory);
+      if (this.menus.open) this.menus.close();
+      this.audio.play('ui');
+      this.sheet.render(hero, this.profile, this.myName);
       this.sheet.setVisible(true);
     } else {
+      this.audio.play('uiBack');
       this.sheet.setVisible(false);
     }
     this.syncInput();
   }
 
-  private applyInventory(inv: HeroInventory): void {
-    this.inventory = inv;
-    this.hud.setBelt(inv);
-    this.hud.setXp(inv.pe);
-    const hero = this.myHero();
-    if (hero) {
-      this.progress = mergeProgress(this.progress, hero, inv.pe);
-      if (this.sheet.isOpen) this.sheet.render(hero, inv);
-      if (inv.pendingCards.length) {
-        this.hud.showLevelCards(
-          inv.pendingCards.map((id) => {
-            const t = MEGABONK_TOMES[id];
-            return { name: t?.name ?? id, desc: t?.desc ?? '' };
-          }),
-        );
-      } else {
-        this.hud.showLevelCards([]);
-      }
+  private changeHero(): void {
+    if (this.lobby?.phase !== 'hub') {
+      this.menus.toast('L’eroe si cambia solo in taverna.');
+      return;
     }
+    this.audio.play('ui');
+    this.send({ t: 'reselect' });
   }
 
   private openHelp(): void {
@@ -401,46 +467,38 @@ export class Game {
 
   private onKey(code: string): void {
     if (!this.info || !this.lobby) return;
-    if (code === 'Escape') {
-      if (this.sheet.isOpen) {
-        this.sheet.setVisible(false);
-        this.syncInput();
-        return;
-      }
-      if (!this.menus.escape() && this.menus.panel === 'none') this.openHelp();
-      return;
-    }
     if (code === 'KeyM') {
       this.menus.toast(this.audio.toggleMute() ? 'Audio disattivato' : 'Audio attivo');
       return;
     }
-    if (this.sheet.isOpen) {
-      if (code === 'KeyI' || code === 'KeyP') {
-        this.sheet.setVisible(false);
-        this.syncInput();
-      }
+    if (code === 'Escape') {
+      if (this.sheet.isOpen) this.toggleSheet();
+      else if (!this.menus.escape() && this.menus.panel === 'none') this.openHelp();
       return;
     }
     if (this.menus.open) {
       if (code === 'KeyH' && this.menus.panel === 'help') this.menus.escape();
       else if (code === 'KeyB' && this.menus.panel === 'bestiary') this.menus.escape();
+      else if (code === 'KeyF' && this.menus.panel in NPCS) this.menus.escape();
+      return;
+    }
+    if (this.select.visible) {
+      if (code === 'KeyH') this.openHelp();
+      else this.select.handleKey(code);
+      return;
+    }
+    if (this.sheet.isOpen) {
+      if (code === 'KeyI') this.toggleSheet();
       return;
     }
     if (code === 'KeyH') this.openHelp();
     else if (code === 'KeyB') this.menus.openBestiary();
-    else if (code === 'KeyI' || code === 'KeyP') this.toggleSheet();
-    else if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3' || code === 'Digit4') {
-      const slot = Number(code.slice(-1)) - 1;
-      if (this.inventory?.pendingCards.length && slot < 3) this.send({ t: 'pickCard', index: slot });
-      else this.send({ t: 'useBelt', slot });
-    } else if (code === 'KeyC') {
-      if (this.lobby?.phase === 'hub' || this.info?.kind === 'hub') this.menus.openHeroes(!!this.myHero());
-      else this.menus.toast('Torna in taverna per cambiare eroe ([C] al bancone).');
+    else if (code === 'KeyI') this.toggleSheet();
+    else if (code === 'KeyC') this.changeHero();
+    else if ((code === 'Digit1' || code === 'Digit2') && this.lobby.vote) {
+      this.audio.play('ui');
+      this.send({ t: 'vote', choice: code === 'Digit1' ? 'extract' : 'continue' });
     }
-  }
-
-  private myHero(): HeroId | '' {
-    return this.lobby?.players.find((p) => p.id === this.myId)?.hero ?? '';
   }
 
   // ---------------------------------------------------------------- messages
@@ -459,6 +517,18 @@ export class Game {
       case 'snap':
         this.onSnapshot(msg.s, at);
         break;
+      case 'mine':
+        this.satchel = msg.sat;
+        for (const ev of msg.ev) this.onMine(ev);
+        break;
+      case 'profile':
+        this.profile = msg.p;
+        this.menus.setProfile(msg.p);
+        if (this.sheet.isOpen) {
+          const hero = this.myHero();
+          if (hero) this.sheet.render(hero, msg.p, this.myName);
+        }
+        break;
       case 'pong': {
         const ms = Math.max(0, at - msg.at);
         this.rtt = this.rtt === 0 ? ms : this.rtt * 0.7 + ms * 0.3;
@@ -469,24 +539,26 @@ export class Game {
         this.audio.play('deny');
         this.menus.toast(msg.text);
         break;
-      case 'xp': {
-        this.progress = mergeProgress(this.progress, msg.hero, msg.xp);
-        this.sendProgress();
-        this.hud.setXp(msg.xp, true);
-        const hero = HEROES[msg.hero];
-        if (msg.level > msg.prevLevel) {
-          this.audio.play('victory');
-          this.hud.callout(`${hero.short} · livello ${msg.level}!`, 'gold');
-          this.menus.toast(`${hero.short} sale al livello ${msg.level} (+${msg.gained} PE)`);
-        } else {
-          const prog = xpProgress(msg.xp);
-          this.menus.toast(`${hero.short}: +${msg.gained} PE · liv. ${prog.level} (${prog.into}/${prog.need})`);
-        }
-        break;
+    }
+  }
+
+  /** Instanced loot: these events exist only for this player. */
+  private onMine(ev: GameEvent): void {
+    if (ev.e === 'drop') {
+      this.drops.set(ev.id, { id: ev.id, kind: ev.kind, x: ev.x, z: ev.z, amount: ev.amount, age: 0 });
+      const c = DROP_RGB[ev.kind];
+      this.vfx.burst(ev.x, 0.7, ev.z, ev.kind === 'orb' ? 16 : 8, c, { speed: 4, life: 0.5, up: 3, gravity: 10, flat: 0.4 });
+      if (ev.kind === 'orb') this.vfx.pillar(ev.x, ev.z, 0.6, GREEN, 0.7, 6);
+    } else if (ev.e === 'take') {
+      const drop = this.drops.get(ev.id);
+      this.drops.delete(ev.id);
+      this.audio.play(ev.kind === 'orb' ? 'heal' : 'ui', 0.7);
+      if (ev.kind === 'orb') {
+        this.hud.callout('Globo di cura · +25% Vita', 'green small');
+      } else {
+        this.hud.lootToast(`+${ev.amount} ${DROP_TEXT[ev.kind]}`, ev.kind);
       }
-      case 'inv':
-        if (msg.id === this.myId) this.applyInventory(msg.inv as HeroInventory);
-        break;
+      if (drop && this.me) this.vfx.burst(this.me.x, 1.1, this.me.z, 6, DROP_RGB[ev.kind], { speed: 2, life: 0.4, up: 2, radius: 0.5, inward: true });
     }
   }
 
@@ -494,6 +566,9 @@ export class Game {
     const before = this.lobby;
     this.lobby = lobby;
     this.menus.setLobby(lobby, this.myId);
+    // Whatever was reported before this player walked in is not theirs to read.
+    if (!before) this.menus.skipReports();
+    this.select.setLobby(lobby, this.myId);
     const hero = this.myHero();
     if (hero !== this.heroShown) {
       this.heroShown = hero;
@@ -506,67 +581,46 @@ export class Game {
       for (const p of before.players) {
         if (!lobby.players.some((o) => o.id === p.id)) this.menus.toast(`${p.name} ha lasciato la stanza.`);
       }
-      if (before.host !== lobby.host && lobby.host === this.myId) this.menus.toast('Ora sei tu a guidare la stanza.');
-    }
-    if (lobby.phase !== this.lastPhase) {
-      this.lastPhase = lobby.phase;
-      if (lobby.phase === 'victory' || lobby.phase === 'defeat') {
-        this.audio.play(lobby.phase === 'victory' ? 'victory' : 'defeat');
-        this.audio.setMood('calm');
-        this.menus.openResults();
-      } else if (this.menus.panel === 'results') {
-        this.menus.close();
+      if (before.host !== lobby.host && lobby.host === this.myId) this.menus.toast('Ora sei tu a guidare la Compagnia.');
+      if (!before.vote && lobby.vote) {
+        this.audio.play('clear');
+        this.hud.callout('Portale aperto · scegliete insieme', 'gold');
       }
     }
-    // Hub, or a public drop-in while a sortie is already underway.
-    if ((lobby.phase === 'hub' || lobby.phase === 'mission') && !hero && this.info && this.menus.panel === 'none') {
-      this.menus.openHeroes(false);
+    if (lobby.phase !== this.lastPhase) {
+      const was = this.lastPhase;
+      this.lastPhase = lobby.phase;
+      if (was === 'run' && lobby.phase === 'hub' && lobby.report) {
+        this.audio.play(lobby.report.kind === 'wipe' ? 'defeat' : 'victory');
+      }
     }
+    this.syncScreens();
   }
 
   private clearViews(heroes: boolean): void {
     for (const e of this.enemyViews.values()) e.view.dispose();
     this.enemyViews.clear();
+    for (const n of this.npcViews) n.view?.dispose();
+    this.npcViews = [];
     if (heroes) {
       for (const h of this.heroViews.values()) h.view.dispose();
       this.heroViews.clear();
     } else {
-      for (const h of this.heroViews.values()) h.view.hasLast = false;
+      for (const h of this.heroViews.values()) {
+        h.view.hasLast = false;
+        h.y = Number.NaN;
+      }
     }
-  }
-
-  private resolveLayout(info: WorldInfo): Layout | null {
-    if (info.kind === 'hub' && info.hubId) {
-      return zoneMapToLayout(buildHub(info.hubId as HubId));
-    }
-    if (info.missionSeed && info.contractKind && info.hubId && info.biome) {
-      const rt = createProceduralRuntime({
-        id: info.mission || 'proc',
-        kind: info.contractKind as MissionKind,
-        hubId: info.hubId as HubId,
-        biome: info.biome as 'urban' | 'coastal' | 'wild',
-        name: info.title,
-        brief: '',
-        missionSeed: info.missionSeed,
-        danger: 3,
-        rewardHint: '',
-      });
-      rt.zoneIndex = info.zoneIndex ?? 0;
-      return currentLayout(rt);
-    }
-    const def = LAYOUTS.get(info.layoutId);
-    if (!def) return null;
-    return parseLayout(def);
   }
 
   private onWorld(info: WorldInfo): void {
-    const first = !this.info;
+    const def = info.layoutId === HUB_LAYOUT.id ? HUB_LAYOUT : layoutDefById(info.layoutId);
+    if (!def) return;
     this.info = info;
-    const layout = this.resolveLayout(info);
-    if (!layout) return;
+    const layout = parseLayout(def);
     this.layout = layout;
     this.arena?.dispose();
-    this.arena = new Arena(this.scene, this.assets, this.layout, this.cam.cutPlane);
+    this.arena = new Arena(this.scene, this.assets, layout, this.cam.cutPlane);
     this.frames = [];
     this.hasOffset = false;
     this.me = null;
@@ -577,41 +631,36 @@ export class Game {
     this.errZ = 0;
     this.lockId = 0;
     this.enemiesLite = [];
+    this.poisLite = layout.pois.map((p) => ({ ...p, ready: false }));
+    this.drops.clear();
+    this.pings = [];
+    this.flood = FLOOD_DRY;
+    this.water.setEnabled(false);
+    this.water.position.set(layout.center.x, 0, layout.center.z);
     this.clearViews(false);
     this.vfx.clear();
-    this.hud.setVisible(true);
+    this.radar.setLayout(layout, info.kind === 'hub');
     this.hud.clearTexts();
     this.hud.setBoss(null);
+    this.hud.setVote(null);
     this.hud.breakCombo();
+    if (this.menus.panel === 'title' || this.menus.panel === 'loading') this.menus.close();
 
     if (info.kind === 'hub') {
       this.audio.setMood('calm');
-      this.hud.banner(info.title, 'Badiscar · rifugio neutrale della Compagnia');
-      if (this.menus.panel === 'results' || this.menus.panel === 'title' || this.menus.panel === 'loading') this.menus.close();
-      if (!this.myHero()) this.menus.openHeroes(false);
+      this.npcViews = layout.npcs
+        .filter((n): n is { id: NpcId; x: number; z: number } => n.id in NPC_LOOKS)
+        .map((n) => ({ id: n.id, x: n.x, z: n.z, view: null }));
+      this.hud.banner(info.title, info.label || 'Il rifugio della Compagnia');
     } else {
       this.audio.setMood('battle');
-      // Keep the roster up for someone who walked into a fight without a hero yet.
-      if (!this.myHero()) {
-        if (this.menus.panel === 'title' || this.menus.panel === 'loading') this.menus.close();
-        this.menus.openHeroes(false);
-      } else if (this.menus.open) this.menus.close();
-      if (info.mutation) {
-        this.audio.play('mutation');
-        this.cam.addShake(0.9);
-        this.hud.banner('Giorno di Caos', `La locanda si ricompone: ${info.title}`);
-      } else {
-        const mission = [...MISSIONS, ...EXTRA_PLAYS].find((m) => m.id === info.mission);
-        const modeLabel =
-          mission?.mode === 'arena' ? 'Ultimo in piedi' : mission?.mode === 'boss' ? 'Arena boss' : mission ? `sala ${info.stage + 1} di ${info.stages}` : '';
-        this.hud.banner(info.title, mission ? `${mission.name} · ${modeLabel}` : '');
-      }
+      if (this.menus.open && this.menus.panel !== 'help') this.menus.close();
+      this.hud.banner(info.title, info.label);
     }
-    if (first || !info.mutation) {
-      const spawn = this.layout.playerSpawns[0] ?? this.layout.center;
-      this.cam.snap(spawn.x, spawn.z, yawOf(this.layout.center.x - spawn.x, this.layout.center.z - spawn.z));
-    }
-    this.syncInput();
+    // Every map runs toward +z: that is "up" on the screen until the player turns the view.
+    const spawn = layout.playerSpawns[0] ?? layout.center;
+    this.cam.snap(spawn.x, spawn.z, 0);
+    this.syncScreens();
   }
 
   private onSnapshot(s: Snapshot, now: number): void {
@@ -635,12 +684,20 @@ export class Game {
     this.enemiesLite = [];
     for (const e of frame.enemies.values()) {
       const def = ENEMIES[e.type];
+      // A crab dug into a channel cannot be struck: it is not a target at all.
+      if (enemyHas(e.st, ES.Burrow)) continue;
       this.enemiesLite.push({ id: e.id, x: e.x, z: e.z, r: def.radius, alive: e.state !== EState.Dead, broken: e.state === EState.Broken });
     }
     this.alliesLite = s.p.map((p) => ({ id: p.id, x: p.x, z: p.z, downed: p.act === Act.Downed }));
+    for (let i = 0; i < this.poisLite.length; i++) this.poisLite[i]!.ready = s.poi[i] === 1;
+    this.flood = s.flood;
 
     this.reconcile(s);
     for (const ev of s.ev) this.onEvent(ev, frame);
+  }
+
+  private get stepCtx(): StepCtx {
+    return { layout: this.layout!, enemies: this.enemiesLite, allies: this.alliesLite, pois: this.poisLite };
   }
 
   private reconcile(s: Snapshot): void {
@@ -656,7 +713,7 @@ export class Game {
     if (drop > 0) this.pending.splice(0, drop);
     const before = this.me;
     const next = clonePlayer(sp);
-    const ctx = { layout: this.layout!, enemies: this.enemiesLite, allies: this.alliesLite };
+    const ctx = this.stepCtx;
     for (const cmd of this.pending) {
       this.scratch.length = 0;
       stepPlayer(next, cmd, ctx, this.scratch);
@@ -673,7 +730,8 @@ export class Game {
         this.errZ = 0;
       }
     } else {
-      this.cam.snap(next.x, next.z, next.yaw);
+      this.cam.snap(next.x, next.z);
+      this.aim = next.yaw;
     }
     this.me = next;
   }
@@ -682,6 +740,17 @@ export class Game {
 
   private nameOf(id: string): string {
     return this.lobby?.players.find((p) => p.id === id)?.name ?? '';
+  }
+
+  /** Colour of a player's effects: the hero's own, or the recolour bought from Saraya. */
+  private colorOf(id: string, hero: HeroId): RGB {
+    const vfxId = this.lobby?.players.find((p) => p.id === id)?.look.vfx;
+    return (vfxId ? COSMETIC_BY_ID[vfxId]?.color : undefined) ?? HERO_COLOR[hero];
+  }
+
+  private slotColor(id: string): string {
+    const slot = this.lobby?.players.find((p) => p.id === id)?.slot ?? 0;
+    return SLOT_COLORS[slot % SLOT_COLORS.length]!;
   }
 
   private enemyHeight(id: number): number {
@@ -696,7 +765,7 @@ export class Game {
       case 'hit': {
         const ev2 = this.enemyViews.get(ev.id);
         const attacker = frame.players.get(ev.by);
-        const c = attacker ? HERO_COLOR[attacker.hero] : WHITE;
+        const c = attacker ? this.colorOf(ev.by, attacker.hero) : WHITE;
         const h = this.enemyHeight(ev.id) * 0.55;
         const dx = attacker ? ev.x - attacker.x : 0;
         const dz = attacker ? ev.z - attacker.z : 1;
@@ -864,6 +933,9 @@ export class Game {
             vfx.shockwave(ev.x, ev.z, ev.r, RED, 0.7);
             this.cam.addShake(0.9);
             break;
+          default:
+            this.onFx(ev.what, ev.x, ev.z, ev.r);
+            break;
         }
         break;
       case 'fx':
@@ -900,13 +972,9 @@ export class Game {
         }
         break;
       }
-      case 'wave':
-        if (ev.of > 1 || ev.n > 1) this.hud.callout(`Ondata ${ev.n} di ${ev.of}`, 'wave');
-        audio.play('wave');
-        break;
       case 'clear':
         audio.play('clear');
-        this.hud.callout('Sala ripulita', 'green');
+        this.hud.callout(this.layout?.pois.some((p) => p.kind === 'portal') ? 'Mini-Boss abbattuto · il Portale si apre' : 'Boss abbattuto', 'green');
         break;
       case 'say':
         this.hud.say(ev.who, ev.text);
@@ -925,55 +993,80 @@ export class Game {
       case 'hint':
         // Tutorial and strategy notes stay off the screen. Only enemy taunts are shown.
         break;
-      case 'phase':
-        this.hud.banner('Klaus Kaballor', ev.n >= 2 ? 'Il Tamburo Sacro batte più forte' : 'Il Silenzio si fa furia', 2.6);
-        break;
-      case 'loot': {
-        const gemColor: RGB =
-          ev.gem === 'gold' ? GOLD : ev.gem === 'purple' ? VIOLET : ev.gem === 'blue' ? BLUE : GOLD;
-        vfx.burst(ev.x, 0.6, ev.z, ev.kind === 'gem' ? 10 : 6, gemColor, {
-          speed: 4,
-          life: 0.5,
-          up: 3,
-          gravity: 10,
-          flat: 0.4,
-        });
+      case 'phase': {
+        let name = '';
+        for (const e of frame.enemies.values()) if (ENEMIES[e.type].bar && e.state !== EState.Dead) name = ENEMIES[e.type].name;
+        this.hud.banner(name || 'Il boss cambia fase', ev.n >= 2 ? 'Ultima fase' : 'Seconda fase', 2.6);
+        audio.play('roar', 0.8);
+        this.cam.addShake(0.6);
         break;
       }
-      case 'pickup': {
-        if (!mine(ev.id)) break;
-        audio.play('ui', 0.7);
-        if (ev.kind === 'gem') {
-          this.hud.setXp(this.inventory?.pe ?? 0, true);
-          this.hud.callout(ev.toast ?? `+${ev.amount} PE`, 'gold small');
-        } else if (ev.kind === 'coin') {
-          this.hud.lootToast(ev.toast ?? `+${ev.amount} mo`);
-        } else {
-          this.hud.lootToast(ev.toast ?? 'Oggetto raccolto');
+      case 'poi': {
+        const poi = this.layout?.pois.find((p) => p.id === ev.id);
+        if (!poi) break;
+        if (ev.state === 1 && ev.kind === 'portal') {
+          vfx.pillar(poi.x, poi.z, 2.2, VIOLET, 1.2, 12);
+          vfx.shockwave(poi.x, poi.z, 6, VIOLET, 0.8);
+        } else if (ev.state === 2 && ev.kind === 'chest') {
+          vfx.shockwave(poi.x, poi.z, 9, GOLD, 0.8, 1.3);
+          vfx.pillar(poi.x, poi.z, 1.6, GOLD, 1, 12);
+          vfx.burst(poi.x, 1.2, poi.z, 60, GOLD, { speed: 9, life: 1, up: 5, gravity: 9, stretch: 0.05 });
+          audio.play('victory', 0.7);
+          this.shakeNear(poi.x, poi.z, 0.4);
+        } else if (ev.state === 2 && ev.kind === 'shrine') {
+          vfx.pillar(poi.x, poi.z, 2, GREEN, 1.1, 10);
+          vfx.shockwave(poi.x, poi.z, TUNING.shrineRadius, GREEN, 0.7);
+          audio.play('heal');
+          this.hud.callout(mine(ev.by) ? 'Santuario di Cura attivato' : `${this.nameOf(ev.by)} attiva il Santuario di Cura`, 'green small');
         }
         break;
       }
-      case 'levelup':
+      case 'synergy': {
+        const buff = synergyInfo(ev.buff);
+        this.hud.banner(`Sinergia · ${buff.name}`, `${buff.text} — aperto da ${this.nameOf(ev.by) || 'un eroe'}`, 3.4);
+        break;
+      }
+      case 'fury': {
+        const p = frame.players.get(ev.id);
+        if (p) vfx.shockwave(p.x, p.z, 2.4 + ev.tier * 0.5, EMBER, 0.4);
         if (mine(ev.id)) {
-          audio.play('victory');
-          this.hud.callout(`Livello ${ev.level}!`, 'gold');
-          this.hud.showLevelCards(
-            ev.cards.map((id) => {
-              const t = MEGABONK_TOMES[id as keyof typeof MEGABONK_TOMES];
-              return { name: t?.name ?? id, desc: t?.desc ?? '' };
-            }),
-          );
+          const text = ['', 'Slancio I · +20% velocità d’attacco', 'Slancio II · +15% critico', 'Slancio III · vigore inesauribile', 'Slancio IV · aura vampirica'][ev.tier];
+          if (text) this.hud.callout(text, 'gold');
+          audio.play('chargeFull');
         }
         break;
-      case 'bonk':
-        vfx.shockwave(ev.x, ev.z, ev.r, GOLD, 0.55, 1.4);
-        vfx.burst(ev.x, 0.8, ev.z, 36, GOLD, { speed: 12, life: 0.5, stretch: 0.06, flat: 0.7 });
-        audio.play('slam', 0.9);
-        this.shakeNear(ev.x, ev.z, 0.7);
-        if (this.me && Math.hypot(ev.x - this.me.x, ev.z - this.me.z) < 8) {
-          this.hud.callout('Bonk!', 'gold');
+      }
+      case 'hook':
+        vfx.flash(ev.x, 1.2, ev.z, 2, [0.8, 0.85, 0.9]);
+        vfx.shockwave(ev.x, ev.z, 3, [0.8, 0.85, 0.9], 0.35);
+        audio.play('gbreak', mine(ev.id) ? 1 : 0.5);
+        if (mine(ev.id)) {
+          this.hud.callout('Arpionato · trascinato a quota 0', 'red');
+          this.cam.addShake(0.7);
         }
         break;
+      case 'flood':
+        if (ev.level > FLOOD_DRY) {
+          this.hud.banner('L’acqua tossica sale', ev.level >= 0 ? 'Quota 0 sommersa: restano solo le piattaforme' : 'Le conche sono sommerse: restate in alto', 3.4);
+          audio.play('roar');
+          this.cam.addShake(0.9);
+        }
+        break;
+      case 'immune': {
+        const e = frame.enemies.get(ev.id);
+        if (!e) break;
+        const at = this.project(e.x, this.enemyHeight(ev.id) * 0.9, e.z);
+        if (at) this.hud.floater(at.x, at.y, 'Immune', 'poise');
+        break;
+      }
+      case 'ping': {
+        this.pings.push({ by: ev.by, kind: ev.kind, x: ev.x, z: ev.z, age: 0 });
+        if (this.pings.length > 12) this.pings.shift();
+        vfx.pillar(ev.x, ev.z, 0.5, PING_RGB[ev.kind], 0.6, 8);
+        vfx.shockwave(ev.x, ev.z, 3, PING_RGB[ev.kind], 0.5);
+        audio.play(ev.kind === 'danger' || ev.kind === 'elite' ? 'warnRed' : 'ui', 0.8);
+        break;
+      }
       case 'poise': {
         const at = this.project(ev.x, this.enemyHeight(ev.id) * 0.7, ev.z);
         if (at) this.hud.floater(at.x, at.y, String(ev.dmg), 'poise');
@@ -1051,6 +1144,36 @@ export class Game {
         vfx.implode(x, z, 1.4, VIOLET, 0.2);
         this.audio.play('pdodge', 0.45);
         break;
+      case 'spores':
+        vfx.shockwave(x, z, r, TOXIC, 0.6);
+        vfx.puff(x, 0.6, z, Math.round(8 + r * 2), [0.35, 0.6, 0.2], r * 0.7, 1, 1.4, 1.2);
+        vfx.burst(x, 1, z, 24, TOXIC, { speed: 5, life: 0.9, up: 2, drag: 1.5 });
+        this.audio.play('pop', 0.7);
+        break;
+      case 'emerge':
+        vfx.puff(x, 0.2, z, 10, [0.45, 0.4, 0.35], 1.2, 1.6);
+        vfx.burst(x, 0.3, z, 20, [0.7, 0.65, 0.55], { speed: 8, life: 0.5, up: 5, gravity: 14, flat: 0.5 });
+        vfx.shockwave(x, z, Math.max(2.4, r), [0.8, 0.7, 0.5], 0.35);
+        this.audio.play('slam', 0.7);
+        this.shakeNear(x, z, 0.4);
+        break;
+      case 'clang':
+        vfx.flash(x, 1.3, z, 1.2, [0.8, 0.9, 1], 0.12);
+        vfx.burst(x, 1.3, z, 12, [0.85, 0.92, 1], { speed: 9, life: 0.3, stretch: 0.06, gravity: 8 });
+        this.audio.play('block', 0.7);
+        break;
+      case 'reflect':
+        vfx.flash(x, 1.3, z, 1.4, ICE, 0.16);
+        vfx.shockwave(x, z, 2, ICE, 0.25);
+        this.audio.play('parry', 0.5);
+        break;
+      case 'shock':
+        vfx.shockwave(x, z, r, RED, 0.5, 1.5);
+        vfx.shockwave(x, z, r * 0.6, [1, 0.6, 0.3], 0.4);
+        vfx.burst(x, 0.5, z, 50, [1, 0.4, 0.2], { speed: 16, life: 0.5, flat: 0.8, stretch: 0.06 });
+        this.audio.play('slam');
+        this.shakeNear(x, z, 1);
+        break;
       case 'trail_chaos':
         vfx.flash(x, 1.1, z, r * 0.7, VIOLET, 0.22);
         vfx.shockwave(x, z, r, VIOLET, 0.3);
@@ -1065,7 +1188,7 @@ export class Game {
     const p = frame.players.get(ev.id);
     const px = p ? p.x : ev.x;
     const pz = p ? p.z : ev.z;
-    const c = p ? HERO_COLOR[p.hero] : WHITE;
+    const c = p ? this.colorOf(ev.id, p.hero) : WHITE;
     const ult = p ? HEROES[p.hero].ult.id === ev.what : false;
     this.audio.play(ult ? 'ult' : 'ability', ev.id === this.myId ? 1 : 0.5);
     if (ult) {
@@ -1185,8 +1308,9 @@ export class Game {
 
   // ---------------------------------------------------------------- frame
 
-  /** Screen position (CSS pixels) of a world point, or null when it is behind the camera. */
+  /** Screen position (CSS pixels) of a point `y` above the floor, or null when it is off the screen. */
   private project(x: number, y: number, z: number): { x: number; y: number } | null {
+    y += this.groundY(x, z);
     const m = this.viewProj.m;
     const w = x * m[3]! + y * m[7]! + z * m[11]! + m[15]!;
     if (w <= 0.05) return null;
@@ -1194,6 +1318,30 @@ export class Game {
     const cy = (x * m[1]! + y * m[5]! + z * m[9]! + m[13]!) / w;
     if (cx < -1.2 || cx > 1.2 || cy < -1.2 || cy > 1.2) return null;
     return { x: (cx * 0.5 + 0.5) * this.canvas.clientWidth, y: (0.5 - cy * 0.5) * this.canvas.clientHeight };
+  }
+
+  /**
+   * Draws a marker for a world point: `onScreen` when it is in view, otherwise an arrow
+   * pinned to the edge of the screen pointing toward it.
+   */
+  private pointAt(id: string, x: number, y: number, z: number, color: string, text: string, cls: string): { x: number; y: number } | null {
+    y += this.groundY(x, z);
+    const m = this.viewProj.m;
+    const w = x * m[3]! + y * m[7]! + z * m[11]! + m[15]!;
+    const sign = w < 0 ? -1 : 1;
+    const d = Math.max(0.05, Math.abs(w));
+    const cx = ((x * m[0]! + y * m[4]! + z * m[8]! + m[12]!) / d) * sign;
+    const cy = ((x * m[1]! + y * m[5]! + z * m[9]! + m[13]!) / d) * sign;
+    const W = this.canvas.clientWidth;
+    const H = this.canvas.clientHeight;
+    if (w > 0.05 && Math.abs(cx) < 0.94 && Math.abs(cy) < 0.9) {
+      return { x: (cx * 0.5 + 0.5) * W, y: (0.5 - cy * 0.5) * H };
+    }
+    const k = 1 / Math.max(Math.abs(cx) / 0.9, Math.abs(cy) / 0.84, 1e-6);
+    const ex = (cx * k * 0.5 + 0.5) * W;
+    const ey = (0.5 - cy * k * 0.5) * H;
+    this.hud.pointer(id, ex, ey, Math.atan2(cx * W, cy * H), color, text, cls);
+    return null;
   }
 
   frame(): void {
@@ -1206,9 +1354,8 @@ export class Game {
     const conn = this.conn;
     if (conn) {
       // Pause only after we have a live world — keep lobby/welcome flowing while menus show.
-      // Edge-trigger: calling unpause every frame broke solo movement when the host module
-      // lagged behind (Vite HMR) or when resume reset the sim clock unnecessarily.
-      const freezeHost = paused && !!this.info && this.info.kind !== undefined;
+      // Edge-trigger: the solo host resets its clock on resume.
+      const freezeHost = paused && !!this.info;
       if (freezeHost !== this.hostFreeze) {
         this.hostFreeze = freezeHost;
         conn.setPaused?.(freezeHost, now);
@@ -1220,12 +1367,28 @@ export class Game {
       conn.update(now);
     }
 
+    // The hero stage takes the whole screen for Hero Selection and behind the Hero Sheet.
+    const stageOn = !!this.info && (this.select.visible || this.sheet.isOpen);
+    if (stageOn) {
+      const hero = this.select.visible ? this.select.shown : this.myHero() || this.select.shown;
+      const look = loadoutOf(this.profile, hero);
+      const pose = this.select.visible && look.pose ? COSMETIC_BY_ID[look.pose]?.clip : undefined;
+      const wide = this.canvas.clientWidth > 900;
+      this.stage.show(hero, look, pose ?? 'Idle', this.sheet.isOpen && wide ? 1.55 : 0);
+      this.stage.update(dt);
+    }
+    if (stageOn !== this.stageOn) {
+      this.stageOn = stageOn;
+      this.scene.activeCamera = stageOn ? this.stage.camera : this.cam.camera;
+    }
+    this.hud.setVisible(!!this.info && !stageOn);
+
     if (this.info && this.layout && this.conn) {
       const input = this.input.poll(dt);
       if (!paused) this.simulate(dt, input);
       else this.acc = 0;
       if (!paused && this.hitStop > 0) this.hitStop -= dt;
-      this.render(dt, now, input);
+      if (!stageOn) this.render(dt, now);
     }
 
     if (!paused) this.arena?.update(dt);
@@ -1237,34 +1400,49 @@ export class Game {
 
   private simulate(dt: number, input: InputFrame): void {
     const me = this.me;
-    this.cam.rotate(input.lookX, input.lookY);
+    this.cam.rotate(input.lookX);
+    if (input.zoom) this.cam.zoom(input.zoom);
     if (!me) {
       this.acc = 0;
       return;
     }
     this.updateLock(input, me);
 
-    const yaw = this.cam.yaw;
-    const sin = Math.sin(yaw);
-    const cos = Math.cos(yaw);
-    const mx = sin * input.moveY + cos * input.moveX;
-    const mz = cos * input.moveY - sin * input.moveX;
+    // Screen-space movement: "up" on the stick or W is always the top of the screen.
+    const { x: mx, z: mz } = screenToWorld(input.moveX, input.moveY, this.cam.yaw, this.moveDir);
 
-    if (input.buttons & Btn.Interact && !(this.prevButtons & Btn.Interact)) {
-      if (this.info!.kind === 'hub' && this.nearTable(me)) {
+    // Aim: the cursor on the ground with a mouse, the way the hero is heading otherwise.
+    let aimed = false;
+    if (input.mouseAim && this.cam.groundPoint(input.mouseU, input.mouseV, this.meFeet + 1, this.aimAt)) {
+      const dx = this.aimAt.x - me.x;
+      const dz = this.aimAt.z - me.z;
+      if (Math.hypot(dx, dz) > 0.35) this.aim = yawOf(dx, dz);
+      aimed = true;
+    } else if (Math.hypot(mx, mz) > 0.2) {
+      this.aim = yawOf(mx, mz);
+    } else {
+      this.aim = me.yaw;
+    }
+
+    if (input.ping) {
+      if (aimed) this.ping(this.aimAt.x, this.aimAt.z);
+      else this.ping(me.x + Math.sin(this.aim) * 3, me.z + Math.cos(this.aim) * 3);
+    }
+
+    if (input.buttons & Btn.Interact && !(this.prevButtons & Btn.Interact) && this.info!.kind === 'hub') {
+      const npc = this.nearNpc(me);
+      if (npc) {
         this.audio.play('ui');
-        this.menus.openCouncil();
-      } else if (this.info!.kind === 'mission' && this.info!.contractKind) {
-        this.send({ t: 'capture' });
+        this.menus.openNpc(npc);
       }
     }
     this.prevButtons = input.buttons;
 
     this.acc = Math.min(this.acc + dt, DT * 8);
-    const ctx = { layout: this.layout!, enemies: this.enemiesLite, allies: this.alliesLite };
+    const ctx = this.stepCtx;
     while (this.acc >= DT) {
       this.acc -= DT;
-      const cmd = quantizeCmd({ seq: ++this.seq, mx, mz, buttons: input.buttons, aim: yaw, lock: this.lockId });
+      const cmd = quantizeCmd({ seq: ++this.seq, mx, mz, buttons: input.buttons, aim: this.aim, lock: this.lockId });
       this.events.length = 0;
       stepPlayer(me, cmd, ctx, this.events);
       this.pending.push(cmd);
@@ -1278,9 +1456,48 @@ export class Game {
     }
   }
 
-  private nearTable(me: PlayerState): boolean {
-    const t = this.layout?.table;
-    return !!t && Math.hypot(me.x - t.x, me.z - t.z) < 10;
+  /** The NPC (or the Map Table) close enough to talk to. */
+  private nearNpc(me: PlayerState): NpcId | null {
+    const layout = this.layout;
+    if (!layout || this.info?.kind !== 'hub') return null;
+    let best: NpcId | null = null;
+    let bestD: number = TUNING.interactRange + 1.6;
+    for (const n of this.npcViews) {
+      const d = Math.hypot(n.x - me.x, n.z - me.z);
+      if (d < bestD) {
+        bestD = d;
+        best = n.id;
+      }
+    }
+    const t = layout.table;
+    if (t && Math.hypot(t.x - me.x, t.z - me.z) < Math.min(bestD, TUNING.interactRange + 2.4)) best = 'tavolo';
+    return best;
+  }
+
+  /** Marks a spot for the whole company. What it means is read from what is there. */
+  private ping(x: number, z: number): void {
+    const latest = this.frames[this.frames.length - 1];
+    let kind: PingKind = 'rally';
+    const layout = this.layout;
+    if (layout && latest) {
+      layout.pois.forEach((poi, i) => {
+        if (poi.kind === 'chest' && latest.s.poi[i] !== 2 && Math.hypot(poi.x - x, poi.z - z) < 4.5) kind = 'chest';
+      });
+      if (kind === 'rally') {
+        let bestD = 4.5;
+        for (const e of latest.enemies.values()) {
+          if (e.state === EState.Dead || enemyHas(e.st, ES.Burrow)) continue;
+          const def = ENEMIES[e.type];
+          if (def.dummy) continue;
+          const d = Math.hypot(e.x - x, e.z - z) - def.radius;
+          if (d < bestD) {
+            bestD = d;
+            kind = def.rank === 'base' ? 'danger' : 'elite';
+          }
+        }
+      }
+    }
+    this.send({ t: 'mark', kind, x, z });
   }
 
   /** Immediate feedback for things the local hero just did, before the server confirms them. */
@@ -1324,7 +1541,7 @@ export class Game {
     const latest = this.frames[this.frames.length - 1];
     if (!latest) return;
     const usable = (e: EnemySnap | undefined): e is EnemySnap =>
-      !!e && e.state !== EState.Dead && Math.hypot(e.x - me.x, e.z - me.z) < 42;
+      !!e && e.state !== EState.Dead && !enemyHas(e.st, ES.Burrow) && Math.hypot(e.x - me.x, e.z - me.z) < 42;
     const candidates = (): EnemySnap[] => {
       const out: EnemySnap[] = [];
       for (const e of latest.enemies.values()) {
@@ -1335,7 +1552,6 @@ export class Game {
       }
       return out;
     };
-    const rel = (e: EnemySnap) => angleDiff(yawOf(e.x - me.x, e.z - me.z), this.cam.yaw);
 
     if (this.lockId && !usable(latest.enemies.get(this.lockId))) {
       // The target fell: move on to the closest threat instead of dropping the lock mid-fight.
@@ -1350,53 +1566,48 @@ export class Game {
       }
       this.lockId = best;
     }
-    if (input.lockToggle) {
-      if (this.lockId) {
-        this.lockId = 0;
-      } else {
-        let best = 0;
-        let bestScore = Infinity;
-        for (const e of candidates()) {
-          const score = Math.abs(rel(e)) * 9 + Math.hypot(e.x - me.x, e.z - me.z) * 0.45;
-          if (score < bestScore) {
-            bestScore = score;
-            best = e.id;
-          }
-        }
-        this.lockId = best;
-        this.audio.play(best ? 'ui' : 'deny');
-      }
-    } else if (input.lockCycle && this.lockId) {
-      const list = candidates().sort((a, b) => rel(a) - rel(b));
-      const i = list.findIndex((e) => e.id === this.lockId);
-      if (list.length > 1) {
-        const next = list[(i + input.lockCycle + list.length) % list.length]!;
-        this.lockId = next.id;
-        this.audio.play('ui');
+    if (!input.lockToggle) return;
+    if (this.lockId) {
+      this.lockId = 0;
+      return;
+    }
+    // Lock onto whatever the hero is aiming at, nearest first.
+    let best = 0;
+    let bestScore = Infinity;
+    for (const e of candidates()) {
+      const score = Math.abs(angleDiff(yawOf(e.x - me.x, e.z - me.z), this.aim)) * 9 + Math.hypot(e.x - me.x, e.z - me.z) * 0.45;
+      if (score < bestScore) {
+        bestScore = score;
+        best = e.id;
       }
     }
+    this.lockId = best;
+    this.audio.play(best ? 'ui' : 'deny');
   }
 
   // ---------------------------------------------------------------- rendering
 
   private heroView(id: string, hero: HeroId): HeroView {
+    const look = this.lobby?.players.find((p) => p.id === id)?.look;
+    const key = lookKey(hero, look);
     let hv = this.heroViews.get(id);
-    if (hv && hv.hero !== hero) {
+    if (hv && hv.key !== key) {
       hv.view.dispose();
       hv = undefined;
     }
     if (!hv) {
-      const view = new CharacterView(this.scene, this.assets, HERO_LOOKS[hero], `hero:${id}`, this.shadow);
-      hv = { view, hero, act: Act.Idle, combo: 0, t: 0, x: 0, z: 0, yaw: 0, y: Number.NaN, fullCharge: false, wolf: false, seen: true };
+      const view = new CharacterView(this.scene, this.assets, dressHero(hero, look), `hero:${id}`, this.shadow);
+      hv = { view, hero, key, act: Act.Idle, combo: 0, t: 0, x: 0, z: 0, yaw: 0, y: Number.NaN, fullCharge: false, wolf: false, seen: true };
       this.heroViews.set(id, hv);
     }
     hv.seen = true;
     return hv;
   }
 
-  private render(dt: number, now: number, input: InputFrame): void {
+  private render(dt: number, now: number): void {
     const vfx = this.vfx;
     const hud = this.hud;
+    const layout = this.layout!;
     const latest = this.frames[this.frames.length - 1];
     const frozen = this.hitStop > 0;
 
@@ -1426,22 +1637,18 @@ export class Game {
     this.errX *= blend;
     this.errZ *= blend;
     const me = this.me;
-    const meX = me ? me.x + this.errX : this.layout!.center.x;
-    const meZ = me ? me.z + this.errZ : this.layout!.center.z;
+    const meX = me ? me.x + this.errX : layout.center.x;
+    const meZ = me ? me.z + this.errZ : layout.center.z;
+    this.meFeet = this.rawGroundY(meX, meZ, this.meFeet);
 
     // ---- camera first, so everything anchored to the screen uses this frame's view
-    let lockAt: { x: number; z: number; h: number } | null = null;
-    const la = this.lockId && a ? a.enemies.get(this.lockId) : undefined;
-    if (la) {
-      const lb = b?.enemies.get(la.id) ?? la;
-      lockAt = { x: lerp(la.x, lb.x, u), z: lerp(la.z, lb.z, u), h: this.enemyHeight(la.id) };
-    }
-    if (!me) this.cam.rotate(dt * 0.12, 0);
-    this.cam.update(dt, this.layout, meX, meZ, lockAt, Math.abs(input.lookX) > 0.002);
+    this.cam.update(dt, layout, meX, meZ);
     this.scene.updateTransformMatrix(true);
     this.viewProj.copyFrom(this.scene.getTransformMatrix());
 
     // ---- heroes
+    this.radar.reveal(meX, meZ);
+    const radarAllies: { x: number; z: number; color: string; downed: boolean }[] = [];
     if (me) this.placeHero(this.heroView(me.id, me.hero), me, meX, meZ, me.yaw, dt, frozen, true);
     if (a && b) {
       for (const pa of a.players.values()) {
@@ -1455,11 +1662,18 @@ export class Game {
         const shown: PlayerState = { ...pa, t: same ? lerp(pa.t, pb.t, u) : pa.t + since * TICK_HZ };
         const hv = this.heroView(pa.id, pa.hero);
         this.placeHero(hv, shown, x, z, yaw, dt, false, false);
-        const at = this.project(x, hv.view.height + 0.35, z);
+        const downed = pa.act === Act.Downed;
+        const color = this.slotColor(pa.id);
+        const lp = this.lobby?.players.find((p) => p.id === pa.id);
+        const name = lp?.name ?? '';
+        // In view: a name tag over the head. Out of view: an arrow on the edge of the screen.
+        const at = this.pointAt(`ally:${pa.id}`, x, hv.view.height + 0.35, z, color, downed ? `${name} — a terra` : name, downed ? 'ally down' : 'ally');
         if (at) {
-          const downed = pa.act === Act.Downed;
-          hud.nameTag(pa.id, at.x, at.y, downed ? `${this.nameOf(pa.id)} — a terra` : this.nameOf(pa.id), HEROES[pa.hero].color, downed ? 'down' : '');
+          const title = lp?.title ? ` · ${lp.title}` : '';
+          hud.nameTag(pa.id, at.x, at.y, downed ? `${name} — a terra` : `${name}${title}`, color, downed ? 'down' : '');
         }
+        this.radar.reveal(x, z);
+        radarAllies.push({ x, z, color, downed });
       }
     }
     for (const [id, hv] of this.heroViews) {
@@ -1473,6 +1687,7 @@ export class Game {
     let lock: EnemySnap | null = null;
     let execTarget: EnemySnap | null = null;
     let execDist: number = TUNING.executeRange;
+    const radarEnemies: { x: number; z: number; color: string; big: boolean }[] = [];
     if (a && b) {
       for (const ea of a.enemies.values()) {
         const eb = b.enemies.get(ea.id) ?? ea;
@@ -1489,13 +1704,15 @@ export class Game {
         let ev = this.enemyViews.get(ea.id);
         if (!ev) {
           const view = new CharacterView(this.scene, this.assets, ENEMY_LOOKS[ea.type], `enemy:${ea.id}`, this.shadow);
-          ev = { view, snap: shown, state: -1, atk: -1, seen: true, dustTimer: 0, y: Number.NaN };
+          ev = { view, snap: shown, state: -1, atk: -1, seen: true, dustTimer: 0, y: Number.NaN, surfaced: enemyHas(ea.st, ES.Burrow) ? 0 : 1 };
           this.enemyViews.set(ea.id, ev);
         }
         ev.seen = true;
         ev.snap = shown;
         this.placeEnemy(ev, shown, dt, frozen);
-        if (def.bar && shown.state !== EState.Dead) boss = shown;
+        const hidden = enemyHas(shown.st, ES.Burrow);
+        // A sleeping garrison boss has no bar: it shows when the fight starts.
+        if (def.bar && shown.state !== EState.Dead && (shown.state !== EState.Idle || shown.hp < shown.maxHp)) boss = shown;
         if (shown.id === this.lockId) lock = shown;
         if (me && shown.state === EState.Broken) {
           const d = Math.hypot(shown.x - meX, shown.z - meZ) - def.radius;
@@ -1504,7 +1721,11 @@ export class Game {
             execTarget = shown;
           }
         }
+        if (hidden) continue;
         this.enemyHud(ev, shown, me ? Math.hypot(shown.x - meX, shown.z - meZ) : 0);
+        if (shown.state !== EState.Dead && !def.dummy && this.radar.isSeen(shown.x, shown.z)) {
+          radarEnemies.push({ x: shown.x, z: shown.z, color: def.rank === 'base' ? '#ff4d3d' : '#ff9a3d', big: def.rank !== 'base' });
+        }
       }
     }
     for (const [id, ev] of this.enemyViews) {
@@ -1521,14 +1742,14 @@ export class Game {
       for (const pr of latest.s.pr) {
         const x = pr.x + pr.dx * pr.speed * age;
         const z = pr.z + pr.dz * pr.speed * age;
-        const c = PROJ_COLOR[pr.kind] ?? WHITE;
+        const c = this.projColor(pr.owner, pr.kind);
         const big = pr.kind.includes('big') || pr.kind.includes('orb') || pr.kind.includes('heavy');
-        if (pr.kind.startsWith('bolt')) {
-          const len = big ? 2.6 : 1.7;
+        if (pr.kind.startsWith('bolt') || pr.kind === 'harpoon') {
+          const len = pr.kind === 'harpoon' ? 3.2 : big ? 2.6 : 1.7;
           vfx.beam(x - pr.dx * len, 1.3, z - pr.dz * len, x, 1.3, z, big ? 0.16 : 0.1, c, 1);
           vfx.sprite(x, 1.3, z, big ? 0.4 : 0.26, c, 1);
         } else {
-          const s = big ? 0.75 : 0.48;
+          const s = big ? 0.75 : pr.kind === 'spore' ? 0.6 : 0.48;
           vfx.sprite(x, 1.3, z, s * (1 + Math.sin(vfx.clock * 30) * 0.1), c, 1);
           vfx.sprite(x, 1.3, z, s * 0.45, WHITE, 0.9);
           vfx.glow(x, z, s * 2.4, c, 0.35);
@@ -1537,15 +1758,183 @@ export class Game {
       }
     }
 
+    this.drawWorld(dt, latest, me, meX, meZ);
     this.drawHud(dt, latest, me, meX, meZ, boss, lock, execTarget);
+
+    this.radar.draw(
+      {
+        x: meX,
+        z: meZ,
+        yaw: this.cam.yaw,
+        facing: me ? me.yaw : this.cam.yaw,
+        allies: radarAllies,
+        enemies: radarEnemies,
+        pois: layout.pois.map((p, i) => ({ x: p.x, z: p.z, kind: p.kind, state: latest?.s.poi[i] ?? 0, color: POI_COLOR[p.kind] })),
+        pings: this.pings.map((p) => ({ x: p.x, z: p.z, color: PING_COLOR[p.kind], age: p.age })),
+        flood: this.flood,
+      },
+      dt,
+    );
 
     // ---- ambience
     this.ambience(dt, meX, meZ);
   }
 
-  private groundY(x: number, z: number): number {
+  /** A player's projectile takes the colour of their effects when they bought a recolour. */
+  private projColor(owner: string, kind: string): RGB {
+    const vfxId = this.lobby?.players.find((p) => p.id === owner)?.look.vfx;
+    return (vfxId ? COSMETIC_BY_ID[vfxId]?.color : undefined) ?? PROJ_COLOR[kind] ?? WHITE;
+  }
+
+  /** Things that live in the world but not in the simulation's bodies: NPCs, PoIs, loot, pings, water. */
+  private drawWorld(dt: number, latest: Frame | undefined, me: PlayerState | null, meX: number, meZ: number): void {
+    const vfx = this.vfx;
+    const hud = this.hud;
+    const layout = this.layout!;
+    const clock = vfx.clock;
+
+    // ---- the tavern's people
+    for (const n of this.npcViews) {
+      const info = NPCS[n.id];
+      if (!n.view) {
+        n.view = new CharacterView(this.scene, this.assets, NPC_LOOKS[n.id as keyof typeof NPC_LOOKS], `npc:${n.id}`, this.shadow);
+        const t = layout.table ?? layout.center;
+        n.view.root.position.set(n.x, this.groundY(n.x, n.z), n.z);
+        n.view.root.rotation.y = yawOf(t.x - n.x, t.z - n.z);
+      }
+      n.view.play(n.view.look.idle, clock + n.x, true);
+      n.view.update(dt);
+      const c = hexColor(info.color);
+      vfx.ring(n.x, n.z, 1.1 + Math.sin(clock * 2 + n.x) * 0.05, c, 0.55);
+      const at = this.project(n.x, n.view.height + 0.4, n.z);
+      if (at) hud.nameTag(`npc:${n.id}`, at.x, at.y, `${info.name} · ${info.role}`, info.color, 'npc');
+    }
+    if (this.info!.kind === 'hub' && layout.table) {
+      const t = layout.table;
+      vfx.ring(t.x, t.z, 2.6 + Math.sin(clock * 2) * 0.06, GOLD, 0.6);
+      vfx.glow(t.x, t.z, 4, GOLD, 0.18);
+      const at = this.project(t.x, 2.6, t.z);
+      if (at) hud.nameTag('npc:tavolo', at.x, at.y, NPCS.tavolo.name, NPCS.tavolo.color, 'npc');
+    }
+
+    // ---- points of interest
+    layout.pois.forEach((poi, i) => {
+      const state = latest?.s.poi[i] ?? 0;
+      const near = Math.hypot(poi.x - meX, poi.z - meZ);
+      const pulse = 0.5 + Math.sin(clock * 3 + i) * 0.5;
+      if (poi.kind === 'chest') {
+        if (state === 1) {
+          vfx.ring(poi.x, poi.z, TUNING.interactRange, GOLD, 0.25 + pulse * 0.25);
+          vfx.glow(poi.x, poi.z, 3.2, GOLD, 0.3 + pulse * 0.15);
+          vfx.beam(poi.x, 0.6, poi.z, poi.x, 7, poi.z, 0.35, GOLD, 0.22 + pulse * 0.1);
+          if (Math.random() < dt * 8) vfx.burst(poi.x, 1, poi.z, 1, GOLD, { speed: 0.4, life: 1.1, up: 1.6, radius: 0.9, size: 0.09 });
+        }
+      } else if (poi.kind === 'shrine') {
+        if (state === 1) {
+          vfx.ring(poi.x, poi.z, TUNING.shrineRadius, GREEN, 0.35 + pulse * 0.3);
+          vfx.disc(poi.x, poi.z, TUNING.shrineRadius, GREEN, 0.12 + pulse * 0.06);
+          vfx.glow(poi.x, poi.z, TUNING.shrineRadius * 1.3, GREEN, 0.22);
+          if (Math.random() < dt * 14) vfx.burst(poi.x, 0.2, poi.z, 1, GREEN, { speed: 0.3, life: 1.4, up: 1.8, flat: 1, radius: TUNING.shrineRadius * Math.random(), size: 0.1 });
+        } else {
+          vfx.ring(poi.x, poi.z, 1.6, GREEN, 0.15);
+        }
+      } else if (state === 1) {
+        const spin = clock * 1.6;
+        vfx.disc(poi.x, poi.z, 2.3, VIOLET, 0.5);
+        vfx.ring(poi.x, poi.z, 2.3 * (1 - ((clock * 0.7) % 1)), VIOLET, 0.7);
+        vfx.ring(poi.x, poi.z, 2.5, WHITE, 0.35 + pulse * 0.3);
+        vfx.beam(poi.x, 0.2, poi.z, poi.x, 9, poi.z, 0.9, VIOLET, 0.3);
+        for (let k = 0; k < 6; k++) {
+          const ang = spin + (k * Math.PI) / 3;
+          vfx.sprite(poi.x + Math.sin(ang) * 1.6, 0.6 + ((clock * 0.8 + k * 0.17) % 1) * 3.2, poi.z + Math.cos(ang) * 1.6, 0.22, [0.85, 0.6, 1], 0.9);
+        }
+      } else {
+        vfx.ring(poi.x, poi.z, 2.3, VIOLET, 0.18);
+      }
+      if (near < 22 && state !== 2) {
+        const at = this.project(poi.x, 3.4, poi.z);
+        const locked = poi.kind === 'portal' && state === 0;
+        if (at) hud.nameTag(`poi:${poi.id}`, at.x, at.y, locked ? `${POI_NAME[poi.kind]} · sigillato` : POI_NAME[poi.kind], POI_COLOR[poi.kind], 'poi');
+      } else if (poi.kind === 'portal' && state === 1) {
+        // An open portal is always worth finding: point to it from anywhere.
+        this.pointAt(`poi:${poi.id}`, poi.x, 2, poi.z, POI_COLOR.portal, 'Portale', 'poi');
+      }
+    });
+
+    // ---- instanced loot: it drifts to its owner, the server decides when it is taken
+    for (const d of this.drops.values()) {
+      d.age += dt;
+      if (me) {
+        const dx = meX - d.x;
+        const dz = meZ - d.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < DROP_MAGNET && dist > 0.2 && d.age > 0.35) {
+          const step = Math.min(dist, (6 + (DROP_MAGNET - dist) * 3) * dt);
+          d.x += (dx / dist) * step;
+          d.z += (dz / dist) * step;
+        }
+      }
+      const c = DROP_RGB[d.kind];
+      const bob = 0.75 + Math.sin(clock * 4 + d.id) * 0.14;
+      const size = d.kind === 'orb' ? 0.55 : d.kind === 'thread' ? 0.3 : 0.34;
+      vfx.sprite(d.x, bob, d.z, size, c, 1);
+      vfx.sprite(d.x, bob, d.z, size * 0.45, WHITE, 0.9);
+      vfx.glow(d.x, d.z, d.kind === 'orb' ? 1.8 : 0.9, c, 0.4);
+    }
+
+    // ---- pings
+    for (let i = this.pings.length - 1; i >= 0; i--) {
+      const p = this.pings[i]!;
+      p.age += dt;
+      if (p.age > PING_LIFE) {
+        this.pings.splice(i, 1);
+        continue;
+      }
+      const c = PING_RGB[p.kind];
+      const fade = Math.min(1, (PING_LIFE - p.age) / 1.2);
+      const wave = (clock * 1.3 + i * 0.37) % 1;
+      vfx.ring(p.x, p.z, 0.7 + wave * 2.2, c, (1 - wave) * fade);
+      vfx.ring(p.x, p.z, 0.7, c, 0.9 * fade);
+      vfx.beam(p.x, 0.1, p.z, p.x, 6.5, p.z, 0.2, c, 0.5 * fade);
+      vfx.sprite(p.x, 6.6, p.z, 0.55, c, fade);
+      const who = this.nameOf(p.by);
+      const text = who ? `${PING_TEXT[p.kind]} · ${who}` : PING_TEXT[p.kind];
+      const at = this.pointAt(`ping:${i}`, p.x, 7.2, p.z, PING_COLOR[p.kind], text, `ping ${p.kind}`);
+      if (at) hud.nameTag(`ping:${i}`, at.x, at.y, text, PING_COLOR[p.kind], `ping ${p.kind}`);
+    }
+
+    // ---- toxic water
+    const wet = this.flood > FLOOD_DRY;
+    if (wet) {
+      const goal = FLOOR_Y + this.flood * STEP_HEIGHT + 0.55;
+      if (!this.water.isEnabled()) {
+        this.water.setEnabled(true);
+        this.waterY = goal - STEP_HEIGHT;
+      }
+      this.waterY += (goal - this.waterY) * (1 - Math.exp(-dt * 0.9));
+      this.water.position.y = this.waterY + Math.sin(clock * 1.3) * 0.05;
+      if (Math.random() < dt * 20) {
+        const ang = Math.random() * Math.PI * 2;
+        const dist = Math.random() * 26;
+        const x = meX + Math.sin(ang) * dist;
+        const z = meZ + Math.cos(ang) * dist;
+        if (standElevation(layout, x, z) <= this.flood && getCellElevation(layout, x, z) !== ELEV_WALL) {
+          vfx.puff(x, 0.7, z, 1, [0.3, 0.7, 0.25], 0.4, 0.8, 1.2, 0.7);
+        }
+      }
+    } else if (this.water.isEnabled()) {
+      this.water.setEnabled(false);
+    }
+  }
+
+  /** Floor height under a point; inside a wall, `fallback` (the floor nearby). */
+  private rawGroundY(x: number, z: number, fallback: number): number {
     const raw = this.layout ? getCellElevation(this.layout, x, z) : 0;
-    return FLOOR_Y + (raw === ELEV_WALL ? 0 : raw) * STEP_HEIGHT;
+    return raw === ELEV_WALL ? fallback : FLOOR_Y + raw * STEP_HEIGHT;
+  }
+
+  private groundY(x: number, z: number): number {
+    return this.rawGroundY(x, z, this.meFeet);
   }
 
   /** Visual feet height. Snaps across teleports, eases across a single terrace. */
@@ -1559,7 +1948,7 @@ export class Game {
     const view = hv.view;
     const vfx = this.vfx;
     const hero = HEROES[p.hero];
-    const c = HERO_COLOR[p.hero];
+    const c = this.colorOf(p.id, p.hero);
     const pirouette = p.act === Act.Dodge && hero.dodge.kind === 'pirouette' && !p.blink;
     const spinU = pirouette ? Math.min(1, p.t / TICK_HZ / hero.dodge.dur) : 0;
     hv.y = this.smoothFeet(hv.y, x, z, dt);
@@ -1590,6 +1979,14 @@ export class Game {
       } else if (s.k === PS.Silence) {
         glowR += 0.08;
         glowB += 0.16;
+      } else if (s.k === PS.Leech) {
+        glowR += 0.22;
+        vfx.ring(x, z, 1.3 + Math.sin(vfx.clock * 5) * 0.08, [0.9, 0.15, 0.25], 0.45);
+      } else if (s.k === PS.Frenzy) {
+        glowR += 0.1;
+        glowG += 0.05;
+      } else if (s.k === PS.Reflect) {
+        vfx.ring(x, z, 1.15, ICE, 0.6 + Math.sin(vfx.clock * 6) * 0.2);
       }
     }
     if (p.act === Act.Charge) {
@@ -1690,6 +2087,11 @@ export class Game {
       const k = Math.min(1, p.t / TICK_HZ / TUNING.reviveTime);
       vfx.ring(x, z, 0.4 + k * 2.2, GREEN, 0.9);
     }
+    if (p.act === Act.Channel) {
+      // Anyone can see who is standing defenceless at a chest.
+      vfx.ring(x, z, 1.4 + Math.sin(vfx.clock * 9) * 0.12, GOLD, 0.85);
+      if (Math.random() < dt * 24) vfx.burst(x, 0.3, z, 1, GOLD, { speed: 0.4, life: 0.7, up: 2.6, radius: 1.1, flat: 1, size: 0.09 });
+    }
     hv.act = p.act;
     hv.combo = p.combo;
     hv.t = p.t;
@@ -1703,7 +2105,10 @@ export class Game {
     const vfx = this.vfx;
     const def = ENEMIES[e.type];
     ev.y = this.smoothFeet(ev.y, e.x, e.z, dt);
-    view.root.position.set(e.x, ev.y, e.z);
+    // Stone Crabs dig into the low channels: nothing shows until they surface to strike.
+    const burrowed = enemyHas(e.st, ES.Burrow);
+    ev.surfaced += ((burrowed ? 0 : 1) - ev.surfaced) * (1 - Math.exp(-dt * 12));
+    view.root.position.set(e.x, ev.y - (1 - ev.surfaced) * 2.8, e.z);
     view.root.rotation.y = e.yaw;
     view.trackMotion(dt);
     const iced = enemyHas(e.st, ES.Frozen);
@@ -1754,6 +2159,11 @@ export class Game {
       }
     }
     if (enemyHas(e.st, ES.Taunted)) vfx.sprite(e.x, view.height + 0.45, e.z, 0.2, ICE, 0.8);
+    if (enemyHas(e.st, ES.Bleed) && Math.random() < dt * 10) {
+      vfx.burst(e.x, view.height * 0.5, e.z, 1, [0.8, 0.08, 0.1], { speed: 1, life: 0.5, gravity: 9, size: 0.1 });
+    }
+    if (enemyHas(e.st, ES.Silenced)) vfx.sprite(e.x, view.height + 0.3, e.z, 0.26, VIOLET, 0.85);
+    if (enemyHas(e.st, ES.Ward)) vfx.ring(e.x, e.z, def.radius + 0.6, WHITE, 0.4 + Math.sin(vfx.clock * 10) * 0.2);
     if (e.state === EState.Dead) {
       view.setFade(Math.max(0, Math.min(1, (2.5 - e.t) / 0.7)));
     } else if (e.state === EState.Spawn) {
@@ -1770,6 +2180,7 @@ export class Game {
         this.shakeNear(e.x, e.z, 0.16);
       }
     }
+    if (ev.surfaced < 0.05) view.setFade(0);
     view.glow.set(r, g, b);
     view.update(dt);
     ev.state = e.state;
@@ -1892,12 +2303,36 @@ export class Game {
           vfx.ring(z.x, z.z, r + 0.3, RED, 0.35);
           break;
         }
-        case 'burst': {
+        case 'burst':
+        case 'shock': {
           const k = Math.min(1, t / z.dur);
           vfx.disc(z.x, z.z, z.r, RED, 0.3 + k * 0.5);
           vfx.disc(z.x, z.z, z.r * k, [1, 0.5, 0.2], 0.5);
+          if (z.kind === 'shock') vfx.ring(z.x, z.z, z.r, WHITE, 0.4 + k * 0.6);
           break;
         }
+        case 'toxic':
+          vfx.disc(z.x, z.z, z.r, TOXIC, 0.3 * fade);
+          vfx.ring(z.x, z.z, z.r, TOXIC, 0.7 * fade);
+          if (Math.random() < dt * 22) {
+            const a = Math.random() * Math.PI * 2;
+            const d = Math.sqrt(Math.random()) * z.r;
+            vfx.puff(z.x + Math.sin(a) * d, 0.5, z.z + Math.cos(a) * d, 1, [0.3, 0.55, 0.15], 0.5, 0.7, 1.5, 1.5);
+          }
+          break;
+        case 'shrine':
+          vfx.disc(z.x, z.z, z.r, GREEN, 0.3 * fade);
+          vfx.ring(z.x, z.z, z.r, GREEN, 0.95 * fade);
+          vfx.ring(z.x, z.z, z.r * (0.2 + ((vfx.clock * 0.5) % 1) * 0.8), [0.8, 1, 0.85], 0.4 * fade);
+          vfx.glow(z.x, z.z, z.r * 1.4, GREEN, 0.3 * fade);
+          if (Math.random() < dt * 40) vfx.burst(z.x, 0.2, z.z, 1, [0.7, 1, 0.8], { speed: 0.3, life: 1.3, up: 2.4, flat: 1, radius: z.r * Math.sqrt(Math.random()), size: 0.11 });
+          break;
+        case 'ember':
+          vfx.disc(z.x, z.z, z.r, EMBER, 0.4 * fade);
+          vfx.ring(z.x, z.z, z.r, [1, 0.7, 0.2], 0.6 * fade);
+          vfx.glow(z.x, z.z, z.r * 1.2, EMBER, 0.25 * fade);
+          if (Math.random() < dt * 30) vfx.burst(z.x, 0.2, z.z, 1, [1, 0.6, 0.15], { speed: 0.4, life: 0.7, up: 2.8, flat: 1, radius: z.r * Math.sqrt(Math.random()), size: 0.14 });
+          break;
       }
     }
   }
@@ -1915,6 +2350,8 @@ export class Game {
     const hud = this.hud;
     const info = this.info!;
     const lobby = this.lobby;
+    const inHub = info.kind === 'hub';
+    const use = this.touch.shown ? 'Usa' : 'F';
     if (me) {
       hud.updateMe(me, dt);
       const silenced = me.st.some((s) => s.k === PS.Silence) && !me.st.some((s) => s.k === PS.Bubble);
@@ -1938,18 +2375,47 @@ export class Game {
       hud.setParty(party);
     }
 
-    if (info.kind === 'hub') {
-      hud.setStage(info.title, lobby?.objective ?? '');
-    } else if (latest) {
-      const w = latest.s.wave;
-      const objective = lobby?.objective;
-      const text =
-        objective
-          ? objective
-          : w.state === 'done' ? 'Sala ripulita'
-          : w.state === 'intro' || w.state === 'idle' ? 'In arrivo…'
-          : `Ondata ${Math.min(w.n, w.of)} di ${w.of} · nemici ${w.left}`;
-      hud.setStage(`${info.title} · ${info.stage + 1}/${info.stages}`, text);
+    // ---- where we are and what is left to do
+    const portal = this.poisLite.find((p) => p.kind === 'portal');
+    if (inHub) {
+      hud.setStage(info.title, lobby?.host === this.myId ? 'Scegli la rotta al Tavolo della Mappa' : `La rotta la sceglie ${this.nameOf(lobby?.host ?? '') || 'chi guida'}`);
+      hud.setRun([]);
+      hud.setPurse('Banca', this.profile.gems, this.profile.threads);
+      hud.setSynergy([]);
+    } else {
+      const left = latest?.s.left ?? 0;
+      const goal = lobby?.vote ? 'Portale aperto · votate' : portal?.ready ? 'Portale aperto · raggiungetelo' : left > 0 ? `nemici ${left}` : '';
+      hud.setStage(info.title, goal ? `${info.label} · ${goal}` : info.label);
+      const run = lobby?.run;
+      const chips: { text: string; cls: string; title?: string }[] = [];
+      if (run) {
+        if (run.fervor > 0) chips.push({ text: `Fervore +${Math.round(run.fervor * 100)}%`, cls: 'fervor', title: 'Moltiplicatore del bottino per chi prosegue senza salvare' });
+        if (run.company > 0) chips.push({ text: `Compagnia +${Math.round(run.company * 100)}%`, cls: 'company', title: 'Bonus alla probabilità di drop per ogni eroe in più' });
+        const bounty = run.bounty ? BOUNTY_BY_ID[run.bounty] : undefined;
+        if (bounty) {
+          const state = run.bountyState === 'done' ? 'riuscito' : run.bountyState === 'failed' ? 'fallito' : 'in corso';
+          chips.push({ text: `${bounty.name} · ${state}`, cls: `bounty ${run.bountyState}`, title: bounty.text });
+        }
+      }
+      hud.setRun(chips);
+      hud.setPurse('Bisaccia', this.satchel.gems, this.satchel.threads, 'non ancora in banca');
+      hud.setSynergy((latest?.s.syn ?? []).map((id) => synergyInfo(id)));
+    }
+
+    // ---- the Choice Terminal
+    const vote = lobby?.vote;
+    if (vote && lobby && !inHub) {
+      hud.setVote({
+        next: vote.next,
+        nextFervor: vote.nextFervor,
+        mine: vote.votes[this.myId] ?? '',
+        rows: lobby.players
+          .filter((p) => p.id in vote.votes)
+          .map((p) => ({ name: p.name, color: SLOT_COLORS[p.slot % SLOT_COLORS.length]!, choice: vote.votes[p.id] ?? '' })),
+        touch: this.touch.shown,
+      });
+    } else {
+      hud.setVote(null);
     }
 
     if (boss) {
@@ -1967,44 +2433,49 @@ export class Game {
       hud.reticle(0, 0, false);
     }
 
-    // Context prompt: the most urgent thing the player can do with the interact key.
+    // ---- channel gauge and the context prompt: the most urgent thing the interact key can do
     let prompt: string | null = null;
     let downedText: string | null = null;
     if (me) {
-      const use = this.touch.shown ? 'Usa' : 'F';
+      const channelling = me.act === Act.Channel ? this.poisLite.find((p) => p.id === me.tgt) : undefined;
+      if (channelling) hud.setGauge(Math.min(1, me.t / TICK_HZ / channelTime(channelling.kind)), CHANNEL_TEXT[channelling.kind]);
+      else if (me.act === Act.Channel) hud.setGauge(null, '');
+
       if (me.act === Act.Downed) {
         downedText = this.alliesLite.some((a) => a.id !== me.id && !a.downed)
           ? `Sei a terra — un compagno può rialzarti restandoti accanto e tenendo premuto ${use}`
           : 'Sei a terra';
       } else if (me.act === Act.Revive) {
         prompt = 'Rianimazione in corso…';
+      } else if (channelling) {
+        prompt = channelling.kind === 'chest' ? 'Resta fermo: finché canalizzi sei indifeso' : null;
       } else if (execTarget && me.act !== Act.Execute) {
         prompt = `[${use}] Esecuzione`;
       } else {
         const fallen = this.alliesLite.find((a) => a.downed && a.id !== me.id && Math.hypot(a.x - meX, a.z - meZ) <= TUNING.reviveRange);
+        const poi = this.poisLite.find((p) => p.ready && Math.hypot(p.x - meX, p.z - meZ) <= TUNING.interactRange);
+        const npc = inHub ? this.nearNpc(me) : null;
         if (fallen) prompt = `Tieni premuto [${use}] per rialzare ${this.nameOf(fallen.id)}`;
+        else if (poi) {
+          prompt =
+            poi.kind === 'chest'
+              ? `Tieni premuto [${use}] per ${TUNING.chestChannel} secondi: Forziere di Sinergia (sei indifeso)`
+              : poi.kind === 'shrine'
+                ? `Tieni premuto [${use}]: attiva il Santuario di Cura`
+                : `Tieni premuto [${use}]: apri il Terminale di Scelta`;
+        } else if (npc) prompt = `[${use}] ${NPCS[npc].prompt}`;
         else if (lock) prompt = personaOf(lock.type).strategy;
-        else if (info.kind === 'hub' && this.nearTable(me)) prompt = `[${use}] Tavola del Consiglio — bacheca contratti`;
-        else if (info.kind === 'mission' && lobby?.objective?.includes('[F]')) prompt = this.touch.shown ? lobby.objective.replaceAll('[F]', '[Usa]') : lobby.objective;
-        else if (info.kind === 'mission' && info.contractKind === 'GATHERING_RUN') prompt = `[${use}] Estrai risorsa (se vicino al nodo)`;
-        else if (info.kind === 'hub') {
-          const lvl = this.lobby?.players.find((p) => p.id === this.myId);
-          const lv = lvl?.hero ? ` · ${HEROES[lvl.hero as HeroId].short} liv. ${lvl.level}` : '';
-          prompt = this.touch.shown
-            ? `Avvicinati alla tavola del Consiglio${lv}`
-            : `Avvicinati alla tavola del Consiglio · [B] bestiario · [C] cambia eroe${lv}`;
-        }
+        else if (inHub) prompt = this.touch.shown ? 'Il Tavolo della Mappa è al centro della sala' : 'Tavolo della Mappa al centro · [I] scheda · [C] cambia eroe · [B] bestiario';
       }
     }
     hud.prompt(this.menus.open ? null : prompt);
     hud.setDowned(downedText);
 
     const count = lobby ? lobby.players.length : 1;
-    const pauseNote = this.uiPaused ? ' · In pausa' : '';
     hud.setRoom(
       this.conn?.offline
-        ? `Partita in solitaria · H comandi${pauseNote}`
-        : `${lobby?.public ? 'Taverna' : 'Stanza'} ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi${pauseNote}`,
+        ? 'Partita in solitaria · H comandi'
+        : `${lobby?.public ? 'Taverna' : 'Stanza'} ${lobby?.code ?? ''} · ${count}/${MAX_PLAYERS} · ${Math.round(this.rtt)} ms · H comandi`,
     );
     hud.endFrame();
   }
@@ -2021,9 +2492,11 @@ export class Game {
       // Torches on a wall that is being cut away would float in mid-air.
       if (this.cam.cutPlane.normal.x * f.x + this.cam.cutPlane.normal.z * f.z + this.cam.cutPlane.d > 0) continue;
       const flick = 1 + Math.sin(vfx.clock * 17 + f.x * 3) * 0.12;
-      vfx.sprite(f.x, f.y, f.z, (f.big ? 0.75 : 0.36) * flick, f.color, 0.85);
-      vfx.sprite(f.x, f.y, f.z, (f.big ? 2.4 : 1.3) * flick, f.color, 0.12);
-      if (emit) vfx.burst(f.x, f.y, f.z, 1, f.color, { speed: 0.25, life: f.big ? 0.7 : 0.45, up: f.big ? 2.4 : 1.4, size: f.big ? 0.26 : 0.13, drag: 0.5 });
+      // Flames sit at an absolute height: on a wall, on a brazier, on a shrine.
+      const fy = f.y - this.groundY(f.x, f.z);
+      vfx.spriteAt(f.x, f.y, f.z, (f.big ? 0.75 : 0.36) * flick, f.color, 0.85);
+      vfx.spriteAt(f.x, f.y, f.z, (f.big ? 2.4 : 1.3) * flick, f.color, 0.12);
+      if (emit) vfx.burst(f.x, fy, f.z, 1, f.color, { speed: 0.25, life: f.big ? 0.7 : 0.45, up: f.big ? 2.4 : 1.4, size: f.big ? 0.26 : 0.13, drag: 0.5 });
     }
     // Ash and motes drifting through the air sell the Eclipse.
     this.moteTimer -= dt;
@@ -2046,21 +2519,36 @@ export class Game {
       phase: this.lobby?.phase,
       world: this.info,
       panel: this.menus.panel,
+      selecting: this.select.visible,
+      shownHero: this.select.shown,
+      sheet: this.sheet.isOpen,
       fps: Math.round(this.fps),
       rtt: Math.round(this.rtt),
       lock: this.lockId,
       pending: this.pending.length,
-      me: this.me && { x: this.me.x, z: this.me.z, yaw: this.me.yaw, act: this.me.act, hp: this.me.hp, stamina: this.me.stamina, ult: this.me.ult },
+      me: this.me && { x: this.me.x, z: this.me.z, yaw: this.me.yaw, act: this.me.act, hp: this.me.hp, stamina: this.me.stamina, ult: this.me.ult, fury: this.me.fury },
       players: latest?.s.p.map((p) => ({ id: p.id, hero: p.hero, x: p.x, z: p.z, hp: p.hp, act: p.act })),
-      enemies: latest ? [...latest.enemies.values()].map((e) => ({ id: e.id, type: e.type, x: e.x, z: e.z, hp: e.hp, state: e.state, poise: e.poise })) : [],
-      wave: latest?.s.wave,
+      enemies: latest ? [...latest.enemies.values()].map((e) => ({ id: e.id, type: e.type, x: e.x, z: e.z, hp: e.hp, state: e.state, poise: e.poise, st: e.st })) : [],
+      pois: this.layout?.pois.map((p, i) => ({ ...p, state: latest?.s.poi[i] ?? 0 })),
+      npcs: this.layout?.npcs,
+      table: this.layout?.table,
+      left: latest?.s.left,
+      syn: latest?.s.syn,
+      flood: this.flood,
+      satchel: this.satchel,
+      profile: this.profile,
+      drops: this.drops.size,
+      pings: this.pings.length,
+      vote: this.lobby?.vote,
+      run: this.lobby?.run,
+      report: this.lobby?.report,
       camYaw: this.cam.yaw,
+      aim: this.aim,
     };
   }
 
-  debugLook(yaw: number, pitch?: number): void {
+  debugLook(yaw: number): void {
     this.cam.yaw = yaw;
-    if (pitch !== undefined) this.cam.pitch = pitch;
   }
 
   debugSend(msg: ClientMsg): void {

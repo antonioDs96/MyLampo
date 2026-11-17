@@ -2,6 +2,9 @@
  * Real sockets: bot clients connect to a server started on a spare port, the way browsers do.
  */
 import { createServer } from 'node:net';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, type Room } from '@colyseus/sdk';
 import {
@@ -9,11 +12,16 @@ import {
   MAX_PLAYERS,
   PUBLIC_ROOM_ID,
   HERO_IDS,
+  parseLayout,
+  layoutDefById,
   packCmds,
   unpackEnemy,
   type ClientMsg,
   type HeroId,
+  type Layout,
   type LobbyState,
+  type Profile,
+  type Purse,
   type ServerMsg,
   type Snapshot,
   type WorldInfo,
@@ -40,6 +48,9 @@ class NetBot {
   lobby: LobbyState | null = null;
   world: WorldInfo | null = null;
   snap: Snapshot | null = null;
+  layout: Layout | null = null;
+  satchel: Purse | null = null;
+  profile: Profile | null = null;
   snaps = 0;
   errors: string[] = [];
   closed: number | null = null;
@@ -51,7 +62,12 @@ class NetBot {
     room.onMessage(CHANNEL, (msg: ServerMsg) => {
       if (msg.t === 'welcome') this.id = msg.id;
       else if (msg.t === 'lobby') this.lobby = msg.s;
-      else if (msg.t === 'world') this.world = msg.w;
+      else if (msg.t === 'world') {
+        this.world = msg.w;
+        const def = layoutDefById(msg.w.layoutId);
+        this.layout = def ? parseLayout(def) : null;
+      } else if (msg.t === 'mine') this.satchel = msg.sat;
+      else if (msg.t === 'profile') this.profile = msg.p;
       else if (msg.t === 'error') this.errors.push(msg.text);
       else if (msg.t === 'snap') {
         this.snap = msg.s;
@@ -94,7 +110,7 @@ class NetBot {
       for (let i = 0; i < 3; i++) {
         cmds.push(
           snap && me && this.world && snap.w === this.world.wid
-            ? this.brain.think({ me, players: snap.p, enemies: snap.e.map(unpackEnemy), projectiles: snap.pr })
+            ? this.brain.think({ me, players: snap.p, enemies: snap.e.map(unpackEnemy), projectiles: snap.pr, layout: this.layout ?? undefined, zones: snap.z })
             : this.brain.idle(),
         );
       }
@@ -105,6 +121,12 @@ class NetBot {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** Picks a hero and confirms it on the Hero Selection screen. */
+  enlist(hero: HeroId): void {
+    this.send({ t: 'hero', hero });
+    this.send({ t: 'ready', on: true });
   }
 
   async leave(): Promise<void> {
@@ -123,11 +145,13 @@ async function until(what: string, check: () => boolean, ms = 8000): Promise<voi
 
 let app: RunningApp;
 let client: Client;
+let base = '';
 
 beforeAll(async () => {
   const port = await sparePort();
-  app = await startApp({ port, quiet: true });
-  client = new Client(`http://127.0.0.1:${port}`);
+  app = await startApp({ port, quiet: true, dataFile: join(mkdtempSync(join(tmpdir(), 'malampu-')), 'profiles.json') });
+  base = `http://127.0.0.1:${port}`;
+  client = new Client(base);
 });
 
 afterAll(async () => {
@@ -141,6 +165,7 @@ describe('rooms', () => {
     await until('welcome', () => a.id !== '' && a.lobby !== null && a.world !== null);
     expect(a.lobby!.code).toBe(a.code);
     expect(a.lobby!.host).toBe(a.id);
+    expect(a.lobby!.phase).toBe('select');
     expect(a.world!.kind).toBe('hub');
 
     const b = await NetBot.join(client, a.code, 'Bruno');
@@ -172,6 +197,32 @@ describe('rooms', () => {
   });
 });
 
+describe('hero selection', () => {
+  it('spawns the whole company in the tavern only when everyone has confirmed', async () => {
+    const a = await NetBot.create(client, 'Anna');
+    const b = await NetBot.join(client, a.code, 'Bruno');
+    await until('welcome', () => a.id !== '' && b.id !== '' && b.lobby?.players.length === 2);
+
+    a.enlist('alexios');
+    await until('first ready', () => b.lobby!.players[0]!.ready);
+    await sleep(150);
+    expect(a.lobby!.phase).toBe('select');
+    expect(a.snap?.p ?? []).toHaveLength(0);
+
+    // Someone else already has that hero.
+    b.send({ t: 'hero', hero: 'alexios' });
+    await until('refusal', () => b.errors.length > 0);
+    b.enlist('jusef');
+    await until('tavern', () => a.lobby!.phase === 'hub' && b.lobby!.phase === 'hub');
+    await until('both spawned', () => a.snap?.p.length === 2 && b.snap?.p.length === 2);
+    expect(HERO_IDS).toContain(b.lobby!.players[1]!.hero);
+    expect(a.world!.title).toBe('La Taverna di Carl');
+
+    await a.leave();
+    await b.leave();
+  });
+});
+
 describe('public tavern', () => {
   it('is already open, and a private room is not offered as the tavern', async () => {
     const priv = await NetBot.create(client, 'Segreta');
@@ -197,34 +248,34 @@ describe('public tavern', () => {
   it('stays open after the last player leaves, and the next company finds the hub', async () => {
     const a = await NetBot.joinPublic(client, 'Anna');
     await until('welcome', () => a.id !== '');
-    a.send({ t: 'hero', hero: 'alexios' });
-    await until('hero', () => a.lobby?.players.some((p) => p.hero === 'alexios') === true);
-    a.send({ t: 'start' });
-    await until('mission', () => a.world?.kind === 'mission');
+    a.enlist('alexios');
+    await until('tavern', () => a.lobby?.phase === 'hub');
+    a.send({ t: 'run', city: 'badiscar' });
+    await until('expedition', () => a.world?.kind === 'run');
     await a.leave();
 
     const b = await NetBot.joinPublic(client, 'Bruno');
-    await until('hub again', () => b.lobby?.phase === 'hub' && b.world?.kind === 'hub' && b.code === PUBLIC_ROOM_ID);
+    await until('hub again', () => b.lobby?.phase !== 'run' && b.world?.kind === 'hub' && b.code === PUBLIC_ROOM_ID);
     expect(b.lobby!.players.map((p) => p.name)).toEqual(['Bruno']);
     await b.leave();
 
     await sleep(200);
     const c = await NetBot.join(client, PUBLIC_ROOM_ID, 'Carla');
-    await until('still there', () => c.lobby?.phase === 'hub');
+    await until('still there', () => c.lobby !== null && c.lobby.phase !== 'run');
     await c.leave();
   });
 
   it('lets a newcomer step into a fight, and opens another tavern when this one is full', async () => {
     const host = await NetBot.joinPublic(client, 'Anna');
     await until('welcome', () => host.id !== '');
-    host.send({ t: 'hero', hero: 'alexios' });
-    await until('hero', () => host.lobby?.players[0]?.hero === 'alexios');
-    host.send({ t: 'start' });
-    await until('mission', () => host.world?.kind === 'mission');
+    host.enlist('alexios');
+    await until('tavern', () => host.lobby?.phase === 'hub');
+    host.send({ t: 'run', city: 'badiscar' });
+    await until('expedition', () => host.world?.kind === 'run');
 
     const late = await NetBot.joinPublic(client, 'Nemo');
-    await until('same room', () => late.code === PUBLIC_ROOM_ID && late.world?.kind === 'mission');
-    late.send({ t: 'hero', hero: 'jusef' });
+    await until('same room', () => late.code === PUBLIC_ROOM_ID && late.world?.kind === 'run');
+    late.enlist('jusef');
     await until('in the fight', () => late.snap?.p.some((p) => p.id === late.id) === true);
     expect(late.lobby!.public).toBe(true);
 
@@ -248,54 +299,51 @@ describe('public tavern', () => {
 
     await Promise.all(fillers.map((b) => b.leave()));
     const back = await NetBot.joinPublic(client, 'Dopo');
-    await until('anchor again', () => back.code === PUBLIC_ROOM_ID && back.lobby?.phase === 'hub');
+    await until('anchor again', () => back.code === PUBLIC_ROOM_ID && back.lobby !== null && back.lobby.phase !== 'run');
     await back.leave();
   });
 });
 
-describe('a mission over the network', () => {
+describe('an expedition over the network', () => {
   it('streams snapshots at 20 Hz, applies inputs and lets a party fight together', async () => {
     const heroes: HeroId[] = ['alexios', 'jusef', 'rycard'];
     const bots = [await NetBot.create(client, 'Uno')];
     bots.push(await NetBot.join(client, bots[0]!.code, 'Due'));
     bots.push(await NetBot.join(client, bots[0]!.code, 'Tre'));
     await until('welcome', () => bots.every((b) => b.id !== ''));
-    bots.forEach((b, i) => b.send({ t: 'hero', hero: heroes[i]! }));
-    await until('heroes', () => bots[2]!.lobby?.players.every((p) => p.hero !== '') === true);
+    bots.forEach((b, i) => b.enlist(heroes[i]!));
+    await until('tavern', () => bots.every((b) => b.lobby?.phase === 'hub'));
 
-    // Someone else already has that hero.
-    bots[1]!.send({ t: 'hero', hero: 'alexios' });
-    await until('refusal', () => bots[1]!.errors.length > 0);
-    expect(HERO_IDS).toContain(bots[1]!.lobby!.players[1]!.hero);
-    expect(bots[1]!.lobby!.players[1]!.hero).toBe('jusef');
-
-    // Only the host may start.
-    bots[1]!.send({ t: 'start' });
+    // Only the host may open a route on the Map Table.
+    bots[1]!.send({ t: 'run', city: 'badiscar' });
     await sleep(150);
     expect(bots[0]!.lobby!.phase).toBe('hub');
-    bots[0]!.send({ t: 'start' });
-    await until('mission world', () => bots.every((b) => b.world?.kind === 'mission'));
+    bots[0]!.send({ t: 'run', city: 'badiscar' });
+    await until('expedition world', () => bots.every((b) => b.world?.kind === 'run'));
+    expect(bots[0]!.lobby!.run!.label).toBe('Badiscar · Ambiente 1 di 3');
+    expect(bots[0]!.lobby!.run!.company).toBeCloseTo(0.2);
 
     for (const b of bots) b.play();
-    // The last hub snapshot may still be the latest one: it must not count as the mission.
-    const inMission = (b: NetBot) => b.snap !== null && b.world !== null && b.snap.w === b.world.wid;
-    await until('mission snapshots', () => bots.every(inMission));
+    // The last hub snapshot may still be the latest one: it must not count as the expedition.
+    const inRun = (b: NetBot) => b.snap !== null && b.world !== null && b.snap.w === b.world.wid;
+    await until('expedition snapshots', () => bots.every(inRun));
     const first = bots[0]!.snaps;
     const t0 = Date.now();
     await sleep(2000);
     const rate = (bots[0]!.snaps - first) / ((Date.now() - t0) / 1000);
     expect(rate).toBeGreaterThan(15);
     expect(rate).toBeLessThan(25);
-    await until('first wave', () => inMission(bots[0]!) && bots[0]!.snap!.e.length > 0, 15000);
+    expect(bots[0]!.snap!.e.length).toBeGreaterThan(0);
 
-    await until('a kill', () => bots[0]!.events.includes('hit') && bots[0]!.snap!.e.some((e) => unpackEnemy(e).state === EState.Dead), 30000);
+    await until('a kill', () => bots[0]!.events.includes('hit') && bots[0]!.snap!.e.some((e) => unpackEnemy(e).state === EState.Dead), 40000);
     const snap = bots[0]!.snap!;
     expect(snap.p).toHaveLength(3);
     for (const b of bots) expect(snap.ack[b.id]).toBeGreaterThan(0);
-    // Everyone sees the same world.
+    // Everyone sees the same world, and nobody sees the loot of the others.
     await sleep(120);
-    const waves = bots.map((b) => b.snap!.wave.n);
-    expect(new Set(waves).size).toBe(1);
+    expect(new Set(bots.map((b) => b.snap!.left)).size).toBeLessThanOrEqual(2);
+    expect(bots[0]!.events).not.toContain('drop');
+    expect(bots[0]!.events).not.toContain('take');
 
     // A player dropping out mid-fight does not stop the others.
     await bots[2]!.leave();
@@ -303,5 +351,37 @@ describe('a mission over the network', () => {
     const mark = bots[0]!.snaps;
     await until('still running', () => bots[0]!.snaps > mark + 10);
     await Promise.all(bots.map((b) => b.leave()));
-  }, 60000);
+  }, 80000);
+});
+
+describe('profiles over the network', () => {
+  it('remembers gems and purchases between two visits', async () => {
+    const id = '6f1c2f0a-3c1e-4b5d-9a7e-2f6b8c9d0e1f';
+    const put = await fetch(`${base}/api/profile/${id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profile: { gems: 500, threads: 40 } }),
+    });
+    expect(put.ok).toBe(true);
+
+    const a = await NetBot.create(client, 'Anna');
+    await until('welcome', () => a.id !== '');
+    a.send({ t: 'profile', id });
+    await until('profile', () => a.profile?.gems === 500);
+    a.enlist('alexios');
+    await until('tavern', () => a.lobby?.phase === 'hub');
+    a.send({ t: 'tree', op: 'buy', slot: 'e', path: 'potenza' });
+    await until('node bought', () => (a.profile?.gems ?? 500) < 500);
+    a.send({ t: 'cosm', op: 'buy', id: 'pal_abisso' });
+    await until('palette bought', () => a.profile?.owned.includes('pal_abisso') === true);
+    const gems = a.profile!.gems;
+    await a.leave();
+    await sleep(200);
+
+    const got = (await (await fetch(`${base}/api/profile/${id}`)).json()) as { profile: Profile };
+    expect(got.profile.gems).toBe(gems);
+    expect(got.profile.threads).toBe(40 - 12);
+    expect(got.profile.owned).toContain('pal_abisso');
+    expect(got.profile.trees.alexios).toBeDefined();
+  });
 });

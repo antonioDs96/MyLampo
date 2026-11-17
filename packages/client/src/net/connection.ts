@@ -5,9 +5,9 @@ import {
   createJevAdvisor,
   type CaptainAnswer,
   type ClientMsg,
-  type GearArchive,
   type JevAdvisor,
   type JevRawAnswer,
+  type ProfileArchive,
   type RoomBrief,
   type ServerMsg,
 } from '@malampu/shared';
@@ -21,7 +21,7 @@ export interface Connection {
   send(msg: ClientMsg): void;
   /** Called every frame with a monotonic clock in ms. */
   update(nowMs: number): void;
-  /** Solo only: freeze the in-memory host while menus / scheda are open. */
+  /** Solo only: freeze the in-memory host while a menu is open. */
   setPaused?(on: boolean, nowMs?: number): void;
   close(): void;
 }
@@ -85,7 +85,7 @@ export class LocalConnection implements Connection {
   /** Mirrors host pause so we only transition on edges (avoids per-frame unpause calls). */
   private paused = false;
 
-  constructor(name: string, archive?: GearArchive) {
+  constructor(name: string, archive?: ProfileArchive) {
     const deliver = (msg: ServerMsg) => this.inbox.push(msg);
     this.host = new GameHost(
       { send: (_id, msg) => deliver(msg), broadcast: deliver },

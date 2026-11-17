@@ -1,0 +1,209 @@
+/**
+ * The permanent profile: what survives a run.
+ * Banked currencies, Skill Tree nodes, cosmetics, City checkpoints and cleared bosses.
+ * Nothing else is ever saved: there is no XP, no level and no equipment.
+ */
+import { BOUNTY_BY_ID } from './bounties';
+import { CITY_BOSS_STAGE, CITY_IDS, type CityId } from './campaign';
+import { COSMETIC_BY_ID, emptyLoadout, sanitizeLoadout, type Loadout, type LoadoutSlot } from './cosmetics';
+import { HEROES } from './heroes';
+import {
+  ABILITY_SLOTS,
+  canBuyNode,
+  emptyTree,
+  sanitizeTree,
+  treeSpent,
+  type AbilitySlot,
+  type HeroTree,
+  type PathId,
+} from './skillTree';
+import type { HeroId } from './types';
+
+export interface Profile {
+  /** Gemme dell'Eclissi in the bank. */
+  gems: number;
+  /** Fili d'Ombra in the bank. */
+  threads: number;
+  trees: Partial<Record<HeroId, HeroTree>>;
+  /** Cosmetic ids bought from Saraya. */
+  owned: string[];
+  looks: Partial<Record<HeroId, Loadout>>;
+  title: string;
+  /** Next stage to play in each City: 0..2 an Environment, 3 the City Boss. */
+  checkpoint: Partial<Record<CityId, number>>;
+  /** Cities whose boss has been defeated at least once. */
+  cleared: CityId[];
+  regionCleared: boolean;
+  /** Contract signed with Eleonora ('' = none). */
+  bounty: string;
+  bountiesPaid: number;
+}
+
+export function emptyProfile(): Profile {
+  return {
+    gems: 0,
+    threads: 0,
+    trees: {},
+    owned: [],
+    looks: {},
+    title: '',
+    checkpoint: {},
+    cleared: [],
+    regionCleared: false,
+    bounty: '',
+    bountiesPaid: 0,
+  };
+}
+
+const HERO_IDS = Object.keys(HEROES) as HeroId[];
+
+function count(v: unknown, max = 1e9): number {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? Math.min(max, n) : 0;
+}
+
+/** Rebuilds a profile from untrusted JSON. Unknown or malformed parts fall back to empty. */
+export function sanitizeProfile(raw: unknown): Profile {
+  const out = emptyProfile();
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Record<string, unknown>;
+  out.gems = count(r.gems);
+  out.threads = count(r.threads);
+  if (Array.isArray(r.owned)) {
+    for (const id of r.owned) {
+      if (typeof id === 'string' && COSMETIC_BY_ID[id] && !out.owned.includes(id)) out.owned.push(id);
+    }
+  }
+  const trees = r.trees && typeof r.trees === 'object' ? (r.trees as Record<string, unknown>) : {};
+  const looks = r.looks && typeof r.looks === 'object' ? (r.looks as Record<string, unknown>) : {};
+  for (const hero of HERO_IDS) {
+    if (trees[hero]) out.trees[hero] = sanitizeTree(trees[hero]);
+    if (looks[hero]) out.looks[hero] = sanitizeLoadout(looks[hero], out.owned);
+  }
+  const title = String(r.title ?? '');
+  if (COSMETIC_BY_ID[title]?.kind === 'title' && out.owned.includes(title)) out.title = title;
+  const checkpoint = r.checkpoint && typeof r.checkpoint === 'object' ? (r.checkpoint as Record<string, unknown>) : {};
+  for (const city of CITY_IDS) {
+    const at = count(checkpoint[city], CITY_BOSS_STAGE);
+    if (at > 0) out.checkpoint[city] = at;
+  }
+  if (Array.isArray(r.cleared)) {
+    for (const city of CITY_IDS) if (r.cleared.includes(city)) out.cleared.push(city);
+  }
+  out.regionCleared = r.regionCleared === true;
+  const bounty = String(r.bounty ?? '');
+  if (BOUNTY_BY_ID[bounty]) out.bounty = bounty;
+  out.bountiesPaid = count(r.bountiesPaid);
+  return out;
+}
+
+export function treeOf(profile: Profile, hero: HeroId): HeroTree {
+  return profile.trees[hero] ?? emptyTree();
+}
+
+export function loadoutOf(profile: Profile, hero: HeroId): Loadout {
+  return profile.looks[hero] ?? emptyLoadout();
+}
+
+export type ShopResult = { ok: true } | { ok: false; why: string };
+
+/** Iej: buy the next node of a path. Paths are exclusive per ability. */
+export function buyNode(profile: Profile, hero: HeroId, slot: AbilitySlot, path: PathId): ShopResult {
+  const tree = treeOf(profile, hero);
+  const res = canBuyNode(tree, slot, path, profile.gems);
+  if (!res.ok) {
+    const why =
+      res.why === 'gems'
+        ? 'Non hai abbastanza Gemme dell’Eclissi.'
+        : res.why === 'path'
+          ? 'Questa abilità segue già un altro sentiero: rimborsala prima di cambiarlo.'
+          : 'Questo sentiero è già al massimo.';
+    return { ok: false, why };
+  }
+  profile.gems -= res.cost;
+  const node = tree[slot];
+  profile.trees[hero] = { ...tree, [slot]: { path, tier: node.tier + 1 } };
+  return { ok: true };
+}
+
+/** Iej: unlimited respec in the hub, with a 100% refund. */
+export function respecTree(profile: Profile, hero: HeroId, slot?: AbilitySlot): number {
+  const tree = treeOf(profile, hero);
+  const next = { ...tree };
+  const before = treeSpent(tree);
+  for (const s of ABILITY_SLOTS) if (!slot || slot === s) next[s] = { path: '', tier: 0 };
+  const refund = before - treeSpent(next);
+  profile.gems += refund;
+  profile.trees[hero] = next;
+  return refund;
+}
+
+/** Saraya: buy a cosmetic with Fili d'Ombra. */
+export function buyCosmetic(profile: Profile, id: string): ShopResult {
+  const def = COSMETIC_BY_ID[id];
+  if (!def) return { ok: false, why: 'Saraya non ha nulla del genere.' };
+  if (profile.owned.includes(id)) return { ok: false, why: 'Lo possiedi già.' };
+  if (profile.threads < def.cost) return { ok: false, why: 'Non hai abbastanza Fili d’Ombra.' };
+  profile.threads -= def.cost;
+  profile.owned.push(id);
+  return { ok: true };
+}
+
+/** Saraya: wear or take off an owned cosmetic. An empty id clears the slot. */
+export function equipCosmetic(profile: Profile, hero: HeroId, slot: LoadoutSlot | 'title', id: string): ShopResult {
+  if (id) {
+    const def = COSMETIC_BY_ID[id];
+    if (!def || def.kind !== slot) return { ok: false, why: 'Non va in quello spazio.' };
+    if (!profile.owned.includes(id)) return { ok: false, why: 'Non lo possiedi ancora.' };
+  }
+  if (slot === 'title') {
+    profile.title = id;
+    return { ok: true };
+  }
+  profile.looks[hero] = { ...loadoutOf(profile, hero), [slot]: id };
+  return { ok: true };
+}
+
+/** Eleonora opens her ledger once the first City has been cleared. */
+export function bountiesUnlocked(profile: Profile): boolean {
+  return profile.cleared.length > 0;
+}
+
+/** The Region Boss can be dared once every City Boss of the region has fallen. */
+export function regionBossUnlocked(profile: Profile): boolean {
+  return CITY_IDS.every((city) => profile.cleared.includes(city));
+}
+
+export function checkpointOf(profile: Profile, city: CityId): number {
+  return Math.max(0, Math.min(CITY_BOSS_STAGE, profile.checkpoint[city] ?? 0));
+}
+
+const PROFILE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isProfileId(v: unknown): v is string {
+  return typeof v === 'string' && PROFILE_ID.test(v);
+}
+
+/** Where profiles live: a JSON file on the server, memory for tests and solo play. */
+export interface ProfileArchive {
+  load(profileId: string): Profile | null;
+  save(profileId: string, profile: Profile): void;
+}
+
+function copy(profile: Profile): Profile {
+  return sanitizeProfile(JSON.parse(JSON.stringify(profile)));
+}
+
+export class MemoryProfileArchive implements ProfileArchive {
+  private readonly rows = new Map<string, Profile>();
+
+  load(profileId: string): Profile | null {
+    const row = this.rows.get(profileId);
+    return row ? copy(row) : null;
+  }
+
+  save(profileId: string, profile: Profile): void {
+    if (!isProfileId(profileId)) return;
+    this.rows.set(profileId, copy(profile));
+  }
+}

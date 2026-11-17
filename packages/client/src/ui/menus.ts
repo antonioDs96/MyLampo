@@ -1,26 +1,47 @@
 import {
-  ALL_HUBS,
-  BESTIARY,
-  DAMAGE_KIND_LABELS,
+  ABILITY_SLOTS,
+  BOUNTIES,
+  BOUNTY_BY_ID,
+  CITIES,
+  CITY_BOSS_STAGE,
+  CITY_IDS,
+  COSMETICS,
+  COSMETIC_KINDS,
+  COSMETIC_KIND_NAMES,
+  ENEMIES,
+  ENEMY_IDS,
   HEROES,
-  HERO_IDS,
-  HUB_META,
-  MISSIONS,
+  LOCKED_REGIONS,
+  NPCS,
+  PATH_IDS,
+  PATH_INFO,
   PUBLIC_ROOM_ID,
-  REGIONS,
-  arenaPlays,
-  biomeTrafficLight,
-  bossPlays,
-  hubIdFromRegion,
-  missionById,
-  xpProgress,
+  REGION,
+  TREE_TIERS,
+  abilityTooltip,
+  canBuyNode,
+  emptyProfile,
+  loadoutOf,
+  nodeCost,
+  nodeText,
+  npcLine,
+  treeOf,
+  treeSpent,
+  type AbilitySlot,
+  type CityId,
+  type ClientMsg,
+  type CosmeticDef,
+  type CosmeticKind,
+  type EnemyDef,
   type HeroId,
-  type HubId,
   type LobbyState,
-  type MissionDef,
-  type RegionDef,
+  type NpcId,
+  type PathId,
+  type Profile,
+  type Purse,
+  type RunReport,
 } from '@malampu/shared';
-import { h, portrait, svg } from './dom';
+import { h } from './dom';
 
 export interface MenuActions {
   create(name: string): void;
@@ -28,78 +49,76 @@ export interface MenuActions {
   /** Walk into the tavern the server keeps open. */
   joinPublic(name: string): void;
   solo(name: string): void;
-  pickHero(id: HeroId): void;
-  releaseHero(): void;
-  selectMission(id: string): void;
-  selectHub(hubId: HubId): void;
-  selectContract(id: string): void;
-  /** Open the elevation dungeon tied to a region on the map. */
-  startDungeon(regionId: string): void;
-  startMission(): void;
-  retry(): void;
-  toHub(): void;
+  /** Everything the hub panels do goes to the host as a plain message. */
+  send(msg: ClientMsg): void;
+  /** Back to the Hero Selection screen (hub only). */
   changeHero(): void;
   leave(): void;
   sound(id: 'ui' | 'uiBack' | 'deny'): void;
   /** Called whenever a panel opens or closes. */
   changed(): void;
-  /** Local XP total for a hero. */
-  progressOf(id: HeroId): number;
-  /** Equipped weapon damage types for the traffic light. */
-  weaponDamageTypes(): string[];
 }
 
-export type Panel = 'none' | 'loading' | 'title' | 'heroes' | 'council' | 'results' | 'help' | 'bestiary';
-
-/** The three elevation maps, in the order the council offers them. */
-const DUNGEON_CHOICES: { hub: HubId; region: string; title: string; place: string }[] = [
-  { hub: 'mur', region: 'mur', title: 'Cortili di Mur', place: 'Quote +1 e +2 · scale e tetti' },
-  { hub: 'sanarica', region: 'jugianel', title: 'Selve di Jugianel', place: 'Piano e gradoni +1' },
-  { hub: 'badiscar', region: 'badiscar', title: 'Scogliere di Badiscar', place: 'Quote −1 e −2 · fosse e gole' },
-];
-
-function dungeonChoice(regionId: string): (typeof DUNGEON_CHOICES)[number] {
-  const hub = hubIdFromRegion(regionId);
-  return DUNGEON_CHOICES.find((d) => d.hub === hub) ?? DUNGEON_CHOICES[2]!;
-}
-
-const ROADS: [string, string][] = [
-  ['malya', 'mur'], ['mur', 'minervin'], ['minervin', 'jugianel'], ['minervin', 'ujian'], ['ujian', 'otranth'],
-  ['ujian', 'badiscar'], ['mur', 'sanarica'], ['malya', 'jugianel'], ['malya', 'sanarica'], ['otranth', 'badiscar'],
-];
+export type Panel = 'none' | 'loading' | 'title' | 'help' | 'bestiary' | 'report' | NpcId;
 
 const CONTROLS: [string, string, string][] = [
-  ['Movimento', 'W A S D', 'Levetta sinistra'],
-  ['Visuale', 'Mouse', 'Levetta destra'],
-  ['Attacco leggero (combo) / spell a distanza', 'J / Clic sinistro', 'X / Quadrato'],
-  ['Attacco pesante (tieni premuto per caricare)', 'K / Clic destro', 'Y / Triangolo, RT'],
-  ['Schivata (Anthon / Gabryel / Rycard: teletrasporto; altri: roll, teletrasporto a vigore alto)', 'Spazio', 'B / Cerchio'],
-  ['Parata (premi all’ultimo istante per la parata perfetta)', 'Q (o Shift)', 'LB'],
-  ['Aggancia bersaglio / cambia bersaglio', 'Tab o clic centrale / rotellina', 'R3 / croce direzionale'],
-  ['Abilità distintiva', 'E', 'RB'],
-  ['Suprema (quando la barra è piena)', 'R', 'LT'],
-  ['Esecuzione, rianimare un alleato, tavolo del Consiglio, cattura/estrazione', 'F', 'A / Croce'],
-  ['Tomo del Bestiario', 'B', '—'],
-  ['Cambia / rilascia eroe (solo in taverna)', 'C', '—'],
+  ['Movimento (relativo allo schermo: W è sempre verso l’alto)', 'W A S D', 'Levetta sinistra'],
+  ['Mira', 'Cursore del mouse', 'Direzione di movimento'],
+  ['Ruota la visuale di 360°', 'Tieni premuta la rotellina e trascina', 'Levetta destra'],
+  ['Zoom', 'Rotellina', '—'],
+  ['Attacco leggero (combo)', 'Clic sinistro / J', 'X / Quadrato'],
+  ['Attacco pesante (tieni premuto per caricare)', 'Clic destro / K', 'Y / Triangolo, RT'],
+  ['Schivata', 'Spazio', 'B / Cerchio'],
+  ['Parata (all’ultimo istante: parata perfetta)', 'Q o Shift', 'LB'],
+  ['Speciale', 'E', 'RB'],
+  ['Ultimate (quando è carica)', 'R', 'LT'],
+  ['Interagisci: forzieri, santuari, portale, PNG, esecuzioni, rianimare', 'F (tieni premuto per canalizzare)', 'A / Croce'],
+  ['Segnala un punto alla Compagnia', 'G (sul cursore)', 'Croce direzionale su'],
+  ['Aggancia / sgancia un bersaglio', 'Tab', 'R3'],
+  ['Scheda Eroe', 'I', '—'],
+  ['Voto al Portale', '1 rientra · 2 prosegui', 'Pulsanti a schermo'],
+  ['Bestiario', 'B', '—'],
+  ['Cambia eroe (solo in taverna)', 'C', '—'],
   ['Aiuto / pausa', 'H o Esc', 'Start'],
   ['Audio sì/no', 'M', '—'],
 ];
+
+const RANK_NAMES: Record<EnemyDef['rank'], string> = {
+  base: 'Nemico base',
+  elite: 'Élite',
+  mini: 'Mini-Boss',
+  city: 'Boss di Città',
+  region: 'Boss di Regione',
+};
+
+const RANK_ORDER: EnemyDef['rank'][] = ['base', 'elite', 'mini', 'city', 'region'];
+
+const STAGE_NAMES = ['Ambiente 1', 'Ambiente 2', 'Ambiente 3', 'Boss di Città'];
+
+function purseText(p: Purse | undefined): string {
+  if (!p || (p.gems === 0 && p.threads === 0)) return 'niente';
+  const parts: string[] = [];
+  if (p.gems) parts.push(`${p.gems} Gemme dell'Eclissi`);
+  if (p.threads) parts.push(`${p.threads} Fili d'Ombra`);
+  return parts.join(' · ');
+}
 
 export class Menus {
   panel: Panel = 'none';
   private readonly root: HTMLElement;
   private readonly toastBox = h('div', { class: 'toasts' });
   private lobby: LobbyState | null = null;
+  private profile: Profile = emptyProfile();
   private myId = '';
-  private region = 'ujian';
-  /** Council view: contracts board, legacy map, or special trials. */
-  private councilTab: 'contracts' | 'map' | 'proves' = 'contracts';
   private titleError = '';
   private busyText = '';
   private name = '';
   private code = '';
-  /** Results the player already dismissed (so they do not reopen every lobby update). */
-  private canClose = false;
+  /** Which line each NPC says next. */
+  private readonly turns: Partial<Record<NpcId, number>> = {};
+  private atelierTab: CosmeticKind = 'palette';
+  /** Reports the player has already read. */
+  private reportSeen = 0;
 
   constructor(parent: HTMLElement, private readonly actions: MenuActions) {
     this.root = h('div', { class: 'menus' });
@@ -120,7 +139,10 @@ export class Menus {
     const was = this.panel;
     this.panel = panel;
     this.root.className = `menus panel-${panel}`;
+    const scroll = was === panel ? (this.root.querySelector('.sheet-body')?.scrollTop ?? 0) : 0;
     this.root.replaceChildren(...content.filter((c): c is Node => !!c));
+    const body = this.root.querySelector('.sheet-body');
+    if (body) body.scrollTop = scroll;
     if (was !== panel) this.actions.changed();
   }
 
@@ -135,12 +157,54 @@ export class Menus {
     setTimeout(() => el.remove(), 4200);
   }
 
+  private get me() {
+    return this.lobby?.players.find((p) => p.id === this.myId);
+  }
+
+  private get hero(): HeroId | '' {
+    return this.me?.hero ?? '';
+  }
+
+  private get isHost(): boolean {
+    return !!this.lobby && this.lobby.host === this.myId;
+  }
+
+  private get hostName(): string {
+    return this.lobby?.players.find((p) => p.id === this.lobby!.host)?.name ?? 'chi guida la Compagnia';
+  }
+
   setLobby(lobby: LobbyState, myId: string): void {
     this.lobby = lobby;
     this.myId = myId;
-    if (this.panel === 'heroes') this.openHeroes(this.canClose);
-    else if (this.panel === 'council') this.openCouncil();
-    else if (this.panel === 'results') this.openResults();
+    // The hub panels only make sense in the hub.
+    if (lobby.phase !== 'hub' && this.isNpcPanel()) this.close();
+    else this.refresh();
+  }
+
+  setProfile(profile: Profile): void {
+    this.profile = profile;
+    this.refresh();
+  }
+
+  private isNpcPanel(): boolean {
+    return this.panel in NPCS;
+  }
+
+  private refresh(): void {
+    switch (this.panel) {
+      case 'tavolo':
+      case 'iej':
+      case 'saraya':
+      case 'eleonora':
+      case 'carl':
+        this.openNpc(this.panel, false);
+        break;
+      case 'report':
+        this.renderReport();
+        break;
+      default:
+        break;
+    }
   }
 
   // ---------------------------------------------------------------- loading and title
@@ -213,7 +277,7 @@ export class Menus {
         h('div', { class: 'logo' }, h('div', { class: 'logo-eclipse' }), h('h1', { text: 'MALAMPU' }), h('h2', { text: "L'Eclissi della Dea Velata" })),
         h('p', {
           class: 'tagline',
-          text: "L'Ordine del Sole Nero vuole spegnere ogni voce del Salento. Otto reietti, una taverna e una mappa: la Compagnia combatte insieme, mai l'uno contro l'altro.",
+          text: "Qualcosa sale dal mare della Costa Est. Scegliete un eroe, radunatevi alla Taverna di Carl e scendete insieme: tre città, un Leviatano, e ogni volta la stessa domanda. Tornare con il bottino o spingersi oltre?",
         }),
         h(
           'div',
@@ -236,634 +300,450 @@ export class Menus {
           this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
           this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
         ),
-        h('p', { class: 'foot', text: 'Fino a 9 giocatori · tastiera, gamepad o comandi touch · modelli KayKit (CC0)' }),
+        h('p', { class: 'foot', text: 'Roguelite d’azione cooperativo · da 1 a 9 giocatori · tastiera e mouse, gamepad o touch · modelli KayKit (CC0)' }),
       ),
     );
     if (!this.name) name.focus();
   }
 
-  // ---------------------------------------------------------------- heroes
+  // ---------------------------------------------------------------- hub panels
 
-  openHeroes(canClose: boolean): void {
-    const lobby = this.lobby;
-    if (!lobby) return;
-    this.canClose = canClose;
-    const mine = lobby.players.find((p) => p.id === this.myId)?.hero ?? '';
-    const inHub = lobby.phase === 'hub';
-    const cards = HERO_IDS.map((id) => {
-      const hero = HEROES[id];
-      const owner = lobby.players.find((p) => p.hero === id);
-      const taken = !!owner && owner.id !== this.myId;
-      const region = REGIONS.find((r) => r.id === hero.home);
-      const prog = xpProgress(this.actions.progressOf(id));
-      return h(
-        'button',
-        {
-          class: `hero-card ${mine === id ? 'is-mine' : ''} ${taken ? 'is-taken' : ''}`,
-          style: `--c:${hero.color}`,
-          onclick: () => {
-            if (taken) {
-              this.actions.sound('deny');
-              return;
-            }
-            this.actions.sound('ui');
-            // Clicking your current hero in the tavern releases them so someone else can take over.
-            if (mine === id && inHub) this.actions.releaseHero();
-            else this.actions.pickHero(id);
-          },
-        },
-        h(
-          'div',
-          { class: 'hero-head' },
-          portrait(id, hero.color, hero.code),
-          h('div', {}, h('h3', { text: hero.name }), h('div', { class: 'hero-role', text: hero.role })),
-          h('div', { class: 'hero-level', text: `Liv. ${prog.level}` }),
-        ),
-        h('p', { class: 'hero-style', text: hero.style }),
-        h('p', { class: 'hero-lore', text: hero.desc }),
-        h('div', {
-          class: 'hero-xp',
-          text: prog.level >= 20 ? 'Livello massimo' : `PE ${prog.into} / ${prog.need}`,
-        }),
-        h('ul', {},
-          h('li', {}, h('b', { text: 'Passiva ' }), hero.passive),
-          h('li', {}, h('b', { text: `${hero.ability.name} [E] ` }), hero.ability.desc),
-          h('li', {}, h('b', { text: `${hero.ult.name} [R] ` }), hero.ult.desc),
-        ),
-        h('div', { class: 'hero-foot' },
-          h('span', { text: `Vita ${hero.hp}` }),
-          h('span', { text: `Vigore ${hero.stamina}` }),
-          h('span', { text: region ? region.name : '' }),
-        ),
-        taken
-          ? h('div', { class: 'hero-owner', text: `Scelto da ${owner!.name}` })
-          : mine === id
-            ? h('div', { class: 'hero-owner mine', text: inHub ? 'Il tuo eroe · clic per rilasciarlo' : 'Il tuo eroe' })
-            : null,
-      );
-    });
-    this.show(
-      'heroes',
-      h(
-        'div',
-        { class: 'sheet' },
-        h(
-          'header',
-          {},
-          h('h2', { text: 'La Compagnia' }),
-          h('p', {
-            text: inHub
-              ? 'Scegli o cambia eroe in taverna ([C]). Ogni eroe può appartenere a un solo giocatore; i PE salgono giocando nel tuo stile.'
-              : 'La spedizione è già in corso. Scegli un eroe libero ed entra in campo.',
-          }),
-        ),
-        h('div', { class: 'hero-grid' }, ...cards),
-        h(
-          'footer',
-          {},
-          h('button', {
-            class: `btn primary ${mine ? '' : 'disabled'}`,
-            text: mine ? (inHub ? 'Entra nella taverna' : 'Entra in campo') : 'Scegli un eroe per continuare',
-            onclick: () => {
-              if (!mine) return;
-              this.actions.sound('ui');
-              this.close();
-            },
-          }),
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------- council map
-
-  openCouncil(): void {
-    const lobby = this.lobby;
-    if (!lobby) return;
-    const host = lobby.host === this.myId;
-    const hostName = lobby.players.find((p) => p.id === lobby.host)?.name ?? '';
-    const selected = missionById(lobby.mission);
-    if (this.panel !== 'council' && selected) {
-      this.region = selected.region;
-      this.councilTab = selected.mode && selected.mode !== 'story' ? 'proves' : 'contracts';
-    }
-    const ready = lobby.players.every((p) => p.hero);
-    const heroesReady = lobby.players.filter((p) => p.hero).length;
-
-    const tabs = h(
-      'div',
-      { class: 'council-tabs' },
-      h('button', {
-        class: `tab ${this.councilTab === 'contracts' ? 'active' : ''}`,
-        text: 'Bacheca',
-        onclick: () => {
-          this.councilTab = 'contracts';
-          this.actions.sound('ui');
-          this.openCouncil();
-        },
-      }),
-      h('button', {
-        class: `tab ${this.councilTab === 'map' ? 'active' : ''}`,
-        text: 'Cronaca',
-        onclick: () => {
-          this.councilTab = 'map';
-          this.actions.sound('ui');
-          this.openCouncil();
-        },
-      }),
-      h('button', {
-        class: `tab ${this.councilTab === 'proves' ? 'active' : ''}`,
-        text: 'Prove speciali',
-        onclick: () => {
-          this.councilTab = 'proves';
-          this.actions.sound('ui');
-          this.openCouncil();
-        },
-      }),
-    );
-
+  /** Opens the panel of an NPC (or of the Map Table). */
+  openNpc(id: NpcId, talk = true): void {
+    if (!this.lobby || this.lobby.phase !== 'hub') return;
+    if (talk) this.turns[id] = (this.turns[id] ?? -1) + 1;
+    const npc = NPCS[id];
     const body =
-      this.councilTab === 'proves'
-        ? this.provesPanel(host, hostName, ready, heroesReady, selected)
-        : this.councilTab === 'map'
-          ? this.mapPanel(host, hostName, ready, selected)
-          : this.contractsPanel(host, hostName, ready);
-
+      id === 'tavolo'
+        ? this.tableBody()
+        : id === 'iej'
+          ? this.treeBody()
+          : id === 'saraya'
+            ? this.atelierBody()
+            : id === 'eleonora'
+              ? this.bountyBody()
+              : this.carlBody();
     this.show(
-      'council',
+      id,
       h(
         'div',
-        { class: 'sheet council' },
+        { class: `sheet npc npc-${id}`, style: `--c:${npc.color}` },
         h(
           'header',
           {},
-          h('h2', { text: 'La Tavola del Consiglio' }),
-          h('p', {
-            text:
-              this.councilTab === 'proves'
-                ? 'Arene boss e fosse dove vince l’ultimo che resta in piedi. Niente processioni: solo spettacolo.'
-                : this.councilTab === 'map'
-                  ? 'Cronaca dell’Eclissi — le spedizioni leggendarie restano disponibili.'
-                  : 'Le tre mappe con quote sono in cima. Un clic e si entra: niente varco da sbloccare.',
-          }),
-          tabs,
+          h('h2', { text: npc.name }),
+          h('div', { class: 'npc-role', text: npc.role }),
+          h('p', { class: 'npc-line', text: `«${npcLine(id, this.hero, this.turns[id] ?? 0)}»` }),
+          h(
+            'div',
+            { class: 'bank' },
+            h('span', { class: 'purse-gems', text: `${this.profile.gems} Gemme dell'Eclissi` }),
+            h('span', { class: 'purse-threads', text: `${this.profile.threads} Fili d'Ombra` }),
+          ),
         ),
-        body,
-        h('footer', {}, h('button', { class: 'btn ghost', text: 'Torna in taverna', onclick: () => this.back() })),
-      ),
-    );
-  }
-
-  openBestiary(): void {
-    const hub = (this.lobby?.hubId as HubId | undefined) ?? hubIdFromRegion(this.region);
-    const biome = HUB_META[hub].biome;
-    const light = biomeTrafficLight(biome, this.actions.weaponDamageTypes());
-    const lightLabel = light === 'green' ? 'Verde — vulnerabilità colpite' : light === 'red' ? 'Rosso — resistenze' : 'Giallo — neutro';
-    const entries = BESTIARY.filter((e) => e.biome === biome);
-    const rows = entries.map((e) =>
-      h(
-        'article',
-        { class: `bestiary-card grade-${e.grade}` },
-        h('div', { class: 'bestiary-index', text: String(e.index).padStart(2, '0') }),
-        h('h4', { text: e.name }),
-        h('div', { class: 'bestiary-grade', text: e.grade }),
-        h('p', { text: e.desc }),
-        h('p', { class: 'tip', text: e.tip }),
-        h(
-          'div',
-          { class: 'mods' },
-          e.vulnerability.length
-            ? h('span', { class: 'vuln', text: `Vuln: ${e.vulnerability.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
-            : null,
-          e.resistance.length
-            ? h('span', { class: 'res', text: `Res: ${e.resistance.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
-            : null,
-          e.immunity.length
-            ? h('span', { class: 'imm', text: `Imm: ${e.immunity.map((v) => DAMAGE_KIND_LABELS[v] ?? v).join(', ')}` })
-            : null,
-        ),
-      ),
-    );
-    this.show(
-      'bestiary',
-      h(
-        'div',
-        { class: 'sheet bestiary' },
-        h(
-          'header',
-          {},
-          h('h2', { text: 'Tomo del Bestiario' }),
-          h('p', { text: `${HUB_META[hub].name} · Semaforo: ${lightLabel}` }),
-        ),
-        h('div', { class: 'bestiary-grid' }, ...rows),
+        h('div', { class: 'sheet-body' }, ...body),
         h('footer', {}, h('button', { class: 'btn ghost', text: 'Chiudi', onclick: () => this.back() })),
       ),
     );
   }
 
-  private contractsPanel(host: boolean, hostName: string, ready: boolean): HTMLElement {
+  private act(msg: ClientMsg): void {
+    this.actions.sound('ui');
+    this.actions.send(msg);
+  }
+
+  private tableBody(): HTMLElement[] {
     const lobby = this.lobby!;
-    const hub = (lobby.hubId as HubId | undefined) ?? 'badiscar';
-    const hubs = ALL_HUBS.map((id) => {
-      const meta = HUB_META[id];
-      const active = id === hub;
-      return h('button', {
-        class: `btn hub-chip ${active ? 'primary' : 'ghost'}`,
-        text: meta.name.replace(/^La |^Il /, ''),
+    const table = lobby.table;
+    const host = this.isHost;
+    const waiting = lobby.players.filter((p) => !p.ready).length;
+    const go = (city: string, text: string, enabled: boolean): HTMLElement =>
+      h('button', {
+        class: `btn primary ${host && enabled ? '' : 'disabled'}`,
+        text: host ? text : `Decide ${this.hostName}`,
         onclick: () => {
-          if (!host) {
+          if (!host || !enabled) {
             this.actions.sound('deny');
             return;
           }
-          this.actions.sound('ui');
-          this.actions.selectHub(id);
+          this.act({ t: 'run', city });
+          this.close();
         },
       });
-    });
-    const readyNote = ready ? 'Entra in questa mappa' : 'Tutti devono scegliere un eroe';
-    const dungeonCards = DUNGEON_CHOICES.map((d) =>
-      h(
-        'article',
-        { class: 'prove-card contract chosen' },
-        h('div', { class: 'prove-tag', text: 'Mappa con quote' }),
-        h('h4', { text: d.title }),
-        h('div', { class: 'mission-place', text: d.place }),
-        host
-          ? h('button', {
-              class: 'btn primary',
-              text: readyNote,
-              onclick: () => {
-                if (!ready) {
-                  this.actions.sound('deny');
-                  return;
-                }
-                this.actions.sound('ui');
-                this.actions.startDungeon(d.region);
-              },
-            })
-          : h('div', { class: 'locked-note', text: `Solo ${hostName} apre la mappa.` }),
-      ),
-    );
-    const contracts = lobby.contracts ?? [];
-    const cards = contracts.map((c) => {
-      const chosen = lobby.contractId === c.id;
-      const light = biomeTrafficLight(c.biome as 'urban' | 'coastal' | 'wild', this.actions.weaponDamageTypes());
+    const cities = CITY_IDS.map((id: CityId) => {
+      const city = CITIES[id];
+      const cp = Math.max(0, Math.min(CITY_BOSS_STAGE, table.checkpoint[id] ?? 0));
+      const cleared = table.cleared.includes(id);
       return h(
         'article',
-        { class: `prove-card contract ${chosen ? 'chosen' : ''}` },
-        h('div', { class: 'prove-tag', text: `${c.kind.replace(/_/g, ' ')} · ★${c.danger}` }),
-        h('h4', { text: c.name }),
-        h('div', { class: `semaforo ${light}`, text: light === 'green' ? 'Semaforo verde' : light === 'red' ? 'Semaforo rosso' : 'Semaforo giallo' }),
-        h('p', { text: c.brief }),
-        h('div', { class: 'mission-place', text: c.rewardHint }),
-        host
-          ? h('button', {
-              class: `btn ${chosen ? 'primary' : 'ghost'}`,
-              text: ready ? 'Entra' : 'Tutti devono scegliere un eroe',
-              onclick: () => {
-                if (!ready) {
-                  this.actions.sound('deny');
-                  return;
-                }
-                this.actions.sound('ui');
-                this.actions.selectContract(c.id);
-                this.actions.startMission();
-              },
-            })
-          : h('div', {
-              class: 'locked-note',
-              text: chosen ? `${hostName} ha scelto questo contratto.` : `Solo ${hostName} sceglie il contratto.`,
-            }),
+        { class: `city-card ${cleared ? 'is-cleared' : ''}`, style: `--c:${city.color}` },
+        h('h3', { text: city.name }),
+        h('div', { class: 'city-sub', text: city.subtitle }),
+        h('p', { text: city.blurb }),
+        h(
+          'ol',
+          { class: 'city-stages' },
+          ...city.environments.map((env, i) =>
+            h('li', { class: i < cp ? 'done' : i === cp ? 'next' : '' }, h('b', { text: `Ambiente ${i + 1} · ` }), `${env.name} — Mini-Boss: ${ENEMIES[env.miniBoss].name}`),
+          ),
+          h('li', { class: cp >= CITY_BOSS_STAGE ? 'next boss' : 'boss' }, h('b', { text: 'Boss di Città · ' }), `${city.boss.name} — ${ENEMIES[city.boss.boss].name}`),
+        ),
+        h('div', { class: 'city-state', text: `${cleared ? 'Boss sconfitto · ' : ''}Checkpoint: ${STAGE_NAMES[cp]}` }),
+        go(id, `Parti da ${STAGE_NAMES[cp]}`, true),
       );
     });
-    return h(
-      'div',
-      { class: 'council-body proves' },
-      h('div', { class: 'hub-row' }, ...hubs),
-      h('div', { class: 'prove-list' }, ...dungeonCards, ...cards),
+    const boss = h(
+      'article',
+      { class: `city-card region-boss ${table.regionBoss ? '' : 'is-locked'} ${table.regionCleared ? 'is-cleared' : ''}` },
+      h('h3', { text: ENEMIES[REGION.boss.boss].name }),
+      h('div', { class: 'city-sub', text: `Boss di Regione · ${REGION.boss.name}` }),
+      h('p', { text: REGION.boss.blurb }),
+      h('div', {
+        class: 'city-state',
+        text: table.regionCleared
+          ? 'Sconfitto. Potete sfidarlo ancora.'
+          : table.regionBoss
+            ? 'La via per l’Abisso è aperta.'
+            : `Sigillato: servono i tre Boss di Città (${table.cleared.length} di ${CITY_IDS.length}).`,
+      }),
+      go('boss', 'Sfida il Leviatano', table.regionBoss),
     );
+    const locked = LOCKED_REGIONS.map((r) =>
+      h('article', { class: 'city-card is-locked future' }, h('h3', { text: r.name }), h('p', { text: r.blurb })),
+    );
+    return [
+      h('h3', { class: 'section', text: `${REGION.subtitle} · ${REGION.name}` }),
+      h('p', { class: 'note', text: REGION.blurb }),
+      h('p', {
+        class: 'note',
+        text: host
+          ? waiting > 0
+            ? `Guidi tu la Compagnia. ${waiting === 1 ? 'Un eroe sta ancora scegliendo' : `${waiting} eroi stanno ancora scegliendo`}: partirà con voi appena conferma.`
+            : 'Guidi tu la Compagnia: scegli la rotta. La progressione letta è la tua.'
+          : `La rotta la sceglie ${this.hostName}. I checkpoint mostrati sono i suoi.`,
+      }),
+      h('div', { class: 'city-grid' }, ...cities),
+      h('div', { class: 'city-grid' }, boss, ...locked),
+    ];
   }
 
-  private mapPanel(host: boolean, hostName: string, ready: boolean, selected: ReturnType<typeof missionById>): HTMLElement {
-    const region = REGIONS.find((r) => r.id === this.region) ?? REGIONS[0]!;
-    const mission = region.mission ? missionById(region.mission) : undefined;
-    const byId = new Map(REGIONS.map((r) => [r.id, r]));
-
-    const map = svg('svg', { viewBox: '540 420 560 420', class: 'salento' });
-    map.append(
-      svg('path', { d: 'M1010 420 C1075 500 1090 610 1068 700 C1050 770 1000 815 960 840 L1100 840 L1100 420 Z', class: 'sea' }),
-      svg('path', { d: 'M1010 420 C1075 500 1090 610 1068 700 C1050 770 1000 815 960 840', class: 'coast' }),
-    );
-    for (const [a, b] of ROADS) {
-      const ra = byId.get(a);
-      const rb = byId.get(b);
-      if (ra && rb) map.append(svg('line', { x1: ra.x, y1: ra.y, x2: rb.x, y2: rb.y, class: 'road' }));
-    }
-    for (const r of REGIONS) {
-      const playable = !!r.mission;
-      const g = svg('g', {
-        class: `region ${playable ? 'playable' : 'locked'} ${r.id === this.region ? 'active' : ''} ${selected?.region === r.id && !selected.mode ? 'chosen' : ''}`,
-      });
-      g.style.setProperty('--c', r.color);
-      if (playable) g.append(svg('circle', { cx: r.x, cy: r.y, r: 26, class: 'pulse' }));
-      g.append(svg('circle', { cx: r.x, cy: r.y, r: playable ? 15 : 10, class: 'node' }));
-      const label = svg('text', { x: r.x, y: r.y - (playable ? 24 : 18), class: 'label' });
-      label.textContent = r.name;
-      g.append(label);
-      if (playable) {
-        const order = svg('text', { x: r.x, y: r.y + 5, class: 'order' });
-        order.textContent = String(missionById(r.mission!)?.order ?? '');
-        g.append(order);
-      }
-      if (r.id === 'badiscar') {
-        const here = svg('text', { x: r.x, y: r.y + 28, class: 'here' });
-        here.textContent = 'Taverna di Carl';
-        g.append(here);
-      }
-      g.addEventListener('click', () => {
-        this.actions.sound('ui');
-        this.region = r.id;
-        this.councilTab = 'map';
-        this.openCouncil();
-      });
-      map.append(g);
-    }
-
-    return h(
-      'div',
-      { class: 'council-body' },
-      h('div', { class: 'map-box' }, map as unknown as Node),
-      this.regionPanel(region, mission, host, hostName, ready, selected?.id ?? ''),
-    );
-  }
-
-  private provesPanel(
-    host: boolean,
-    hostName: string,
-    ready: boolean,
-    heroesReady: number,
-    selected: ReturnType<typeof missionById>,
-  ): HTMLElement {
-    const bosses = bossPlays();
-    const arenas = arenaPlays();
-    const pick = (m: MissionDef) => {
-      if (!host) {
-        this.actions.sound('deny');
-        return;
-      }
-      this.actions.sound('ui');
-      this.actions.selectMission(m.id);
-    };
-    const start = (m: MissionDef) => {
-      if (!host) return;
-      if (selected?.id !== m.id) {
-        pick(m);
-        return;
-      }
-      if (!ready) {
-        this.actions.sound('deny');
-        return;
-      }
-      if (m.mode === 'arena' && heroesReady < 2) {
-        this.actions.sound('deny');
-        return;
-      }
-      this.actions.sound('ui');
-      this.actions.startMission();
-    };
-    const card = (m: MissionDef) => {
-      const chosen = selected?.id === m.id;
-      const arena = m.mode === 'arena';
-      const canStart = ready && chosen && (!arena || heroesReady >= 2);
-      return h(
-        'article',
-        { class: `prove-card ${arena ? 'arena' : 'boss'} ${chosen ? 'chosen' : ''}` },
-        h('div', { class: 'prove-tag', text: arena ? 'Ultimo in piedi' : 'Arena boss' }),
-        h('h4', { text: m.name }),
-        h('div', { class: 'mission-place', text: m.place }),
-        h('p', { text: m.brief }),
-        host
-          ? h('button', {
-              class: `btn ${chosen ? 'primary' : 'ghost'} ${canStart || !chosen ? '' : 'disabled'}`,
-              text: !chosen
-                ? 'Seleziona'
-                : arena && heroesReady < 2
-                  ? 'Servono almeno due eroi'
-                  : ready
-                    ? 'Partite!'
-                    : 'Tutti devono scegliere un eroe',
-              onclick: () => start(m),
-            })
-          : h('div', {
-              class: 'locked-note',
-              text: chosen
-                ? `${hostName} ha scelto questa prova: si parte quando dà il via.`
-                : `Solo ${hostName} sceglie la prova.`,
-            }),
-      );
-    };
-
-    return h(
-      'div',
-      { class: 'council-body proves' },
-      h(
-        'div',
-        { class: 'proves-col' },
-        h('h3', { text: 'Arene boss' }),
-        h('p', { class: 'proves-lead', text: 'Uno contro uno spettacolo: la Compagnia insieme, i giganti al centro.' }),
-        ...bosses.map(card),
-      ),
-      h(
-        'div',
-        { class: 'proves-col' },
-        h('h3', { text: 'Ultimo in piedi' }),
-        h('p', { class: 'proves-lead', text: 'Niente mostri. Niente rianimazioni. Vince chi resta in piedi.' }),
-        ...arenas.map(card),
-      ),
-    );
-  }
-
-  private regionPanel(
-    region: RegionDef,
-    mission: ReturnType<typeof missionById>,
-    host: boolean,
-    hostName: string,
-    ready: boolean,
-    selectedId: string,
-  ): HTMLElement {
-    const box = h(
-      'div',
-      { class: 'region-panel', style: `--c:${region.color}` },
-      h('h3', { text: region.name }),
-      h('div', { class: 'region-sub', text: `${region.subtitle} · ${region.realName}` }),
-      h('p', { text: region.lore }),
-      h('p', { class: 'gov' }, h('b', { text: 'Governo: ' }), region.government),
-    );
-    const dungeon = dungeonChoice(region.id);
-    box.append(
-      h('div', { class: 'mission' }, h('h4', { text: dungeon.title }), h('div', { class: 'mission-place', text: dungeon.place })),
-      host
-        ? h('button', {
-            class: 'btn primary',
-            text: ready ? 'Entra in questa mappa' : 'Tutti devono scegliere un eroe',
+  private treeBody(): HTMLElement[] {
+    const hero = this.hero;
+    if (!hero) return [h('p', { class: 'note', text: 'Scegli prima un eroe.' })];
+    const def = HEROES[hero];
+    const tree = treeOf(this.profile, hero);
+    const spent = treeSpent(tree);
+    const slotBlock = (slot: AbilitySlot): HTMLElement => {
+      const node = tree[slot];
+      const tip = abilityTooltip(hero, slot, tree);
+      const paths = PATH_IDS.map((path: PathId) => {
+        const mine = node.path === path;
+        const lockedOut = !!node.path && !mine;
+        const tier = mine ? node.tier : 0;
+        const can = canBuyNode(tree, slot, path, this.profile.gems);
+        const nextCost = tier < TREE_TIERS ? nodeCost(slot, tier + 1) : 0;
+        return h(
+          'div',
+          { class: `path ${mine ? 'is-mine' : ''} ${lockedOut ? 'is-out' : ''}` },
+          h('h5', { text: PATH_INFO[path].name }),
+          h('p', { class: 'path-blurb', text: PATH_INFO[path].blurb }),
+          h(
+            'ol',
+            {},
+            ...Array.from({ length: TREE_TIERS }, (_, i) =>
+              h('li', { class: i < tier ? 'got' : i === tier && !lockedOut ? 'next' : '' }, h('b', { text: `${nodeCost(slot, i + 1)} ` }), nodeText(slot, path, i + 1)),
+            ),
+          ),
+          h('button', {
+            class: `btn small ${can.ok ? 'primary' : 'disabled'}`,
+            text: lockedOut
+              ? 'Altro sentiero attivo'
+              : tier >= TREE_TIERS
+                ? 'Completo'
+                : can.ok
+                  ? `Sblocca grado ${tier + 1} · ${nextCost} Gemme`
+                  : `Servono ${nextCost} Gemme`,
             onclick: () => {
-              if (!ready) {
+              if (!can.ok) {
                 this.actions.sound('deny');
                 return;
               }
-              this.actions.sound('ui');
-              this.actions.startDungeon(region.id);
+              this.act({ t: 'tree', op: 'buy', slot, path });
             },
-          })
-        : h('div', { class: 'locked-note', text: `Solo ${hostName} apre la mappa.` }),
-    );
-    if (!mission) return box;
-    box.append(
-      h(
-        'div',
-        { class: 'mission' },
-        h('div', { class: 'mission-order', text: `Spedizione ${mission.order} di ${MISSIONS.length}` }),
-        h('h4', { text: mission.name }),
-        h('div', { class: 'mission-place', text: mission.place }),
-        h('p', { text: mission.brief }),
-        h('div', { class: 'mission-stages', text: mission.stages.map((s) => s.title).join(' → ') }),
+          }),
+        );
+      });
+      return h(
+        'section',
+        { class: 'tree-slot' },
+        h('h4', { text: `${slot === 'e' ? 'Speciale [E]' : 'Ultimate [R]'} · ${tip.name}` }),
+        h('p', {
+          class: 'tree-now',
+          text: `Ora: ${tip.damage ? `${tip.damage} danni` : tip.healPct ? `cura ${tip.healPct}%` : 'nessun danno diretto'} · ricarica ${tip.cooldown} s · area ${tip.aoeCells} celle · ${slot === 'e' ? 'costo dei gradi lineare' : 'costo dei gradi esponenziale'}`,
+        }),
+        h('div', { class: 'paths' }, ...paths),
+        node.tier > 0
+          ? h('button', { class: 'btn small ghost', text: 'Rimborsa questa abilità (100%)', onclick: () => this.act({ t: 'tree', op: 'respec', slot }) })
+          : null,
+      );
+    };
+    return [
+      h('h3', { class: 'section', text: `Albero delle Abilità di ${def.name}` }),
+      h('p', { class: 'note', text: 'Tre sentieri esclusivi per abilità. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese.' }),
+      ...ABILITY_SLOTS.map(slotBlock),
+      h('button', {
+        class: `btn ${spent > 0 ? '' : 'disabled'}`,
+        text: spent > 0 ? `Respec completo · riavrai ${spent} Gemme` : 'Nessuna Gemma spesa su questo eroe',
+        onclick: () => (spent > 0 ? this.act({ t: 'tree', op: 'respec', slot: '' }) : this.actions.sound('deny')),
+      }),
+    ];
+  }
+
+  private atelierBody(): HTMLElement[] {
+    const hero = this.hero;
+    if (!hero) return [h('p', { class: 'note', text: 'Scegli prima un eroe.' })];
+    const kind = this.atelierTab;
+    const look = loadoutOf(this.profile, hero);
+    const worn = kind === 'title' ? this.profile.title : look[kind];
+    const tabs = h(
+      'div',
+      { class: 'tabs' },
+      ...COSMETIC_KINDS.map((k) =>
+        h('button', {
+          class: `tab ${k === kind ? 'on' : ''}`,
+          text: COSMETIC_KIND_NAMES[k],
+          onclick: () => {
+            this.atelierTab = k;
+            this.actions.sound('ui');
+            this.openNpc('saraya', false);
+          },
+        }),
       ),
     );
-    if (host) {
-      const chosen = selectedId === mission.id;
-      box.append(
+    const swatch = (c: CosmeticDef): string => {
+      if (c.color) return `rgb(${c.color.map((v) => Math.round(v * 255)).join(',')})`;
+      if (c.hue !== undefined) return `hsl(${c.hue} ${Math.round(Math.min(1, c.sat ?? 1) * 80)}% ${Math.round(Math.min(1.1, c.val ?? 1) * 45)}%)`;
+      return 'transparent';
+    };
+    const cards = COSMETICS.filter((c) => c.kind === kind).map((c) => {
+      const owned = this.profile.owned.includes(c.id);
+      const on = worn === c.id;
+      const afford = this.profile.threads >= c.cost;
+      return h(
+        'article',
+        { class: `cosm-card ${on ? 'is-on' : ''} ${owned ? 'is-owned' : ''}` },
+        h('i', { class: 'swatch', style: `background:${swatch(c)}` }),
+        h('h5', { text: c.name }),
+        h('p', { text: c.desc }),
         h('button', {
-          class: 'btn ghost',
-          text: !chosen ? 'Spedizione classica, arena piatta' : ready ? 'Parti con la spedizione classica' : 'Tutti devono scegliere un eroe',
+          class: `btn small ${owned ? (on ? '' : 'primary') : afford ? 'primary' : 'disabled'}`,
+          text: owned ? (on ? 'Togli' : 'Indossa') : `Compra · ${c.cost} Fili`,
           onclick: () => {
-            if (!chosen) {
-              this.actions.selectMission(mission.id);
-              return;
-            }
-            if (!ready) {
+            if (!owned && !afford) {
               this.actions.sound('deny');
               return;
             }
-            this.actions.sound('ui');
-            this.actions.startMission();
+            if (owned) this.act({ t: 'cosm', op: 'equip', id: on ? '' : c.id, slot: kind });
+            else this.act({ t: 'cosm', op: 'buy', id: c.id });
           },
         }),
       );
-    } else {
-      box.append(
-        h('div', {
-          class: 'locked-note',
-          text: selectedId === mission.id
-            ? `${hostName} ha scelto questa spedizione: si parte quando dà il via.`
-            : this.lobby?.public
-              ? `Solo ${hostName} guida la spedizione: è il primo arrivato nella taverna.`
-              : `Solo ${hostName} guida la spedizione.`,
-        }),
-      );
-    }
-    return box;
+    });
+    return [
+      h('h3', { class: 'section', text: `Atelier · ${HEROES[hero].name}` }),
+      h('p', { class: 'note', text: 'Solo estetica: nessun filo cambia un numero in combattimento. Palette, skin, effetti e pose valgono per l’eroe che stai usando; il titolo vale per te.' }),
+      tabs,
+      h('div', { class: 'cosm-grid' }, ...cards),
+    ];
   }
 
-  // ---------------------------------------------------------------- results
-
-  openResults(): void {
-    const lobby = this.lobby;
-    if (!lobby || (lobby.phase !== 'victory' && lobby.phase !== 'defeat')) {
-      if (this.panel === 'results') this.close();
-      return;
+  private bountyBody(): HTMLElement[] {
+    const table = this.lobby!.table;
+    if (!table.bounties) {
+      return [
+        h('p', { class: 'note', text: 'Il registro di Eleonora è chiuso. Si apre quando chi guida la Compagnia ha abbattuto il primo Boss di Città.' }),
+      ];
     }
-    const win = lobby.phase === 'victory';
-    const mission = missionById(lobby.mission);
-    const contract = lobby.contracts?.find((c) => c.id === lobby.contractId) ?? lobby.contracts?.find((c) => c.id === lobby.mission);
-    const host = lobby.host === this.myId;
-    const hostName = lobby.players.find((p) => p.id === lobby.host)?.name ?? '';
-    const cols: [string, keyof LobbyState['stats'][string]][] = [
-      ['Danni', 'dmg'], ['Uccisioni', 'kills'], ['Esecuzioni', 'execs'], ['Parate', 'parries'],
-      ['Schivate', 'dodges'], ['Cure', 'heals'], ['Abilità', 'casts'], ['Supreme', 'ults'],
-      ['Rianimazioni', 'revives'], ['Cadute', 'downs'],
+    const host = this.isHost;
+    const cards = BOUNTIES.map((b) => {
+      const on = table.bounty === b.id;
+      return h(
+        'article',
+        { class: `bounty-card ${on ? 'is-on' : ''}` },
+        h('h5', { text: b.name }),
+        h('p', { text: b.text }),
+        h('div', { class: 'bounty-reward', text: `${b.reward} Fili d'Ombra a testa, all'estrazione` }),
+        h('button', {
+          class: `btn small ${host ? (on ? '' : 'primary') : 'disabled'}`,
+          text: host ? (on ? 'Straccia il contratto' : 'Firma') : on ? 'Firmato' : `Firma ${this.hostName}`,
+          onclick: () => (host ? this.act({ t: 'bounty', id: on ? '' : b.id }) : this.actions.sound('deny')),
+        }),
+      );
+    });
+    return [
+      h('h3', { class: 'section', text: 'Bounties' }),
+      h('p', {
+        class: 'note',
+        text: `Un contratto alla volta, firmato da chi guida la Compagnia e valido per tutti nella prossima spedizione. ${table.bounty ? `In corso: ${BOUNTY_BY_ID[table.bounty]?.name ?? ''}.` : 'Nessun contratto firmato.'}`,
+      }),
+      h('div', { class: 'bounty-grid' }, ...cards),
     ];
-    const rows = lobby.players
-      .filter((p) => p.hero)
-      .map((p) => {
-        const hero = HEROES[p.hero as HeroId];
-        const st = lobby.stats[p.id];
-        const gain = lobby.xpGain[p.id] ?? 0;
-        const label = `${hero.short} · ${p.name} · liv. ${p.level}${gain ? ` · +${gain} PE` : ''}`;
-        return h(
-          'tr',
-          { class: p.id === this.myId ? 'me-row' : '' },
-          h('td', {}, h('div', { class: 'who', style: `--c:${hero.color}` }, portrait(hero.id, hero.color, hero.code, 'small'), h('span', { text: label }))),
-          ...cols.map(([, k]) => h('td', { text: st ? String(Math.round(st[k] ?? 0)) : '—' })),
-        );
-      });
-    this.show(
-      'results',
+  }
+
+  private carlBody(): HTMLElement[] {
+    return [
+      h('h3', { class: 'section', text: 'La Taverna di Carl' }),
+      h('p', { class: 'note', text: 'Qui non si combatte. Il Tavolo della Mappa è al centro, Iej tiene l’Albero delle Abilità, Saraya cuce, Eleonora paga i contratti. I fantocci nel retro non rispondono ai colpi.' }),
       h(
         'div',
-        { class: `sheet results ${win ? 'win' : 'lose'}` },
+        { class: 'row' },
+        h('button', { class: 'btn', text: 'Un’altra parola', onclick: () => (this.actions.sound('ui'), this.openNpc('carl')) }),
+        h('button', { class: 'btn', text: 'Cambia eroe', onclick: () => (this.close(), this.actions.changeHero()) }),
+        h('button', { class: 'btn', text: 'Bestiario della Costa Est', onclick: () => (this.actions.sound('ui'), this.openBestiary()) }),
+      ),
+    ];
+  }
+
+  // ---------------------------------------------------------------- report
+
+  /** Opens the end-of-expedition report once per report. */
+  maybeReport(): void {
+    const rep = this.lobby?.report;
+    if (!rep || rep.n <= this.reportSeen || this.lobby?.phase !== 'hub') return;
+    if (this.panel !== 'none' && this.panel !== 'report') return;
+    this.reportSeen = rep.n;
+    this.renderReport();
+  }
+
+  /** Reports issued before this player arrived are not theirs to read. */
+  skipReports(): void {
+    this.reportSeen = this.lobby?.report?.n ?? 0;
+  }
+
+  private renderReport(): void {
+    const rep: RunReport | null | undefined = this.lobby?.report;
+    if (!rep) {
+      this.close();
+      return;
+    }
+    const titles: Record<RunReport['kind'], [string, string]> = {
+      extract: ['Estrazione riuscita', 'I Manufatti nella bisaccia sono in banca e il checkpoint della Città è salvato.'],
+      city: ['Boss di Città abbattuto', 'La Città è libera. Tutto il bottino è in banca.'],
+      region: ['Il Leviatano è caduto', 'La Costa Est respira. Le prossime Regioni si apriranno da qui.'],
+      wipe: ['La Compagnia è caduta', 'Il mare brucia il 30% del bottino raccolto nell’ultimo Ambiente. Il resto torna in taverna con voi.'],
+    };
+    const [title, sub] = titles[rep.kind];
+    const rows = Object.keys(rep.stats).map((id) => {
+      const st = rep.stats[id]!;
+      const name = this.lobby?.players.find((p) => p.id === id)?.name ?? '—';
+      return h(
+        'tr',
+        { class: id === this.myId ? 'mine' : '' },
+        h('td', { text: name }),
+        h('td', { text: String(Math.round(st.dmg)) }),
+        h('td', { text: String(Math.round(st.taken)) }),
+        h('td', { text: String(st.kills) }),
+        h('td', { text: String(st.downs) }),
+        h('td', { text: String(st.revives) }),
+      );
+    });
+    const bounty = rep.bounty ? BOUNTY_BY_ID[rep.bounty] : undefined;
+    this.show(
+      'report',
+      h(
+        'div',
+        { class: `sheet report kind-${rep.kind}` },
+        h('header', {}, h('h2', { text: title }), h('div', { class: 'npc-role', text: rep.label }), h('p', { text: sub })),
         h(
-          'header',
-          {},
-          h('h2', {
-            text: win
-              ? mission?.mode === 'arena'
-                ? 'Ultimo in piedi'
-                : 'Vittoria'
-              : mission?.mode === 'arena'
-                ? 'Nessun vincitore'
-                : 'La Compagnia è caduta',
-          }),
-          h('p', {
-            text: win
-              ? mission?.mode === 'arena'
-                ? `${mission.name} — uno solo resta. Gli altri pagano il vino.`
-                : mission?.mode === 'boss'
-                  ? `${mission.name} — il cerchio ha scelto i suoi campioni.`
-                  : `${mission?.name ?? contract?.name ?? 'Contratto'} — l'Eclissi arretra di un passo.`
-              : mission?.mode === 'arena'
-                ? `${mission.name} — tutti a terra. La Fossa non premia nessuno.`
-                : `${mission?.name ?? contract?.name ?? 'Contratto'} — il Sole Nero non concede tregua, ma la taverna sì.`,
-          }),
-        ),
-        h('table', { class: 'stats' }, h('thead', {}, h('tr', {}, h('th', { text: 'Eroe' }), ...cols.map(([label]) => h('th', { text: label })))), h('tbody', {}, ...rows)),
-        h(
-          'footer',
-          {},
-          host && !win ? h('button', { class: 'btn primary', text: 'Riprova da questa sala', onclick: () => this.actions.retry() }) : null,
-          host
-            ? h('button', {
-                class: `btn ${win ? 'primary' : ''}`,
-                text: 'Torna alla taverna',
-                onclick: () => this.actions.toHub(),
-              })
+          'div',
+          { class: 'sheet-body' },
+          h(
+            'div',
+            { class: 'report-loot' },
+            h('div', {}, h('b', { text: 'In banca: ' }), purseText(rep.banked[this.myId])),
+            rep.kind === 'wipe' ? h('div', { class: 'tax' }, h('b', { text: 'Tassa di Morte: ' }), purseText(rep.taxed[this.myId])) : null,
+            bounty ? h('div', {}, h('b', { text: `Contratto «${bounty.name}»: ` }), rep.bountyPaid > 0 ? `pagato, ${rep.bountyPaid} Fili d'Ombra a testa` : 'non riuscito') : null,
+            h('div', {}, h('b', { text: 'Totale: ' }), `${this.profile.gems} Gemme dell'Eclissi · ${this.profile.threads} Fili d'Ombra`),
+          ),
+          rows.length
+            ? h(
+                'table',
+                { class: 'controls stats' },
+                h('thead', {}, h('tr', {}, ...['Eroe', 'Danni inflitti', 'Danni subiti', 'Uccisioni', 'A terra', 'Rianimazioni'].map((t) => h('th', { text: t })))),
+                h('tbody', {}, ...rows),
+              )
             : null,
-          h('button', {
-            class: 'btn ghost',
-            text: 'Cambia eroe',
-            onclick: () => {
-              this.actions.sound('ui');
-              this.actions.changeHero();
-            },
-          }),
-          host ? null : h('div', { class: 'locked-note', text: `In attesa di ${hostName}…` }),
         ),
+        h('footer', {}, h('button', { class: 'btn primary', text: 'Torna in taverna', onclick: () => this.back() })),
       ),
     );
   }
 
-  // ---------------------------------------------------------------- help
+  // ---------------------------------------------------------------- bestiary and help
+
+  openBestiary(): void {
+    const groups = RANK_ORDER.map((rank) => {
+      const list = ENEMY_IDS.map((id) => ENEMIES[id]).filter((e) => e.rank === rank && !e.dummy);
+      if (list.length === 0) return null;
+      return h(
+        'section',
+        {},
+        h('h3', { class: 'section', text: RANK_NAMES[rank] }),
+        h(
+          'div',
+          { class: 'bestiary-grid' },
+          ...list.map((e) =>
+            h(
+              'article',
+              { class: `bestiary-card rank-${e.rank}` },
+              h('h4', { text: e.name }),
+              h('p', { text: e.desc }),
+              h(
+                'div',
+                { class: 'mods' },
+                h('span', { text: `Vita ${e.hp}` }),
+                e.armor ? h('span', { class: 'res', text: `Scudo frontale −${Math.round(e.armor * 100)}% (fisico)` }) : null,
+                e.burrow ? h('span', { class: 'imm', text: 'Si interra nei canali bassi' }) : null,
+                e.ranged ? h('span', { text: 'A distanza' }) : null,
+                e.rank !== 'base' && e.rank !== 'elite' ? h('span', { class: 'imm', text: 'Immune ai controlli · onda Anti-Zerg' }) : null,
+                e.floods ? h('span', { class: 'imm', text: 'Allaga l’arena a ogni fase' }) : null,
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+    this.show(
+      'bestiary',
+      h(
+        'div',
+        { class: 'sheet bestiary' },
+        h('header', {}, h('h2', { text: 'Bestiario' }), h('p', { text: `${REGION.subtitle} · ${REGION.name}` })),
+        h('div', { class: 'sheet-body' }, ...groups.filter((g): g is HTMLElement => !!g)),
+        h('footer', {}, h('button', { class: 'btn ghost', text: 'Chiudi', onclick: () => this.back() })),
+      ),
+    );
+  }
 
   openHelp(code: string, offline: boolean): void {
     const link = `${location.origin}${location.pathname}?stanza=${code}`;
+    const copy = h('a', {
+      text: link,
+      attrs: { href: link },
+      onclick: (e) => {
+        e.preventDefault();
+        void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
+      },
+    });
     this.show(
       'help',
       h(
         'div',
         { class: 'sheet help' },
-        h('header', {}, h('h2', { text: 'Comandi e regole del duello' })),
+        h('header', {}, h('h2', { text: 'Comandi e regole della spedizione' })),
         h(
           'div',
-          { class: 'help-body' },
+          { class: 'sheet-body help-body' },
           h(
             'table',
             { class: 'controls' },
@@ -873,46 +753,24 @@ export class Menus {
           h(
             'div',
             { class: 'tips' },
-            h('p', {}, h('b', { text: 'Schermo touch: ' }), 'la levetta a sinistra muove l’eroe e i comandi stanno a destra. Trascina un punto libero dello schermo per girare la visuale. Pausa e Scheda sono in alto a destra.'),
-            h('p', {}, h('b', { class: 'blue', text: 'Lampo azzurro: ' }), 'il colpo si può parare. Alza la guardia un attimo prima dell’impatto per una parata perfetta che sbilancia il nemico.'),
-            h('p', {}, h('b', { class: 'red', text: 'Lampo rosso: ' }), 'colpo imparabile. Schiva: se lo fai all’ultimo istante ottieni un Contrattacco (danni quasi doppi per tre secondi).'),
-            h('p', {}, h('b', { text: 'Barra gialla: ' }), 'è l’equilibrio del nemico. Quando si riempie il nemico è Spezzato: avvicinati e premi F per l’esecuzione.'),
-            h('p', {}, h('b', { text: 'A terra: ' }), 'un compagno può rialzarti tenendo premuto F accanto a te. Se cadono tutti, la spedizione fallisce.'),
+            h('p', {}, h('b', { text: 'Schermo touch: ' }), 'la levetta a sinistra muove l’eroe, i comandi stanno a destra. Trascina un punto libero dello schermo per ruotare la visuale.'),
+            h('p', {}, h('b', { text: 'Niente livelli, niente zaino: ' }), 'gli eroi hanno statistiche fisse. In spedizione crescono solo Slancio e Sinergie, e si azzerano a ogni Ambiente.'),
+            h('p', {}, h('b', { text: 'Quote: ' }), 'si sale e si scende di un piano alla volta. Chi colpisce dall’alto fa il 10% di danni in più; con due piani di dislivello la mischia non arriva.'),
+            h('p', {}, h('b', { text: 'Forzieri di Sinergia: ' }), 'tieni premuto F per quattro secondi, indifeso. Il buff vale per tutta la Compagnia fino alla fine dell’Ambiente.'),
+            h('p', {}, h('b', { text: 'Santuari di Cura: ' }), 'in fondo alle conche. Sono l’unica cura, insieme al globo che lascia il Mini-Boss.'),
+            h('p', {}, h('b', { text: 'Portale: ' }), 'abbattuto il Mini-Boss, tutti votano. Rientrare mette il bottino in banca; proseguire tiene le ferite e alza il Fervore (+20%, +50%, +100% di bottino).'),
+            h('p', {}, h('b', { text: 'Se cadete tutti: ' }), 'si torna in taverna e la Tassa di Morte brucia il 30% del bottino dell’Ambiente fallito.'),
+            h('p', {}, h('b', { class: 'blue', text: 'Lampo azzurro: ' }), 'il colpo si può parare. ', h('b', { class: 'red', text: 'Lampo rosso: ' }), 'si può solo schivare.'),
             offline
-              ? h('p', { class: 'note', text: 'Stai giocando da solo, senza server.' })
-              : this.lobby?.public
-                ? h(
-                    'p',
-                    { class: 'note' },
-                    `Taverna pubblica ${code}. Chiunque può entrare dal titolo, senza codice. Il primo arrivato guida la spedizione. Link diretto: `,
-                    h('a', {
-                      text: link,
-                      attrs: { href: link },
-                      onclick: (e) => {
-                        e.preventDefault();
-                        void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
-                      },
-                    }),
-                  )
-                : h(
-                    'p',
-                    { class: 'note' },
-                    `Stanza ${code} — invita gli amici con questo link: `,
-                    h('a', {
-                      text: link,
-                      attrs: { href: link },
-                      onclick: (e) => {
-                        e.preventDefault();
-                        void navigator.clipboard?.writeText(link).then(() => this.toast('Link copiato.'));
-                      },
-                    }),
-                  ),
+              ? h('p', { class: 'note', text: 'Stai giocando da solo, senza server. I progressi restano su questo dispositivo.' })
+              : h('p', { class: 'note' }, this.lobby?.public ? `Taverna pubblica ${code}. Link diretto: ` : `Stanza ${code} — invita la Compagnia con questo link: `, copy),
           ),
         ),
         h(
           'footer',
           {},
           h('button', { class: 'btn primary', text: 'Riprendi', onclick: () => this.back() }),
+          h('button', { class: 'btn ghost', text: 'Bestiario', onclick: () => (this.actions.sound('ui'), this.openBestiary()) }),
           h('button', { class: 'btn ghost', text: 'Esci dalla stanza', onclick: () => this.actions.leave() }),
         ),
       ),
@@ -926,10 +784,8 @@ export class Menus {
 
   /** Esc: closes whatever can be closed. Returns true when it did something. */
   escape(): boolean {
-    if (this.panel === 'help' || this.panel === 'council' || this.panel === 'bestiary' || (this.panel === 'heroes' && this.canClose)) {
-      this.back();
-      return true;
-    }
-    return false;
+    if (this.panel === 'none' || this.panel === 'loading' || this.panel === 'title') return false;
+    this.back();
+    return true;
   }
 }

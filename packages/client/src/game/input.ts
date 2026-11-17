@@ -2,16 +2,22 @@ import { Btn } from '@malampu/shared';
 import type { TouchControls } from './touch';
 
 export interface InputFrame {
-  /** Stick-space movement: x to the right, y forward (relative to the camera). */
+  /** Screen-space movement: x to the right of the screen, y toward its top. */
   moveX: number;
   moveY: number;
   buttons: number;
-  /** Camera rotation accumulated since the last frame (radians). */
+  /** Camera yaw accumulated since the last frame (radians). */
   lookX: number;
-  lookY: number;
+  /** Wheel notches since the last frame; positive zooms out. */
+  zoom: number;
   lockToggle: boolean;
-  /** -1/+1 to cycle the lock-on target. */
-  lockCycle: number;
+  /** The ping key was pressed this frame. */
+  ping: boolean;
+  /** Cursor position over the canvas, 0..1 from the top-left corner. */
+  mouseU: number;
+  mouseV: number;
+  /** True when the cursor is the aiming device (mouse and keyboard). */
+  mouseAim: boolean;
   usingPad: boolean;
 }
 
@@ -37,29 +43,32 @@ const PAD_BUTTONS: [number, number][] = [
   [0, Btn.Interact], // A / cross
 ];
 
-const MOUSE_SENS = 0.0024;
+/** Radians of camera yaw per pixel dragged with the middle mouse button held. */
+const ROTATE_SENS = 0.0052;
+const PING_KEY = 'KeyG';
+const MIDDLE = 1 << 1;
 
 export class Input {
   enabled = false;
   /** Called for keys that are not gameplay buttons (menus, help). */
   onKey: (code: string) => void = () => {};
   /** Scripted input for automated checks; replaces the devices while set. */
-  script: { moveX: number; moveY: number; buttons: number; lookX?: number } | null = null;
+  script: { moveX: number; moveY: number; buttons: number; lookX?: number; aimU?: number; aimV?: number } | null = null;
 
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
   private lookX = 0;
-  private lookY = 0;
+  private zoom = 0;
+  private mouseU = 0.5;
+  private mouseV = 0.35;
   private lockToggle = false;
-  private lockCycle = 0;
+  private ping = false;
   private padLockHeld = false;
   private padStartHeld = false;
+  private padPingHeld = false;
   /** Called when Start is pressed on a gamepad, also while a menu is open. */
   onPadStart: (() => void) | null = null;
-  private padCycleHeld = false;
   private usingPad = false;
-  /** False once a menu asked for the cursor back. A late lock grant must not stick. */
-  private lockWanted = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -77,6 +86,7 @@ export class Input {
       if (this.enabled && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
       this.keys.add(e.code);
       this.usingPad = false;
+      if (e.code === PING_KEY && this.enabled) this.ping = true;
       this.onKey(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -86,17 +96,13 @@ export class Input {
     });
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.enabled || e.pointerType === 'touch' || this.touch?.shown) return;
-      // The click that captures the mouse also counts as an action.
-      if (document.pointerLockElement !== canvas) this.requestLock();
-      // Middle click locks on, like Tab.
-      if (e.button === 1) {
-        e.preventDefault();
-        this.lockToggle = true;
-      } else {
-        this.mouseButtons |= 1 << e.button;
-      }
+      // The middle button is held to turn the camera; the browser's auto-scroll must not start.
+      if (e.button === 1) e.preventDefault();
+      this.mouseButtons |= 1 << e.button;
+      this.track(e);
       this.usingPad = false;
     });
+    canvas.addEventListener('auxclick', (e) => e.preventDefault());
     window.addEventListener('pointerup', (e) => {
       if (e.pointerType === 'touch') return;
       this.mouseButtons &= ~(1 << e.button);
@@ -106,27 +112,28 @@ export class Input {
       this.mouseButtons &= ~(1 << e.button);
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    document.addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement !== canvas || !this.enabled) return;
-      this.lookX += e.movementX * MOUSE_SENS;
-      this.lookY += e.movementY * MOUSE_SENS;
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      this.track(e);
+      if (!this.enabled || !(this.mouseButtons & MIDDLE)) return;
+      this.lookX += e.movementX * ROTATE_SENS;
     });
     canvas.addEventListener(
       'wheel',
       (e) => {
         if (!this.enabled) return;
         e.preventDefault();
-        this.lockCycle = e.deltaY > 0 ? 1 : -1;
+        this.zoom += e.deltaY > 0 ? 1 : -1;
       },
       { passive: false },
     );
-    document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement === canvas && !this.lockWanted) {
-        document.exitPointerLock();
-        return;
-      }
-      if (document.pointerLockElement !== canvas) this.mouseButtons = 0;
-    });
+  }
+
+  private track(e: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    this.mouseU = (e.clientX - rect.left) / rect.width;
+    this.mouseV = (e.clientY - rect.top) / rect.height;
   }
 
   /** Same as pressing the lock-on key. */
@@ -134,29 +141,14 @@ export class Input {
     this.lockToggle = true;
   }
 
-  get pointerLocked(): boolean {
-    return document.pointerLockElement === this.canvas;
+  /** Same as pressing the ping key. */
+  pressPing(): void {
+    this.ping = true;
   }
 
-  requestLock(): void {
-    if (this.touch?.shown || !this.enabled) return;
-    this.lockWanted = true;
-    try {
-      const r = this.canvas.requestPointerLock() as unknown;
-      if (r instanceof Promise) {
-        r.catch(() => {
-          if (document.pointerLockElement !== this.canvas) this.lockWanted = false;
-        });
-      }
-    } catch {
-      // Pointer lock is optional: the game stays playable with the keyboard.
-      this.lockWanted = false;
-    }
-  }
-
-  releaseLock(): void {
-    this.lockWanted = false;
-    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+  /** True while the middle mouse button turns the camera. */
+  get rotating(): boolean {
+    return this.enabled && (this.mouseButtons & MIDDLE) !== 0;
   }
 
   setEnabled(on: boolean): void {
@@ -164,7 +156,8 @@ export class Input {
     if (!on) {
       this.mouseButtons = 0;
       this.lookX = 0;
-      this.lookY = 0;
+      this.zoom = 0;
+      this.ping = false;
     }
   }
 
@@ -174,9 +167,12 @@ export class Input {
       moveY: 0,
       buttons: 0,
       lookX: 0,
-      lookY: 0,
+      zoom: 0,
       lockToggle: false,
-      lockCycle: 0,
+      ping: false,
+      mouseU: this.mouseU,
+      mouseV: this.mouseV,
+      mouseAim: !this.usingPad && !this.touch?.shown,
       usingPad: this.usingPad,
     };
     const start = !!this.gamepad()?.buttons[9]?.pressed;
@@ -188,13 +184,21 @@ export class Input {
       out.moveY = this.script.moveY;
       out.buttons = this.script.buttons;
       out.lookX = (this.script.lookX ?? 0) * dt;
+      out.mouseAim = this.script.aimU !== undefined && this.script.aimV !== undefined;
+      if (out.mouseAim) {
+        out.mouseU = this.script.aimU!;
+        out.mouseV = this.script.aimV!;
+      }
       out.lockToggle = this.lockToggle;
+      out.ping = this.ping;
       this.lockToggle = false;
+      this.ping = false;
       return out;
     }
     if (!this.enabled) {
       this.lockToggle = false;
-      this.lockCycle = 0;
+      this.ping = false;
+      this.zoom = 0;
       return out;
     }
     const k = this.keys;
@@ -206,9 +210,9 @@ export class Input {
     if (this.mouseButtons & 1) out.buttons |= Btn.Light;
     if (this.mouseButtons & 4) out.buttons |= Btn.Heavy;
     out.lookX = this.lookX;
-    out.lookY = this.lookY;
+    out.zoom = this.zoom;
     this.lookX = 0;
-    this.lookY = 0;
+    this.zoom = 0;
 
     const pad = this.gamepad();
     if (pad) {
@@ -216,23 +220,21 @@ export class Input {
       const lx = dead(pad.axes[0] ?? 0);
       const ly = dead(pad.axes[1] ?? 0);
       const rx = dead(pad.axes[2] ?? 0);
-      const ry = dead(pad.axes[3] ?? 0);
       let padButtons = 0;
       for (const [idx, btn] of PAD_BUTTONS) if (pad.buttons[idx]?.pressed) padButtons |= btn;
-      if (lx || ly || rx || ry || padButtons) this.usingPad = true;
+      if (lx || ly || rx || padButtons) this.usingPad = true;
       if (lx || ly) {
         out.moveX = lx;
         out.moveY = -ly;
       }
       out.buttons |= padButtons;
-      out.lookX += rx * 3.2 * dt;
-      out.lookY += ry * 1.8 * dt;
+      out.lookX += rx * 2.6 * dt;
       const lockBtn = !!pad.buttons[11]?.pressed;
       if (lockBtn && !this.padLockHeld) this.lockToggle = true;
       this.padLockHeld = lockBtn;
-      const cycle = pad.buttons[15]?.pressed ? 1 : pad.buttons[14]?.pressed ? -1 : 0;
-      if (cycle && !this.padCycleHeld) this.lockCycle = cycle;
-      this.padCycleHeld = cycle !== 0;
+      const pingBtn = !!pad.buttons[12]?.pressed;
+      if (pingBtn && !this.padPingHeld) this.ping = true;
+      this.padPingHeld = pingBtn;
     }
 
     if (touch) {
@@ -243,7 +245,6 @@ export class Input {
       }
       out.buttons |= touch.buttons;
       out.lookX += touch.lookX;
-      out.lookY += touch.lookY;
       if (touch.lockToggle) this.lockToggle = true;
     }
 
@@ -253,10 +254,11 @@ export class Input {
       out.moveY /= len;
     }
     out.lockToggle = this.lockToggle;
-    out.lockCycle = this.lockCycle;
+    out.ping = this.ping;
     out.usingPad = this.usingPad;
+    out.mouseAim = !this.usingPad && !this.touch?.shown;
     this.lockToggle = false;
-    this.lockCycle = 0;
+    this.ping = false;
     return out;
   }
 
