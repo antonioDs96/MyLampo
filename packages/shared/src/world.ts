@@ -2876,6 +2876,9 @@ export class World {
         pr.x = sx + pr.dx * hitAt;
         pr.z = sz + pr.dz * hitAt;
         const src = this.enemies.find((e) => e.id === pr.src);
+        const hx = pr.x;
+        const hz = pr.z;
+        const touch = TUNING.playerRadius + pr.r + TUNING.enemyHitPad;
         const res = this.tryHitPlayer(hitPlayer, {
           dmg: pr.dmg,
           red: pr.red,
@@ -2885,6 +2888,8 @@ export class World {
           src: pr.src,
           family: 'shot',
           hook: pr.effect === 'harpoon' && src && this.hittable(src) ? this.hookSpot(src, ENEMIES[src.type]) : undefined,
+          // A hero who had already stepped out of its path on their own screen is not hit.
+          still: (q) => Math.hypot(q.x - hx, q.z - hz) <= touch,
         });
         if (res === 'parried') {
           // A perfect parry sends the projectile back where it came from.

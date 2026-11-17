@@ -318,7 +318,7 @@ const DEFS: EnemyDef[] = [
     preferred: 10,
     attacks: [
       ea({ id: 'nota', name: 'Nota Tagliente', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.8, dmg: 15, startRange: 18, reach: 0, lunge: 0, proj: { kind: 'dark', speed: 18, r: 0.5, range: 28 }, cd: 2.4, weight: 3 }),
-      ea({ id: 'canto', name: 'Canto Ipnotico', anim: 'Cheer', impact: 0.9, windup: 1.3, kind: 'red', dmg: 20, startRange: 16, reach: 0, lunge: 0, aoe: 7, aoeRange: 1, slow: 3, cd: 6, weight: 2, magic: true }),
+      ea({ id: 'canto', name: 'Canto Ipnotico', anim: 'Cheer', impact: 0.9, windup: 1.3, kind: 'red', dmg: 20, startRange: 7, reach: 0, lunge: 0, aoe: 7, aoeRange: 1, slow: 3, cd: 6, weight: 2, magic: true }),
     ],
   }),
 
@@ -411,7 +411,7 @@ const DEFS: EnemyDef[] = [
     preferred: 10,
     attacks: [
       ea({ id: 'nota', name: 'Nota Tagliente', anim: 'Spellcast_Shoot', impact: 0.2, windup: 0.8, dmg: 17, startRange: 20, reach: 0, lunge: 0, proj: { kind: 'dark', speed: 19, r: 0.5, range: 30, count: 3 }, cd: 2.3, weight: 3 }),
-      ea({ id: 'canto', name: 'Canto Ipnotico', anim: 'Cheer', impact: 0.9, windup: 1.3, kind: 'red', dmg: 24, startRange: 16, reach: 0, lunge: 0, aoe: 7.5, aoeRange: 1, slow: 3, cd: 5.5, weight: 2, magic: true }),
+      ea({ id: 'canto', name: 'Canto Ipnotico', anim: 'Cheer', impact: 0.9, windup: 1.3, kind: 'red', dmg: 24, startRange: 7.5, reach: 0, lunge: 0, aoe: 7.5, aoeRange: 1, slow: 3, cd: 5.5, weight: 2, magic: true }),
       ea({ id: 'silenzio', name: 'Cupola del Silenzio', anim: 'Cheer', impact: 0.9, windup: 1.2, recover: 0.8, dmg: 0, startRange: 40, reach: 0, lunge: 0, cd: 7, special: 'silence', weight: 1.6 }),
       ea({ id: 'risacca', name: 'Risacca', anim: 'Unarmed_Melee_Attack_Punch_B', impact: 0.5, windup: 1, recover: 1.1, kind: 'red', dmg: 24, startRange: 40, reach: 0, lunge: 0, kb: 6, cd: 5, special: 'rings', weight: 1.5, phase: 1 }),
     ],

@@ -241,4 +241,42 @@ describe('the warning on the ground matches the blow', () => {
     while (e.state === EState.Windup) world.step(0.05);
     expect(e.yaw).toBeCloseTo(yaw, 6);
   });
+
+  it('no attack starts from farther than it can reach', () => {
+    for (const def of Object.values(ENEMIES)) {
+      for (const atk of def.attacks) {
+        if (atk.proj || (atk.special && atk.special !== 'teleport')) continue;
+        if (atk.special === 'teleport') continue;
+        const reach = atk.aoe ? (atk.aoeRange ?? 0) + atk.aoe + atk.lunge : atk.reach + atk.lunge;
+        expect(atk.startRange, `${def.id}.${atk.id}`).toBeLessThanOrEqual(reach + TUNING.enemyHitPad + 0.01);
+      }
+    }
+  });
+
+  it('a hero who stepped out of a projectile path during the grace is not hit', () => {
+    const world = new World({ layout: parseLayout(FIELD), seed: 5 });
+    const p = world.addPlayer('a', 'jusef', 0);
+    world.rtt.set('a', 150);
+    const type = 'madre_spore';
+    const def = ENEMIES[type];
+    const idx = def.attacks.findIndex((a) => a.proj && !a.special);
+    const e = world.spawnEnemy(type, p.x, p.z + 6);
+    e.state = EState.Chase;
+    e.cool = 999;
+    e.target = p.id;
+    (world as unknown as { beginAttack(e: EnemyState, def: unknown, idx: number, p: unknown): void }).beginAttack(e, def, idx, p);
+    const hp = p.hp;
+    let popped = false;
+    for (let i = 0; i < 80 && !popped; i++) {
+      e.cool = 999;
+      world.step(0.05);
+      if (e.state !== EState.Windup && e.state !== EState.Recover) e.state = EState.Idle;
+      popped = world.drainEvents().some((ev) => ev.e === 'fx' && ev.what.startsWith('pop_'));
+    }
+    expect(popped).toBe(true);
+    // The shot connected on the server, but on their own screen the hero had already moved aside.
+    p.x += 3;
+    for (let i = 0; i < 8; i++) world.step(0.05);
+    expect(p.hp).toBe(hp);
+  });
 });
