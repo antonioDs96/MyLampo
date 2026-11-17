@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { matchMaker, Room, type Client } from '@colyseus/core';
-import { GameHost, MAX_PLAYERS, PUBLIC_ROOM_ID, type ClientMsg, type GearArchive, type ServerMsg } from '@malampu/shared';
+import { GameHost, MAX_PLAYERS, PUBLIC_ROOM_ID, type ClientMsg, type ProfileArchive, type ServerMsg } from '@malampu/shared';
 import { createServerJevAdvisor } from './jev';
 
 /** Letters and digits that are hard to confuse when read aloud or typed from a chat. */
@@ -23,7 +23,7 @@ const ANCHOR_TOKEN = randomBytes(24).toString('hex');
 let acceptingPublic = true;
 
 interface RoomOptions {
-  archive?: GearArchive;
+  archive?: ProfileArchive;
   public?: boolean;
   anchorToken?: string;
 }
@@ -61,7 +61,7 @@ export async function ensurePublicRoom(): Promise<void> {
 /** One party of up to nine. All game rules live in the shared GameHost. */
 export class MalampuRoom extends Room<{ metadata: { public: boolean } }> {
   private host!: GameHost;
-  private archive?: GearArchive;
+  private archive?: ProfileArchive;
   /** The tavern that outlives its players and is recreated if the process drops it. */
   private anchor = false;
   private isPublic = false;
@@ -97,7 +97,7 @@ export class MalampuRoom extends Room<{ metadata: { public: boolean } }> {
   override onLeave(client: Client): void {
     this.host.leave(client.sessionId);
     // Colyseus has already dropped this client. An empty anchor goes back to the
-    // hub so the next company does not inherit a deserted mission.
+    // Hero Selection so the next company does not inherit a deserted expedition.
     if (this.anchor && this.clients.length === 0) this.bootHost();
   }
 

@@ -2,10 +2,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { isHeroId, isProfileId, PUBLIC_ROOM_ID, type HeroId, type HeroInventory } from '@malampu/shared';
+import { isProfileId, PUBLIC_ROOM_ID, sanitizeProfile } from '@malampu/shared';
 import compression from 'compression';
 import express from 'express';
-import { defaultGearFile, FileGearStore } from './gearStore';
+import { defaultProfileFile, FileProfileStore } from './profileStore';
 import { jevEnabled, mountJevRoute } from './jev';
 import { closePublicRooms, ensurePublicRoom, MalampuRoom, openPublicRooms, ROOM_NAME } from './room';
 
@@ -13,7 +13,7 @@ export interface AppOptions {
   port: number;
   /** Folder with the built client; skipped when it does not exist (development). */
   staticDir?: string;
-  /** JSON file for hero sheets. Defaults to $MALAMPU_DATA/profiles.json or ./data/profiles.json. */
+  /** JSON file for profiles. Defaults to $MALAMPU_DATA/profiles.json or ./data/profiles.json. */
   dataFile?: string;
   quiet?: boolean;
 }
@@ -27,7 +27,7 @@ export interface RunningApp {
 export async function startApp(options: AppOptions): Promise<RunningApp> {
   const staticDir = options.staticDir && existsSync(path.join(options.staticDir, 'index.html')) ? options.staticDir : null;
 
-  const archive = new FileGearStore(options.dataFile ?? defaultGearFile());
+  const archive = new FileProfileStore(options.dataFile ?? defaultProfileFile());
 
   const server = new Server({
     transport: new WebSocketTransport({ pingInterval: 5000, pingMaxRetries: 4 }),
@@ -73,7 +73,7 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
   };
 }
 
-function mountProfileApi(app: express.Application, archive: FileGearStore): void {
+function mountProfileApi(app: express.Application, archive: FileProfileStore): void {
   app.use('/api/profile', (req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
@@ -90,17 +90,18 @@ function mountProfileApi(app: express.Application, archive: FileGearStore): void
       res.status(400).json({ error: 'bad id' });
       return;
     }
-    res.json({ heroes: archive.load(id) });
+    res.json({ profile: archive.load(id) });
   });
-  app.put('/api/profile/:id/:hero', express.json({ limit: '32kb' }), (req, res) => {
+  // Solo play runs the host in the browser, so the browser is the one that saves.
+  app.put('/api/profile/:id', express.json({ limit: '32kb' }), (req, res) => {
     const id = one(req.params.id);
-    const hero = one(req.params.hero);
-    if (!isProfileId(id) || !isHeroId(hero)) {
+    if (!isProfileId(id)) {
       res.status(400).json({ error: 'bad id' });
       return;
     }
-    archive.save(id, hero as HeroId, req.body as HeroInventory);
-    res.json({ ok: true, heroes: archive.load(id) });
+    const body = req.body as { profile?: unknown } | undefined;
+    archive.save(id, sanitizeProfile(body?.profile ?? body));
+    res.json({ ok: true, profile: archive.load(id) });
   });
 }
 

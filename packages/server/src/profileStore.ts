@@ -1,23 +1,15 @@
 /**
- * Hero sheets on disk. One JSON book per profile id, shared by every room in this process.
+ * Profiles on disk: banked Gemme and Fili, Skill Tree, cosmetics and City checkpoints.
+ * One JSON entry per profile id, shared by every room in this process.
  * Set MALAMPU_DATA to a persistent directory (a Railway volume) so a redeploy keeps them.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import {
-  HERO_IDS,
-  inventoryHasProgress,
-  isHeroId,
-  isProfileId,
-  sanitizeInventory,
-  type GearArchive,
-  type HeroId,
-  type HeroInventory,
-} from '@malampu/shared';
+import { isProfileId, sanitizeProfile, type Profile, type ProfileArchive } from '@malampu/shared';
 
-type Disk = Record<string, Partial<Record<string, unknown>>>;
+type Disk = Record<string, unknown>;
 
-export class FileGearStore implements GearArchive {
+export class FileProfileStore implements ProfileArchive {
   private data: Disk = {};
 
   constructor(private readonly file: string) {
@@ -29,25 +21,17 @@ export class FileGearStore implements GearArchive {
     }
   }
 
-  load(profileId: string): Partial<Record<HeroId, HeroInventory>> {
-    if (!isProfileId(profileId)) return {};
-    const book = this.data[profileId];
-    const out: Partial<Record<HeroId, HeroInventory>> = {};
-    if (!book || typeof book !== 'object') return out;
-    for (const hero of HERO_IDS) {
-      const inv = sanitizeInventory(hero, book[hero]);
-      if (inv && inventoryHasProgress(inv)) out[hero] = inv;
-    }
-    return out;
+  load(profileId: string): Profile | null {
+    if (!isProfileId(profileId)) return null;
+    const row = this.data[profileId];
+    // Files written before the roguelite rework hold hero sheets, not a profile: start clean.
+    if (!row || typeof row !== 'object' || !('gems' in row)) return null;
+    return sanitizeProfile(row);
   }
 
-  save(profileId: string, hero: HeroId, inv: HeroInventory): void {
-    if (!isProfileId(profileId) || !isHeroId(hero)) return;
-    const clean = sanitizeInventory(hero, inv);
-    if (!clean || !inventoryHasProgress(clean)) return;
-    const book = { ...(this.data[profileId] ?? {}) };
-    book[hero] = clean;
-    this.data[profileId] = book;
+  save(profileId: string, profile: Profile): void {
+    if (!isProfileId(profileId)) return;
+    this.data[profileId] = sanitizeProfile(profile);
     this.flush();
   }
 
@@ -59,7 +43,7 @@ export class FileGearStore implements GearArchive {
   }
 }
 
-export function defaultGearFile(): string {
+export function defaultProfileFile(): string {
   const dir = process.env.MALAMPU_DATA?.trim() || path.join(process.cwd(), 'data');
   return path.join(dir, 'profiles.json');
 }
