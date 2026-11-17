@@ -2094,7 +2094,7 @@ export class World {
       }
       return;
     }
-    if (this.safe || this.time - this.lastTauntAt < 8) return;
+    if (this.safe || this.players.size < 3 || this.time - this.lastTauntAt < 8) return;
     const order = this.roomOrder();
     const prey = this.tauntVictim();
     if (!prey) return;

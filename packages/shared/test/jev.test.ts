@@ -245,6 +245,46 @@ describe('jev decisions', () => {
     expect(body.questions.voice).toBeTruthy();
   });
 
+  function companyOfThree(world: World): void {
+    const seats = [
+      ['seat-b', 'jusef'],
+      ['seat-c', 'alexios'],
+      ['seat-d', 'gabryel'],
+    ] as const;
+    let slot = world.players.size;
+    for (const [id, hero] of seats) {
+      if (world.players.size >= 3) return;
+      world.addPlayer(id, hero, slot);
+      slot += 1;
+    }
+  }
+
+  it('stays quiet until three people are playing', () => {
+    const world = new World({
+      layout: parseLayout({
+        id: 'taunt-few',
+        name: 'taunt-few',
+        theme: 'crypt',
+        rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
+      }),
+      seed: 4,
+    });
+    const hero = world.addPlayer('a', 'vyncent', 0);
+    world.addPlayer('b', 'jusef', 1);
+    hero.hp = 400;
+    const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
+    elite.state = EState.Chase;
+    elite.target = hero.id;
+    elite.cool = 99;
+    const spec = { dmg: 5, red: true, kb: 0, ox: hero.x, oz: hero.z, src: elite.id, family: 'red' as const };
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world.events.length = 0;
+    world.step(0.05);
+    expect(world.events.some((ev) => ev.e === 'taunt')).toBe(false);
+  });
+
   it('puts a taunt on the banner once a hero has suffered the same family', () => {
     const world = new World({
       layout: parseLayout({
@@ -256,6 +296,7 @@ describe('jev decisions', () => {
       seed: 4,
     });
     const hero = world.addPlayer('a', 'vyncent', 0);
+    companyOfThree(world);
     hero.hp = 400;
     const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
     elite.state = EState.Chase;
@@ -288,6 +329,7 @@ describe('jev decisions', () => {
     });
     const vyncent = world.addPlayer('a', 'vyncent', 0);
     const jusef = world.addPlayer('b', 'jusef', 1);
+    companyOfThree(world);
     vyncent.hp = 800;
     jusef.hp = 800;
     const elite = world.spawnEnemy('inquisitore', vyncent.x, vyncent.z + 4);
@@ -349,6 +391,7 @@ describe('jev decisions', () => {
       },
     });
     const hero = world.addPlayer('a', 'vyncent', 0);
+    companyOfThree(world);
     hero.hp = 400;
     const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
     elite.state = EState.Chase;
@@ -382,6 +425,7 @@ describe('jev decisions', () => {
       },
     });
     const hero = world.addPlayer('a', 'vyncent', 0);
+    companyOfThree(world);
     hero.hp = 400;
     const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
     elite.state = EState.Chase;
@@ -429,6 +473,7 @@ describe('jev decisions', () => {
       },
     });
     const hero = world.addPlayer('a', 'vyncent', 0);
+    companyOfThree(world);
     hero.hp = 400;
     const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
     elite.state = EState.Chase;

@@ -31,7 +31,7 @@ export function cleanQuip(raw: string): string | null {
   line = line.replace(/^["'«»]+|["'«»]+$/g, '').trim();
   if (!line || line.length > 140 || line.includes('http') || line.includes('```')) return null;
   const words = line.split(' ').filter(Boolean);
-  if (words.length < 3 || words.length > 22) return null;
+  if (words.length < 3 || words.length > 14) return null;
   return line;
 }
 
