@@ -267,7 +267,7 @@ describe('jev decisions', () => {
     world.step(0.05);
     const taunts = world.events.filter((ev) => ev.e === 'taunt');
     expect(taunts).toHaveLength(1);
-    expect(taunts[0]).toMatchObject({ who: ENEMIES.inquisitore.name });
+    expect(taunts[0]).toMatchObject({ who: ENEMIES.inquisitore.name, id: elite.id });
     if (taunts[0]?.e === 'taunt') {
       expect(taunts[0].text).toContain('Vyncent');
       expect(taunts[0].text).toContain('i rossi');

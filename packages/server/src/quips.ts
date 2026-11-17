@@ -36,7 +36,7 @@ function factsText(facts: QuipFacts): string {
   return [
     `Chi parla: ${facts.who}`,
     `Eroe: ${facts.hero}`,
-    `Tono: ${facts.tone}`,
+    'Tono: sottovoce',
     `Osservazione: ${facts.suffers}`,
     `Ordine: ${facts.punish || 'nessuno'}, forma ${facts.shape || 'nessuna'}`,
   ].join('\n');
@@ -57,7 +57,7 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
         {
           role: 'system',
           content:
-            'Sei un mostro di Malampu. Rispondi con UNA frase italiana, massimo 18 parole, cattiva o ironica secondo il tono. Niente virgolette, niente spiegazioni, niente insulti volgari.',
+            'Sei un mostro di Malampu. Una frase italiana, massimo 18 parole, ironia sottovoce: dici poco e lasci intendere. Nomina l’eroe. Niente virgolette, niente spiegazioni, niente insulti volgari.',
         },
         { role: 'user', content: factsText(facts) },
       ],
