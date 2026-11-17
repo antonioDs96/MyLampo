@@ -1518,6 +1518,7 @@ export class Game {
       case 'fail':
         this.audio.play('deny');
         this.hud.callout(FAIL_TEXT[ev.why] ?? '', 'small');
+        if (ev.why === 'stamina') this.hud.staminaDenied();
         break;
       case 'charge':
         this.audio.play('charge');

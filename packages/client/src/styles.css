@@ -334,6 +334,30 @@ kbd {
   background: #c9452e;
 }
 
+.me .bar.stamina.denied {
+  animation: stamina-denied 0.38s ease-out;
+}
+
+@keyframes stamina-denied {
+  0% {
+    transform: translateX(0) scaleY(1.9);
+    box-shadow: 0 0 0 2px #ff5a3c, 0 0 16px 4px rgba(255, 90, 60, 0.85);
+  }
+  25% {
+    transform: translateX(-5px) scaleY(1.7);
+  }
+  50% {
+    transform: translateX(5px) scaleY(1.4);
+  }
+  75% {
+    transform: translateX(-3px) scaleY(1.2);
+  }
+  100% {
+    transform: translateX(0) scaleY(1);
+    box-shadow: 0 0 0 0 rgba(255, 90, 60, 0);
+  }
+}
+
 .me .bar.stamina > i.charged {
   background: linear-gradient(#f5e7ff, #c084fc 55%, #7c3aed);
 }
