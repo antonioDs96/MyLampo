@@ -197,3 +197,48 @@ describe('dodge and parry timing, as seen on the player screen', () => {
     }
   });
 });
+
+describe('the warning on the ground matches the blow', () => {
+  function charge(type: EnemyState['type'], attack: string, dist: number) {
+    const world = new World({ layout: parseLayout(FIELD), seed: 5 });
+    const p = world.addPlayer('a', 'jusef', 0);
+    const def = ENEMIES[type];
+    const idx = def.attacks.findIndex((a) => a.id === attack);
+    const atk = def.attacks[idx]!;
+    const e = world.spawnEnemy(type, p.x, p.z + dist);
+    e.state = EState.Chase;
+    e.cool = 999;
+    e.target = p.id;
+    (world as unknown as { beginAttack(e: EnemyState, def: unknown, idx: number, p: unknown): void }).beginAttack(e, def, idx, p);
+    return { world, p, e, atk };
+  }
+
+  it('a lunging swing is announced where it will be thrown from, before the lunge starts', () => {
+    for (const [type, attack, dist] of [
+      ['predone_sahuagin', 'carica', 8],
+      ['predone_sahuagin', 'tridente', 4.5],
+      ['idra_carsica', 'travolgi', 12],
+    ] as const) {
+      const { world, e, atk } = charge(type, attack, dist);
+      let announced = { x: e.ax, z: e.az };
+      const start = { x: e.x, z: e.z };
+      while (e.state === EState.Windup && e.struck === 0) {
+        if (e.t < atk.windup - TUNING.enemyCommit) announced = { x: e.ax, z: e.az };
+        world.step(0.05);
+      }
+      const moved = Math.hypot(e.x - start.x, e.z - start.z);
+      expect(moved, `${type}.${attack} lunges`).toBeGreaterThan(1);
+      // The marker was already sitting where the attacker ended up.
+      expect(Math.hypot(e.x - announced.x, e.z - announced.z), `${type}.${attack}`).toBeLessThan(0.35);
+    }
+  });
+
+  it('once committed, an attacker no longer turns to follow its target', () => {
+    const { world, p, e, atk } = charge('nostromo_senzocchi', 'gancio', 3);
+    while (e.t < atk.windup - TUNING.enemyCommit) world.step(0.05);
+    const yaw = e.yaw;
+    p.x += 4;
+    while (e.state === EState.Windup) world.step(0.05);
+    expect(e.yaw).toBeCloseTo(yaw, 6);
+  });
+});

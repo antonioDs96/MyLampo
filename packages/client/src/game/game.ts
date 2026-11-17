@@ -160,6 +160,8 @@ interface EnemyView {
   snap: EnemySnap;
   state: number;
   atk: number;
+  /** Blows of the current attack already shown landing. */
+  strikes: number;
   seen: boolean;
   dustTimer: number;
   /** Smoothed visual feet height. NaN until the first placement. */
@@ -1703,11 +1705,13 @@ export class Game {
           z: jump ? ea.z : lerp(ea.z, eb.z, u),
           yaw: lerpAngle(ea.yaw, eb.yaw, u),
           t: same ? lerp(ea.t, eb.t, u) : ea.t + since,
+          ax: same && !jump ? lerp(ea.ax, eb.ax, u) : ea.ax,
+          az: same && !jump ? lerp(ea.az, eb.az, u) : ea.az,
         };
         let ev = this.enemyViews.get(ea.id);
         if (!ev) {
           const view = new CharacterView(this.scene, this.assets, ENEMY_LOOKS[ea.type], `enemy:${ea.id}`, this.shadow);
-          ev = { view, snap: shown, state: -1, atk: -1, seen: true, dustTimer: 0, y: Number.NaN, surfaced: enemyHas(ea.st, ES.Burrow) ? 0 : 1 };
+          ev = { view, snap: shown, state: -1, atk: -1, strikes: 0, seen: true, dustTimer: 0, y: Number.NaN, surfaced: enemyHas(ea.st, ES.Burrow) ? 0 : 1 };
           this.enemyViews.set(ea.id, ev);
         }
         ev.seen = true;
@@ -2121,24 +2125,35 @@ export class Game {
     let g = 0;
     let b = 0;
     const atk: EnemyAttackDef | undefined = def.attacks[e.atk];
+    const melee = !!atk && !atk.proj && !atk.aoe && (!atk.special || atk.special === 'teleport');
     if (e.state === EState.Windup && atk) {
-      const k = Math.min(1, e.t / atk.windup);
+      const fresh = ev.state !== EState.Windup || ev.atk !== e.atk;
+      if (fresh) ev.strikes = 0;
+      // Follow-up blows of a multi-hit attack get their own countdown.
+      const gap = atk.hitGap ?? 0.7;
+      const blows = 1 + (atk.extraHits ?? 0);
+      const landed = e.t >= atk.windup ? Math.min(blows, 1 + Math.floor((e.t - atk.windup) / gap)) : 0;
+      const k = landed === 0 ? e.t / atk.windup : landed >= blows ? 1 : (e.t - atk.windup - (landed - 1) * gap) / gap;
+      const committed = landed > 0 || e.t >= atk.windup - TUNING.enemyCommit;
       const c = atk.kind === 'red' ? RED : BLUE;
-      const pulse = 0.25 + k * 0.55;
+      const pulse = 0.25 + k * 0.55 + (committed ? 0.35 : 0);
       r += c[0] * pulse;
       g += c[1] * pulse;
       b += c[2] * pulse;
-      this.telegraph(e, def.radius, atk, k, c);
-      if (ev.state !== EState.Windup || ev.atk !== e.atk) {
+      this.telegraph(e, def.radius, atk, k, c, melee, committed);
+      if (fresh) {
         const size = def.boss ? 1.9 : def.elite ? 1.3 : 1;
         vfx.glint(() => view.worldPosition('handslot.r', this.tmp), c, 0.42, size);
         const d = this.me ? Math.hypot(e.x - this.me.x, e.z - this.me.z) : 99;
         if (d < 26) this.audio.play(atk.kind === 'red' ? 'warnRed' : 'warnBlue', d < 12 ? 1 : 0.45);
       }
-    } else if (ev.state === EState.Windup && e.state === EState.Recover && atk && !atk.proj && !atk.special && !atk.aoe) {
-      const c: RGB = atk.kind === 'red' ? [1, 0.35, 0.25] : [0.75, 0.85, 1];
-      vfx.slash(e.x, 1.2 * view.look.scale, e.z, e.yaw, atk.reach + 0.3, c, 1, 0.25, 0.22, 1.1);
-      this.audio.play('swing', 0.3);
+      if (melee && landed > ev.strikes) this.swingFx(view, e, atk);
+      ev.strikes = landed;
+    } else {
+      if (ev.state === EState.Windup && e.state === EState.Recover && atk && melee && ev.strikes < 1 + (atk.extraHits ?? 0)) {
+        this.swingFx(view, e, atk);
+      }
+      ev.strikes = 0;
     }
     if (e.state === EState.Broken) {
       const pulse = 0.35 + Math.sin(vfx.clock * 10) * 0.2;
@@ -2190,23 +2205,49 @@ export class Game {
     ev.atk = e.atk;
   }
 
-  /** Ground marker showing where an enemy attack will land, filling up as the strike approaches. */
-  private telegraph(e: EnemySnap, radius: number, atk: EnemyAttackDef, k: number, c: RGB): void {
+  /** The arc of light and the whoosh of an enemy blow landing. */
+  private swingFx(view: CharacterView, e: EnemySnap, atk: EnemyAttackDef): void {
+    const c: RGB = atk.kind === 'red' ? [1, 0.35, 0.25] : [0.75, 0.85, 1];
+    this.vfx.slash(e.x, 1.2 * view.look.scale, e.z, e.yaw, atk.reach + 0.3, c, 1, 0.25, 0.22, 1.1);
+    this.audio.play('swing', 0.3);
+  }
+
+  /**
+   * Ground marker showing where an enemy attack will land, filling up as the strike approaches.
+   * It is drawn where the blow will actually be thrown from, lunge included, and it flares once
+   * the attacker has committed: from then on it no longer turns to follow anyone.
+   */
+  private telegraph(e: EnemySnap, radius: number, atk: EnemyAttackDef, k: number, c: RGB, melee: boolean, committed: boolean): void {
     const vfx = this.vfx;
     const y = this.groundY(e.x, e.z) + 0.04;
-    if (atk.proj || atk.special) {
-      vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5, y);
-      return;
-    }
+    const hot = committed ? 0.25 : 0;
     if (atk.aoe) {
       const ay = this.groundY(e.ax, e.az) + 0.04;
-      vfx.disc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4, ay);
+      vfx.disc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4 + hot, ay);
       vfx.disc(e.ax, e.az, atk.aoe * k, c, 0.5, ay);
       return;
     }
-    // Lunging attacks travel during the wind-up: the marker follows the enemy.
-    vfx.sector(e.x, e.z, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4, y);
-    vfx.sector(e.x, e.z, atk.reach * k, e.yaw, atk.arc, c, 0.45, y);
+    if (!melee) {
+      vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5, y);
+      if (atk.proj) {
+        // The line of fire: it stops turning when the shooter commits.
+        const len = Math.min(atk.proj.range, 14);
+        const count = atk.proj.count ?? 1;
+        for (let i = 0; i < count; i++) {
+          const a = e.yaw + (i - (count - 1) / 2) * 0.22;
+          const tx = e.x + Math.sin(a) * len;
+          const tz = e.z + Math.cos(a) * len;
+          vfx.beamAt(e.x, y + 0.05, e.z, tx, y + 0.05, tz, atk.proj.r * 1.4, c, 0.12 + k * 0.25 + hot);
+        }
+      }
+      return;
+    }
+    const run = Math.hypot(e.ax - e.x, e.az - e.z);
+    const oy = this.groundY(e.ax, e.az) + 0.04;
+    // A charge shows the lane it is about to cross.
+    if (run > 1.2) vfx.beamAt(e.x, y + 0.05, e.z, e.ax, oy + 0.05, e.az, radius * 1.6, c, 0.35 + k * 0.35 + hot);
+    vfx.sector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot, oy);
+    vfx.sector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45, oy);
   }
 
   /** Lama: a gold rule and the line, sitting to the screen-right of the speaker's head. */

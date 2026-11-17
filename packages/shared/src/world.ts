@@ -1916,15 +1916,30 @@ export class World {
     }
     e.yaw = yawOf(target.x - e.x, target.z - e.z);
     this.lastSwing.set(e.id, atk.kind);
-    this.setAim(e, atk, target);
+    this.setAim(e, def, atk, target);
   }
 
-  private setAim(e: EnemyState, atk: EnemyAttackDef, target: PlayerState): void {
+  /** How far a lunging swing may still carry its owner toward the target. */
+  private lungeRoom(e: EnemyState, def: EnemyDef, target: PlayerState | undefined, want: number): number {
+    if (!target) return want;
+    const gap = Math.hypot(target.x - e.x, target.z - e.z) - def.radius - TUNING.playerRadius - 0.3;
+    return Math.max(0, Math.min(want, gap));
+  }
+
+  /**
+   * Where the attack will land. A slam aims at a spot on the ground; a swing aims at the place
+   * its owner will be standing when it lands, so the warning on the floor already includes the
+   * lunge instead of jumping forward with it at the last instant.
+   */
+  private setAim(e: EnemyState, def: EnemyDef, atk: EnemyAttackDef, target: PlayerState | undefined): void {
     if (!atk.aoe) {
-      e.ax = target.x;
-      e.az = target.z;
+      const left = atk.lunge * clamp((atk.windup - e.t) / TUNING.enemyCommit, 0, 1);
+      const room = left > 0 ? this.lungeRoom(e, def, target, left) : 0;
+      e.ax = e.x + Math.sin(e.yaw) * room;
+      e.az = e.z + Math.cos(e.yaw) * room;
       return;
     }
+    if (!target) return;
     const dx = target.x - e.x;
     const dz = target.z - e.z;
     const d = Math.hypot(dx, dz) || 1;
@@ -2693,11 +2708,11 @@ export class World {
     const prevT = e.t;
     e.t += dt * (slow < 1 ? 0.75 : 1);
     const target = this.players.get(e.target);
-    const lungeTime = 0.28;
+    const lungeTime = TUNING.enemyCommit;
     const lungeStart = atk.windup - lungeTime;
     if (target && target.act !== Act.Downed && e.t < lungeStart) {
       e.yaw = approachAngle(e.yaw, yawOf(target.x - e.x, target.z - e.z), 7 * dt);
-      if (atk.aoe && e.t < atk.windup * 0.55) this.setAim(e, atk, target);
+      if (atk.aoe && e.t < atk.windup * 0.55) this.setAim(e, def, atk, target);
     }
     if (atk.lunge > 0 && e.t >= lungeStart && prevT < atk.windup) {
       const step = (atk.lunge / lungeTime) * dt;
@@ -2707,11 +2722,7 @@ export class World {
         const d = Math.hypot(dx, dz);
         if (d > 0.3) this.moveEnemy(e, def, dx, dz, Math.min(step, d) / dt, dt);
       } else {
-        let allowed = step;
-        if (target) {
-          const gap = Math.hypot(target.x - e.x, target.z - e.z) - def.radius - TUNING.playerRadius - 0.3;
-          allowed = Math.max(0, Math.min(step, gap));
-        }
+        const allowed = this.lungeRoom(e, def, target, step);
         const ox = e.x;
         const oz = e.z;
         e.x += Math.sin(e.yaw) * allowed;
@@ -2721,6 +2732,7 @@ export class World {
         e.z = tmp.z;
       }
     }
+    if (!atk.aoe) this.setAim(e, def, atk, target);
     const gapT = atk.hitGap ?? 0.7;
     while (e.struck < e.n && e.t >= atk.windup + e.struck * gapT) {
       this.strike(e, def, atk);
