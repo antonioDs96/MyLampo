@@ -64,7 +64,7 @@ function lineOf(lines: string[], salt: string, avoid = ''): string {
   return lines[start]!;
 }
 
-/** A short Italian taunt, always understated. Jev picks a shade; the words stay in the game. */
+/** A short Italian taunt: unhinged irony. Jev picks a shade; the words stay in the game. */
 export function tauntLine(args: {
   who: string;
   hero: string;
@@ -82,26 +82,38 @@ export function tauntLine(args: {
   let lines: string[];
   if (fam) {
     lines = [
-      `${args.hero}, ${fam} ti stanno simpatici. Il bis è già in cottura.`,
-      `${args.hero} e ${fam}: una storia breve, e la conosciamo già.`,
-      `Nota su ${args.hero}. ${fam} entrano. Il resto può aspettare.`,
-      `${args.hero}, di nuovo ${fam}. Non è un caso, è un'abitudine.`,
-      `Prego, ${args.hero}. ${fam} erano già il tuo piatto.`,
-      `${args.hero} insiste. ${fam} restano, il resto no.`,
+      `${args.hero}, ${fam} ti hanno adottato. Io porto solo il bis.`,
+      `${args.hero} e ${fam}: amore tossico, e io faccio da testimone.`,
+      `Oddio ${args.hero}, ancora ${fam}. Il tuo corpo ha l'abbonamento.`,
+      `${args.hero}, ${fam} sono la tua personalità. Io eseguo, ridendo.`,
+      `Aiuto, ${args.hero} colleziona ${fam}. Te li verso tutti.`,
+      `${args.hero} vede ${fam} e fa gli occhi a cuore. Che romanticismo.`,
     ];
   } else if (stopped) {
     lines = [
-      `${args.hero} ferma ${stopped}. Quello resta nel cassetto.`,
-      `Bella parata, ${args.hero}. ${stopped} no. Il resto, volentieri.`,
+      `${args.hero} ferma ${stopped} come un affronto. Il resto entra in casa.`,
+      `Parata da premio su ${stopped}, ${args.hero}. Il manuale finisce lì.`,
     ];
   } else if (args.shape === 'surround') {
-    lines = [`${args.hero} in mezzo. Il cerchio è già chiuso, e lui lo sa.`, `Intorno a ${args.hero}. Nessun lato buono, mi spiace.`];
+    lines = [
+      `${args.hero} in mezzo, come una torta. Il cerchio ha già i candelini.`,
+      `Intorno a ${args.hero}. Non è un abbraccio, è un inventario.`,
+    ];
   } else if (args.shape === 'peel') {
-    lines = [`Il tank al bruto. ${args.hero} è la portata, con permesso.`, `${args.hero} dietro non è al sicuro. Il bruto tiene l'altro.`];
+    lines = [
+      `Il tank balla col bruto. ${args.hero}, tu sei il dessert.`,
+      `${args.hero} dietro le quinte non è al sicuro. Il bruto tiene la porta.`,
+    ];
   } else if (args.shape === 'hold') {
-    lines = [`State larghi. ${args.hero} lo prendiamo dove la parata non arriva.`, `Niente mischia. ${args.hero}, da lontano è più educato.`];
+    lines = [
+      `State larghi, che eleganza. ${args.hero} lo prendiamo dove la parata non arriva.`,
+      `Niente mischia. ${args.hero}, da qui si vede meglio il tuo errore preferito.`,
+    ];
   } else {
-    lines = [`Vi studiamo, ${args.hero}. Ancora un po' e diventa personale.`, `${args.hero}, non abbiamo ancora un vizio vostro. Arriva.`];
+    lines = [
+      `${args.hero}, vi studiamo e già ridiamo in anticipo.`,
+      `${args.hero}, il vizio non c'è ancora. Quando arriva, festa storta.`,
+    ];
   }
   return { who: args.who, text: lineOf(lines, salt, args.avoid) };
 }

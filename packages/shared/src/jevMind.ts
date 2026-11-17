@@ -520,11 +520,11 @@ export function buildCaptainBody(brief: RoomBrief, model: string): {
     },
     voice: {
       type: 'choice',
-      instructions: 'Which shade of understated irony fits a one-line taunt about how this hero is actually fighting?',
+      instructions: 'Which shade of unhinged irony fits a one-line taunt about how this hero is actually fighting?',
       criteria: {
-        cruel: 'A small smile. Name the weakness and offer seconds, without raising the voice.',
-        mock: 'Polite irony. The monster sounds like a waiter who already knows the order.',
-        dry: 'A field note. Short, cold, and slightly amused.',
+        cruel: 'Delighted and unhinged. Name the weakness like it is a love affair and offer more.',
+        mock: 'Absurd comedy. The monster is too pleased with the hero’s repeated mistake.',
+        dry: 'Deadpan nonsense. A straight face, then one deranged image.',
       },
     },
   };
