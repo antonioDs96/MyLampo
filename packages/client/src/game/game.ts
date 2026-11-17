@@ -152,7 +152,6 @@ export class Game {
   readonly input: Input;
   readonly hud: Hud;
   private readonly touch: TouchControls;
-  private touchHinted = false;
   readonly menus: Menus;
   readonly audio = new Audio();
   private readonly cam: ChaseCamera;
@@ -222,10 +221,6 @@ export class Game {
     this.touch.onLayout = (shown) => {
       if (!shown) return;
       this.input.releaseLock();
-      if (this.info && !this.touchHinted) {
-        this.touchHinted = true;
-        this.hud.hint('Levetta a sinistra per muoverti, comandi a destra. Trascina lo schermo libero per girare la visuale.');
-      }
     };
     this.hud.onUseBelt = (slot) => this.send({ t: 'useBelt', slot });
     this.hud.onPickCard = (index) => this.send({ t: 'pickCard', index });
@@ -921,7 +916,7 @@ export class Game {
         if (this.blades.length > 2) this.blades.shift();
         break;
       case 'hint':
-        this.hud.hint(ev.text);
+        // Tutorial and strategy notes stay off the screen. Only enemy taunts are shown.
         break;
       case 'phase':
         this.hud.banner('Klaus Kaballor', ev.n >= 2 ? 'Il Tamburo Sacro batte più forte' : 'Il Silenzio si fa furia', 2.6);
