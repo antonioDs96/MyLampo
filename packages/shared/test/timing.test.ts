@@ -154,7 +154,8 @@ describe('dodge and parry timing, as seen on the player screen', () => {
       });
 
       // Rolling into the attacker keeps the hero inside the swing: only the timing can save them.
-      for (const press of [-220, -120, -40, 0, 30]) {
+      // -600 is during the signal but far too early for the roll's invulnerability to last.
+      for (const press of [-600, -220, -120, -40, 0, 30]) {
         it(`a dodge pressed ${press} ms from the visible strike avoids it`, () => {
           const r = duel({ ...base, press });
           expect(r.damage).toBe(0);
@@ -176,10 +177,14 @@ describe('dodge and parry timing, as seen on the player screen', () => {
     });
   }
 
-  it('a red attack cannot be parried however good the timing', () => {
-    const r = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: -60, button: Btn.Block, net: NETS['good line']! });
-    expect(r.parried).toBe(false);
-    expect(r.damage).toBeGreaterThan(0);
+  it('a parry during the signal stops a red attack; one raised after the blow does not', () => {
+    const net = NETS['good line']!;
+    const answered = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: -400, button: Btn.Block, net });
+    expect(answered.parried).toBe(true);
+    expect(answered.damage).toBe(0);
+    const late = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: 200, button: Btn.Block, net });
+    expect(late.parried).toBe(false);
+    expect(late.damage).toBeGreaterThan(0);
   });
 
   it('a client that reports nothing still gets the latency estimate', () => {

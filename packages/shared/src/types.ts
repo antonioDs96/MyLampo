@@ -282,6 +282,12 @@ export interface Projectile {
   hit: number[];
   /** Terrace the shooter stood on. Authority-only: not part of the snapshot. */
   eye: number;
+  /**
+   * For an enemy shot: when its signal appeared and when the shot itself was fired, in world
+   * seconds. A dodge or a parry between the two answered the alert. Not part of the snapshot.
+   */
+  alertStart?: number;
+  alertEnd?: number;
 }
 
 export interface Zone {
@@ -298,6 +304,11 @@ export interface Zone {
   tick: number;
   /** Players already hit (expanding rings). */
   hit: string[];
+  /**
+   * For a zone that is the blow following an enemy signal: when the signal appeared and when the
+   * blow was released, in world seconds. Not part of the snapshot.
+   */
+  alert?: { start: number; end: number };
 }
 
 /** Events broadcast to clients for feedback (VFX, audio, HUD). */

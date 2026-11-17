@@ -202,6 +202,12 @@ interface HitSpec {
   still?: (p: PlayerState) => boolean;
   /** Attack family, captured when the swing starts so a late hit still teaches the right lesson. */
   family?: AttackFamily;
+  /**
+   * The red or blue signal of this blow, in world seconds: it appeared at `start` and the blow
+   * itself is released at `end`. A dodge or a parry pressed inside that span answers the alert,
+   * so it succeeds even though the hero's invulnerability has already run out.
+   */
+  alert?: { start: number; end: number };
 }
 
 interface PendingHit {
@@ -253,6 +259,10 @@ export class World {
   clock = 0;
   /** Latest server clock each player's client reported having on screen. */
   private seen = new Map<string, number>();
+  /** World time (s) each enemy's current signal appeared. */
+  private signals = new Map<number, number>();
+  /** World time (s) of each hero's latest dodge and of the moment they raised their guard. */
+  private reacted = new Map<string, { dodgeAt: number; blockAt: number }>();
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
   projectiles: Projectile[] = [];
@@ -393,6 +403,7 @@ export class World {
     this.players.delete(id);
     this.pending = this.pending.filter((h) => h.pid !== id);
     this.seen.delete(id);
+    this.reacted.delete(id);
     this.mods.delete(id);
     this.furyIdle.delete(id);
     this.drops = this.drops.filter((d) => d.owner !== id);
@@ -485,10 +496,12 @@ export class World {
           this.usePoi(p, e.poi);
           break;
         case 'dodge':
+          this.noteReaction(id, 'dodge');
           this.lateDodge(p);
           if (p.hero === 'anthon' && p.blink) this.anthonTrail(p);
           break;
         case 'block':
+          this.noteReaction(id, 'block');
           this.lateBlock(p);
           break;
       }
@@ -1372,8 +1385,57 @@ export class World {
     return out;
   }
 
+  /** Remember that this hero just dodged or raised their guard, and when. */
+  private noteReaction(id: string, kind: 'dodge' | 'block'): void {
+    const r = this.reacted.get(id) ?? { dodgeAt: -1, blockAt: -1 };
+    r[kind === 'dodge' ? 'dodgeAt' : 'blockAt'] = this.time;
+    this.reacted.set(id, r);
+  }
+
+  /** When the red or blue signal of this enemy's current attack appeared. */
+  private signalOf(e: EnemyState): number {
+    const known = this.signals.get(e.id);
+    if (known !== undefined) return known;
+    const start = this.time - e.t;
+    this.signals.set(e.id, start);
+    return start;
+  }
+
+  /**
+   * The signal is an alert, not the attack. It covers the whole wind-up and ends the instant the
+   * blow is released: a dodge or a parry pressed while it was showing, and before that release,
+   * answers it.
+   */
+  private alertWindow(e: EnemyState): { start: number; end: number } {
+    return { start: this.signalOf(e), end: this.time };
+  }
+
+  /** Which defense, if any, this hero committed while the signal was up and before the blow. */
+  private answerToSignal(p: PlayerState, spec: HitSpec): 'dodge' | 'parry' | null {
+    const a = spec.alert;
+    if (!a) return null;
+    const r = this.reacted.get(p.id);
+    if (!r) return null;
+    const dodge = r.dodgeAt >= a.start && r.dodgeAt <= a.end;
+    const parry = r.blockAt >= a.start && r.blockAt <= a.end;
+    if (dodge && (!parry || r.dodgeAt >= r.blockAt)) return 'dodge';
+    if (parry) return 'parry';
+    return null;
+  }
+
   private tryHitPlayer(p: PlayerState, spec: HitSpec): HitResult {
     if (p.act === Act.Downed) return 'none';
+    // Answering the alert beats the blow outright, red or blue: the attack had not started yet.
+    const answered = this.answerToSignal(p, spec);
+    if (answered === 'dodge') {
+      this.perfectDodge(p);
+      this.markSuffer(p.id, spec, false);
+      return 'dodged';
+    }
+    if (answered === 'parry') {
+      this.parry(p, spec);
+      return 'parried';
+    }
     if (p.iframes > 0) {
       if (p.act === Act.Dodge && p.t <= T(TUNING.perfectDodge)) this.perfectDodge(p);
       this.markSuffer(p.id, spec, false);
@@ -1916,6 +1978,7 @@ export class World {
     }
     e.yaw = yawOf(target.x - e.x, target.z - e.z);
     this.lastSwing.set(e.id, atk.kind);
+    this.signals.set(e.id, this.time);
     this.setAim(e, def, atk, target);
   }
 
@@ -1982,7 +2045,8 @@ export class World {
   private strike(e: EnemyState, def: EnemyDef, atk: EnemyAttackDef): void {
     const red = atk.kind === 'red';
     if (atk.special === 'rings') {
-      this.addZone('ring', e.x, e.z, 0, RING_MAX / RING_SPEED, '', atk.dmg);
+      const ring = this.addZone('ring', e.x, e.z, 0, RING_MAX / RING_SPEED, '', atk.dmg);
+      ring.alert = this.alertWindow(e);
       this.events.push({ e: 'ecast', id: e.id, what: 'drum', x: e.x, z: e.z, r: 0 });
       return;
     }
@@ -2012,6 +2076,7 @@ export class World {
       return;
     }
     if (atk.proj) {
+      const alert = this.alertWindow(e);
       const count = atk.proj.count ?? 1;
       for (let i = 0; i < count; i++) {
         const a = e.yaw + (i - (count - 1) / 2) * 0.22;
@@ -2037,12 +2102,15 @@ export class World {
           effect: atk.special === 'harpoon' ? 'harpoon' : '',
           hit: [],
           eye: this.eyeOf(e, def),
+          alertStart: alert.start,
+          alertEnd: alert.end,
         });
       }
       return;
     }
     const ox = e.x;
     const oz = e.z;
+    const alert = this.alertWindow(e);
     const pad = TUNING.enemyHitPad;
     const physical = !atk.magic;
     const stops = (x: number, z: number): boolean => !def.towering && meleeHeightBlocked(this.layout, e.x, e.z, x, z);
@@ -2067,6 +2135,7 @@ export class World {
           physical,
           // Same radius as the strike — walking out of the slam must cancel the pending hit.
           still: (q) => Math.hypot(q.x - cx, q.z - cz) <= r + pad,
+          alert,
         });
       }
       return;
@@ -2097,6 +2166,7 @@ export class World {
         physical,
         // Re-check the exact swing volume after lag forgiveness.
         still: (q) => inMelee(q.x, q.z),
+        alert,
       });
     }
   }
@@ -2738,10 +2808,14 @@ export class World {
       this.strike(e, def, atk);
       e.struck++;
       // A perfect parry staggers or breaks the attacker mid-swing.
-      if (e.state !== EState.Windup) return;
+      if (e.state !== EState.Windup) {
+        this.signals.delete(e.id);
+        return;
+      }
     }
     if (e.struck >= e.n) {
       e.state = EState.Recover;
+      this.signals.delete(e.id);
       e.t = 0;
       // A boss facing a crowd keeps the pressure up: he has more heroes to answer.
       const crowd = def.boss ? 1 / (1 + 0.12 * (Math.max(1, this.players.size) - 1)) : 1;
@@ -2890,6 +2964,7 @@ export class World {
           hook: pr.effect === 'harpoon' && src && this.hittable(src) ? this.hookSpot(src, ENEMIES[src.type]) : undefined,
           // A hero who had already stepped out of its path on their own screen is not hit.
           still: (q) => Math.hypot(q.x - hx, q.z - hz) <= touch,
+          alert: pr.alertEnd !== undefined ? { start: pr.alertStart ?? 0, end: pr.alertEnd } : undefined,
         });
         if (res === 'parried') {
           // A perfect parry sends the projectile back where it came from.
@@ -3073,7 +3148,7 @@ export class World {
             const d = Math.hypot(at.x - z.x, at.z - z.z);
             if (Math.abs(d - z.r) > 0.95 && Math.abs(Math.hypot(p.x - z.x, p.z - z.z) - z.r) > 0.95) continue;
             z.hit.push(p.id);
-            this.tryHitPlayer(p, { dmg: z.power, red: true, kb: 6, ox: z.x, oz: z.z, src: 0 });
+            this.tryHitPlayer(p, { dmg: z.power, red: true, kb: 6, ox: z.x, oz: z.z, src: 0, alert: z.alert });
           }
           break;
         }
