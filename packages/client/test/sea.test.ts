@@ -8,6 +8,7 @@ import {
   SEA_WAVES,
   seaBedY,
   seaCrest,
+  seaFragmentShader,
   seaHeight,
   seaShore,
   seaVertexShader,
@@ -69,5 +70,12 @@ describe('the sea at Badiscar', () => {
       expect(src).toContain(w.amp.toFixed(5));
       expect(src).toContain(w.omega.toFixed(5));
     }
+  });
+
+  it('paints the lip like a woodblock: indigo bands and paper-white claws', () => {
+    const src = seaFragmentShader();
+    expect(src).toContain('vec3 paper = vec3(0.95, 0.93, 0.86)');
+    expect(src).toContain('vec3 indigo = vec3(0.05, 0.13, 0.34)');
+    expect(src).toContain('vPhase');
   });
 });

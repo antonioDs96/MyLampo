@@ -1,8 +1,8 @@
 /**
- * The sea around Badiscar.
- * Waves are Gerstner swells: tall, fast, and pinched at the crest so the water breaks
- * instead of bobbing. They run at full height outside the walls and fade within
- * SHORE_FADE metres, so a crest never rises through the walkable abyss slabs.
+ * The sea around Badiscar, drawn like a woodblock print of a great wave.
+ * One long swell carries the curl; Prussian-blue bands and white claws sit on the lip.
+ * Waves run at full height outside the walls and fade within SHORE_FADE metres,
+ * so a crest never rises through the walkable abyss slabs.
  * The same numbers feed the vertex shader — keep seaHeight() and seaVertexShader() in step.
  */
 
@@ -34,16 +34,18 @@ function wave(dirX: number, dirZ: number, k: number, amp: number, omega: number,
   return { ...unit(dirX, dirZ), k, amp, omega, steep };
 }
 
+/** Crests narrower than a sine, so the lip reads as a curl instead of a round swell. Max stays 1. */
+const CREST_POW = 1.45;
+
 /**
- * Four swells. The first comes in from the east, the way the Costa Est faces the open water.
- * Wavelengths stay long enough to read from the isometric camera; the short one is the chop on top.
+ * One great wave from the east, and three lesser swells behind it.
+ * The first is broad enough that the white claws along its lip stay readable.
  */
 export const SEA_WAVES: readonly SeaWave[] = [
-  // One long swell, tall enough to read from the isometric camera. The rest is chop on its back.
-  wave(-0.93, 0.37, 0.22, 3.2, 2.6, 0.85),
-  wave(-0.25, -0.97, 0.35, 1.1, 2.15, 0.4),
-  wave(0.18, 0.98, 0.55, 0.45, 2.8, 0.28),
-  wave(-0.72, -0.69, 0.9, 0.22, 4.2, 0.22),
+  wave(-0.93, 0.37, 0.18, 3.4, 1.7, 0.95),
+  wave(-0.25, -0.97, 0.32, 0.9, 1.8, 0.35),
+  wave(0.18, 0.98, 0.5, 0.4, 2.4, 0.25),
+  wave(-0.72, -0.69, 0.85, 0.18, 3.2, 0.2),
 ];
 
 /** How far past the playable wall the water mesh reaches, in metres. */
@@ -93,7 +95,9 @@ export function seaHeight(x: number, z: number, time: number, shore: number): nu
   let y = 0;
   for (const w of SEA_WAVES) {
     const phase = w.k * (w.dirX * x + w.dirZ * z) - w.omega * time;
-    y += Math.sin(phase) * w.amp;
+    const raw = Math.sin(phase);
+    const shaped = raw > 0 ? raw ** CREST_POW : raw;
+    y += shaped * w.amp;
   }
   return y * shore;
 }
@@ -109,8 +113,9 @@ export function seaWaveGlsl(): string {
     const dz = num(w.dirZ);
     return [
       `float phase${i} = ${num(w.k)} * (${dx} * xz.x + ${dz} * xz.y) - ${num(w.omega)} * time;`,
-      `float s${i} = sin(phase${i});`,
+      `float raw${i} = sin(phase${i});`,
       `float c${i} = cos(phase${i});`,
+      `float s${i} = raw${i} > 0.0 ? pow(max(raw${i}, 0.0), ${num(CREST_POW)}) : raw${i};`,
       `float a${i} = ${num(w.amp)} * shore;`,
       `pos.x += ${num(w.steep)} * a${i} * ${dx} * c${i};`,
       `pos.z += ${num(w.steep)} * a${i} * ${dz} * c${i};`,
@@ -139,6 +144,7 @@ varying vec3 vNormal;
 varying vec3 vWorld;
 varying float vFoam;
 varying float vHeight;
+varying float vPhase;
 
 void main() {
   vec2 xz = position.xz;
@@ -152,16 +158,12 @@ void main() {
   float foam = 0.0;
   ${seaWaveGlsl()}
 
-  float ripX = sin(xz.x * 1.6 + time * 3.1) * cos(xz.y * 1.15 - time * 2.4);
-  float ripZ = cos(xz.x * 1.25 - time * 2.7) * sin(xz.y * 1.7 + time * 2.1);
-  nrm.x += ripX * 0.08 * shore;
-  nrm.z += ripZ * 0.08 * shore;
-
   vec4 worldPos = world * vec4(pos, 1.0);
   vWorld = worldPos.xyz;
   vNormal = normalize(mat3(world) * nrm);
   vFoam = foam;
   vHeight = pos.y / crestScale;
+  vPhase = phase0;
   gl_Position = worldViewProjection * vec4(pos, 1.0);
 }
 `;
@@ -174,6 +176,7 @@ varying vec3 vNormal;
 varying vec3 vWorld;
 varying float vFoam;
 varying float vHeight;
+varying float vPhase;
 
 uniform vec3 cameraPosition;
 uniform vec3 fogColor;
@@ -181,29 +184,35 @@ uniform float fogDensity;
 
 void main() {
   vec3 n = normalize(vNormal);
-  vec3 lightDir = normalize(vec3(-0.42, 1.0, -0.18));
-  vec3 viewDir = normalize(cameraPosition - vWorld);
-  float ndotl = clamp(dot(n, lightDir), 0.0, 1.0);
   float h = clamp(vHeight, -1.0, 1.0);
 
-  vec3 deep = vec3(0.004, 0.045, 0.09);
-  vec3 mid = vec3(0.02, 0.22, 0.38);
-  vec3 peak = vec3(0.45, 0.78, 0.9);
-  vec3 col = mix(deep, mid, smoothstep(-0.85, 0.05, h));
-  col = mix(col, peak, smoothstep(0.2, 0.85, h));
+  // Flat bands of indigo, the way a woodblock lays Prussian blue.
+  vec3 sumi = vec3(0.02, 0.035, 0.08);
+  vec3 indigo = vec3(0.05, 0.13, 0.34);
+  vec3 ai = vec3(0.16, 0.36, 0.66);
+  vec3 barrel = vec3(0.42, 0.64, 0.8);
+  float band = floor(clamp(h * 0.5 + 0.5, 0.0, 0.999) * 3.0);
+  vec3 col = band < 0.5 ? sumi : (band < 1.5 ? indigo : ai);
+  col = mix(col, barrel, smoothstep(0.4, 0.78, h));
+  col *= 0.84 + 0.16 * clamp(n.y, 0.0, 1.0);
 
-  vec3 halfVec = normalize(lightDir + viewDir);
-  float spec = pow(clamp(dot(n, halfVec), 0.0, 1.0), 24.0);
-  col += vec3(0.75, 0.92, 1.0) * spec * smoothstep(0.0, 0.7, h);
+  // The keyblock: a dark line just under the lip.
+  float key = smoothstep(0.46, 0.6, h) * (1.0 - smoothstep(0.74, 0.88, h));
+  col = mix(col, vec3(0.012, 0.02, 0.05), key);
 
-  vec3 foam = vec3(0.94, 0.97, 0.96);
-  float cap = max(vFoam * smoothstep(0.15, 0.8, h), smoothstep(0.72, 0.98, h));
-  col = mix(col, foam, clamp(cap, 0.0, 1.0));
-  col += vec3(ndotl * 0.02);
+  // Claws of foam hooking down the face, plus a solid white lip.
+  float finger = sin(vPhase * 6.0 + h * 4.5);
+  float finger2 = sin(vPhase * 11.0 + h * 6.0 + 1.7);
+  float reach = smoothstep(0.22, 0.58, h) * (1.0 - smoothstep(0.9, 1.0, h));
+  float claws = max(smoothstep(0.2, 0.75, finger), smoothstep(0.45, 0.92, finger2)) * reach;
+  float lip = smoothstep(0.8, 0.95, h);
+  vec3 paper = vec3(0.95, 0.93, 0.86);
+  col = mix(col, paper, clamp(max(lip, max(claws, vFoam * lip)), 0.0, 1.0));
 
   float depth = length(cameraPosition - vWorld);
   float fog = 1.0 - exp(-fogDensity * fogDensity * depth * depth);
-  col = mix(col, fogColor, clamp(fog, 0.0, 0.35));
+  vec3 haze = vec3(0.08, 0.16, 0.32);
+  col = mix(col, mix(haze, fogColor, 0.25), clamp(fog, 0.0, 0.28));
   gl_FragColor = vec4(col, 1.0);
 }
 `;
