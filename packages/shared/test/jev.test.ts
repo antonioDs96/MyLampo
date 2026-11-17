@@ -9,6 +9,8 @@ import {
   World,
   buildCaptainBody,
   cleanQuip,
+  pickQuip,
+  sufferSentenceIt,
   buildSystemOneBody,
   createJevAdvisor,
   jevEligible,
@@ -278,6 +280,10 @@ describe('jev decisions', () => {
     expect(cleanQuip('  "Vyncent, i rossi sono la tua dieta."  ')).toBe('Vyncent, i rossi sono la tua dieta.');
     expect(cleanQuip('http://nope.example')).toBeNull();
     expect(cleanQuip('troppo ' + 'lunga '.repeat(30))).toBeNull();
+    const multi = '1. Vyncent, i rossi hanno le chiavi di casa tua.\nVyncent, i rossi hanno le chiavi di casa tua.\nJusef para i blu, poi esplode di stile.';
+    expect(pickQuip(multi, 'Vyncent, i rossi hanno le chiavi di casa tua.')).toBe('Jusef para i blu, poi esplode di stile.');
+    expect(pickQuip(multi)).toBe('Vyncent, i rossi hanno le chiavi di casa tua.');
+    expect(sufferSentenceIt('Vyncent', { family: 'red', resisted: 'blue' })).toContain('i rossi');
 
     const ready = new Map<string, string>();
     const world = new World({

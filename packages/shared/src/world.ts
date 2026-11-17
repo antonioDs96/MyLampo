@@ -30,6 +30,7 @@ import {
   steerMode,
   sufferRead,
   sufferSentence,
+  sufferSentenceIt,
   tauntLine,
   type AttackFamily,
   type HunterView,
@@ -121,6 +122,19 @@ const RAD = Math.PI / 180;
 function ignoresMeleeHeight(hero: HeroId): boolean {
   return hero === 'rycard' || hero === 'gabryel' || hero === 'anthon';
 }
+const ACT_IT: Record<string, string> = {
+  attack: 'attacca',
+  heavy: 'carica un attacco pesante',
+  charge: 'sta caricando',
+  dodge: 'schiva',
+  block: 'para',
+  hitstun: 'barcolla dai colpi presi',
+  ability: "usa l'abilità",
+  ultimate: 'usa la suprema',
+  execute: 'prova un’esecuzione',
+  revive: 'sta rianimando un compagno',
+  idle: 'sta fermo',
+};
 const RING_SPEED = 10;
 const RING_MAX = 34;
 const SPAWN_TIME = 1.1;
@@ -2046,7 +2060,7 @@ export class World {
         this.waitingQuip = null;
         return;
       }
-      if (!this.quips || this.time - this.waitingQuip.since >= 0.8) {
+      if (!this.quips || this.time - this.waitingQuip.since >= 2.8) {
         this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id);
         this.waitingQuip = null;
       }
@@ -2083,14 +2097,20 @@ export class World {
       this.emitTaunt(line.who, line.text, speaker.id);
       return;
     }
+    const party = this.alivePrey();
     const facts: QuipFacts = {
       key,
       who: line.who,
       hero: HEROES[prey.hero].short,
       tone: order?.tone ?? 'mock',
-      suffers: sufferSentence(HEROES[prey.hero].short, read),
+      suffers: sufferSentenceIt(HEROES[prey.hero].short, read),
       punish: order?.punish && order.punish !== 'mix' ? order.punish : read.family,
       shape: order?.shape ?? '',
+      detail: [
+        `in questo momento ${ACT_IT[this.actLabel(prey.act)] ?? 'si muove'}`,
+        `vita al ${Math.max(0, Math.round((prey.hp / Math.max(1, prey.maxHp)) * 100))}%`,
+        isolationOf(prey, party) > 5 ? 'è isolato dal gruppo' : 'è in mezzo al gruppo',
+      ].join(', '),
       avoid: this.lastTauntText,
     };
     this.quips.ask(facts);
