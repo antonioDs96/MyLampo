@@ -20,6 +20,7 @@ import {
 import { CELL, cellElevation, CITIES, CITY_IDS, ELEV_WALL, isSolidCell, STEP_HEIGHT, type Layout, type Theme } from '@malampu/shared';
 import type { Assets } from './assets';
 import { EnvironmentManager, type ReliefBiome } from './environment';
+import { seaBedY } from './sea';
 
 export const FLOOR_Y = 0.05;
 const WALL_H = 4;
@@ -524,7 +525,9 @@ export class Arena {
 
     // Catch-all ground so nothing shows through gaps between tiles.
     const ground = MeshBuilder.CreateGround('ground', { width: w * CELL + 80, height: h * CELL + 80 }, scene);
-    ground.position.set((w * CELL) / 2, hasRelief ? -2 * STEP_HEIGHT - 0.55 : -0.12, (h * CELL) / 2);
+    // Coastal troughs dip well under the abyss. The bed stays below them so it never shows through a wave.
+    const groundY = biome === 'coastal' ? seaBedY() : hasRelief ? -2 * STEP_HEIGHT - 0.55 : -0.12;
+    ground.position.set((w * CELL) / 2, groundY, (h * CELL) / 2);
     const groundMat = massMat.clone('ground');
     groundMat.clipPlane = null;
     this.owned.push(groundMat);
