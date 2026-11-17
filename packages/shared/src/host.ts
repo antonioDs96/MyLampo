@@ -59,6 +59,7 @@ import {
 } from './protocol';
 import { ABILITY_SLOTS, PATH_IDS, type AbilitySlot, type PathId } from './skillTree';
 import { Act, type GameEvent, type HeroId, type InputCmd, type PingKind } from './types';
+import type { QuipWriter } from './quips';
 import { World, type PlayerSetup, type PlayerStats, type WorldOpts } from './world';
 
 export interface HostIO {
@@ -150,11 +151,22 @@ export class GameHost {
   private readonly archive?: ProfileArchive;
   /** Tactical Jev advisor. Absent when the server has no TypeSafe key. */
   private readonly jev?: JevAdvisor;
+  /** Lite model for enemy one-liners. Absent: the written taunt is used. */
+  private readonly quips?: QuipWriter;
 
-  constructor(io: HostIO, code: string, seed: number, archive?: ProfileArchive, isPublic = false, jev?: JevAdvisor) {
+  constructor(
+    io: HostIO,
+    code: string,
+    seed: number,
+    archive?: ProfileArchive,
+    isPublic = false,
+    jev?: JevAdvisor,
+    quips?: QuipWriter,
+  ) {
     this.io = io;
     this.archive = archive;
     this.jev = jev;
+    this.quips = quips;
     this.code = code;
     this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
@@ -436,7 +448,7 @@ export class GameHost {
   private openWorld(opts: WorldOpts): World {
     this.jev?.reset();
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    return new World({ ...opts, seed: this.seed, jev: this.jev });
+    return new World({ ...opts, seed: this.seed, jev: this.jev, quips: this.quips });
   }
 
   private announce(info: WorldInfo): void {

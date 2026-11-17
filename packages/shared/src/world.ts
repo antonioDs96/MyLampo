@@ -22,8 +22,11 @@ import {
   preyScore,
   retargetWindow,
   steerMode,
+  familyWordIt,
   sufferRead,
   sufferSentence,
+  sufferSentenceIt,
+  tauntLine,
   type AttackFamily,
   type HunterView,
   type MindHint,
@@ -32,6 +35,7 @@ import {
   type SufferRead,
 } from './enemyMind';
 import { jevEligible, legalAttackSnaps, type JevAdvisor, type RoomBrief } from './jevMind';
+import type { QuipFacts, QuipWriter } from './quips';
 import { HEROES, type AttackDef } from './heroes';
 import { fairShare, partyAttackSlots, shadowSpawnCount, zergDamage } from './partyScale';
 import {
@@ -108,6 +112,19 @@ function castsMagic(hero: HeroId): boolean {
   return hero === 'gabryel' || hero === 'anthon';
 }
 
+const ACT_IT: Record<string, string> = {
+  attack: 'attacca',
+  heavy: 'carica un attacco pesante',
+  charge: 'sta caricando',
+  dodge: 'schiva',
+  block: 'para',
+  hitstun: 'barcolla dai colpi presi',
+  ability: "usa l'abilità",
+  ultimate: 'usa la suprema',
+  execute: 'prova un’esecuzione',
+  revive: 'sta rianimando un compagno',
+  idle: 'sta fermo',
+};
 const RING_SPEED = 10;
 const RING_MAX = 34;
 const SPAWN_TIME = 1.1;
@@ -216,6 +233,8 @@ export interface WorldOpts {
    * Peek is synchronous; the advisor never blocks a tick.
    */
   jev?: JevAdvisor;
+  /** Optional lite model for one-line taunts. Absent: the written line is used at once. */
+  quips?: QuipWriter;
 }
 
 const tmp: Point = { x: 0, z: 0 };
@@ -226,6 +245,7 @@ export class World {
   readonly safe: boolean;
   readonly streak: number;
   readonly jev?: JevAdvisor;
+  readonly quips?: QuipWriter;
   time = 0;
   readonly players = new Map<string, PlayerState>();
   enemies: EnemyState[] = [];
@@ -281,15 +301,24 @@ export class World {
   private readonly suffer = new Map<string, { t: number; family: AttackFamily; landed: boolean }[]>();
   /** Colour of the swing this foe committed last. */
   private readonly lastSwing = new Map<number, 'blue' | 'red'>();
+  private lastTauntKey = '';
+  private lastTauntText = '';
+  private lastTauntHero = '';
+  private tauntN = 0;
+  private lastTauntAt = -99;
+  /** Holds the written line until a lite model answers, or the wait runs out. */
+  private waitingQuip: { key: string; since: number; who: string; text: string; id: number; heroId: string } | null = null;
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
   constructor(opts: WorldOpts) {
     this.layout = opts.layout;
     this.rng = new Rng(opts.seed);
+    this.tauntN = Math.abs(opts.seed | 0);
     this.safe = !!opts.safe;
     this.streak = opts.streak ?? 0;
     this.jev = opts.jev;
+    this.quips = opts.quips;
     this.ctx = { layout: this.layout, enemies: this.lite, allies: this.allies, pois: this.poiLite };
     for (const d of this.layout.dummySpawns) this.spawnEnemy('manichino', d.x, d.z);
     const boss = this.layout.def.roster?.boss;
@@ -2131,7 +2160,7 @@ export class World {
     if (!spec.src || !spec.family) return;
     const list = this.suffer.get(id) ?? [];
     list.push({ t: this.time, family: spec.family, landed });
-    const fresh = list.filter((mark) => this.time - mark.t <= 6).slice(-8);
+    const fresh = list.filter((mark) => this.time - mark.t <= 16).slice(-12);
     this.suffer.set(id, fresh);
   }
 
@@ -2248,6 +2277,113 @@ export class World {
       bestElev = elev;
     }
     return best;
+  }
+
+  private emitTaunt(who: string, text: string, id: number, heroId = ''): void {
+    if (!text || text === this.lastTauntText) return;
+    this.lastTauntText = text;
+    if (heroId) this.lastTauntHero = heroId;
+    this.lastTauntAt = this.time;
+    this.events.push({ e: 'taunt', who, text, id });
+  }
+
+  /** Who the next joke is about: whoever is actually eating hits, not a turn of the party. */
+  private tauntVictim(): PlayerState | undefined {
+    const alive = [...this.players.values()].filter((p) => p.act !== Act.Downed && !hasStatus(p.st, PS.Stealth));
+    const heat = (p: PlayerState) => {
+      const marks = (this.suffer.get(p.id) ?? []).filter((m) => this.time - m.t <= 16 && m.landed);
+      return marks.length;
+    };
+    return alive
+      .filter((p) => heat(p) > 0)
+      .sort((a, b) => heat(b) - heat(a) || (a.id < b.id ? -1 : 1))[0];
+  }
+
+  /** A read for the joke, looser than the combat rule: one landed family is already a bit. */
+  private readForTaunt(id: string): SufferRead {
+    const marks = (this.suffer.get(id) ?? []).filter((m) => this.time - m.t <= 16);
+    const strict = sufferRead(marks);
+    if (strict.family || strict.resisted) return strict;
+    const landed = marks.filter((m) => m.landed);
+    const last = landed[landed.length - 1];
+    return last ? { family: last.family, resisted: '' } : strict;
+  }
+
+  /** One banner when the read, or Jev's order, actually changes. */
+  private maybeTaunt(): void {
+    if (this.waitingQuip) {
+      const ready = this.quips?.take(this.waitingQuip.key);
+      if (ready && ready !== this.lastTauntText) {
+        this.emitTaunt(this.waitingQuip.who, ready, this.waitingQuip.id, this.waitingQuip.heroId);
+        this.waitingQuip = null;
+        return;
+      }
+      if (ready) {
+        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id, this.waitingQuip.heroId);
+        this.waitingQuip = null;
+        return;
+      }
+      if (!this.quips || this.time - this.waitingQuip.since >= 12.5) {
+        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id, this.waitingQuip.heroId);
+        this.waitingQuip = null;
+      }
+      return;
+    }
+    if (this.safe || this.players.size < 3 || this.time - this.lastTauntAt < 24) return;
+    const order = this.roomOrder();
+    const prey = this.tauntVictim();
+    if (!prey) return;
+    const read = this.readForTaunt(prey.id);
+    const mate = [...this.players.values()]
+      .filter((p) => p.id !== prey.id && p.act !== Act.Downed)
+      .sort((a, b) => this.readForTaunt(b.id).family.length - this.readForTaunt(a.id).family.length)[0];
+    const mateRead = mate ? this.readForTaunt(mate.id) : undefined;
+    const witness = !read.family && mate && mateRead?.family ? { hero: HEROES[mate.hero].short, family: mateRead.family } : undefined;
+    if (!order && !read.family && !read.resisted && !witness) return;
+    const key = `${prey.id}|${read.family}|${read.resisted}|${witness?.hero ?? ''}|${order?.punish ?? ''}|${order?.shape ?? ''}|${order?.tone ?? ''}`;
+    if (key === this.lastTauntKey) return;
+    const elite = this.enemies.find((e) => e.state !== EState.Dead && jevEligible(ENEMIES[e.type]));
+    const speaker = elite ?? this.enemies.find((e) => e.state !== EState.Dead && !ENEMIES[e.type].dummy);
+    if (!speaker) return;
+    const line = tauntLine({
+      who: ENEMIES[speaker.type].name,
+      hero: HEROES[prey.hero].short,
+      read,
+      punish: order?.punish ?? null,
+      shape: order?.shape ?? null,
+      tone: order?.tone ?? 'mock',
+      n: this.tauntN,
+      avoid: this.lastTauntText,
+      witness,
+    });
+    if (line.text === this.lastTauntText) return;
+    this.tauntN += 1;
+    this.lastTauntKey = key;
+    if (!this.quips) {
+      this.emitTaunt(line.who, line.text, speaker.id, prey.id);
+      return;
+    }
+    const party = this.alivePrey();
+    const facts: QuipFacts = {
+      key,
+      who: line.who,
+      hero: HEROES[prey.hero].short,
+      tone: order?.tone ?? 'mock',
+      suffers: witness
+        ? `${HEROES[prey.hero].short} non sta prendendo colpi: è ${witness.hero} che prende ${familyWordIt(witness.family)} in faccia, e ${HEROES[prey.hero].short} guarda`
+        : sufferSentenceIt(HEROES[prey.hero].short, read),
+      punish: order?.punish && order.punish !== 'mix' ? order.punish : read.family || witness?.family || '',
+      shape: order?.shape ?? '',
+      job: HEROES[prey.hero].role,
+      detail: [
+        `in questo momento ${ACT_IT[this.actLabel(prey.act)] ?? 'si muove'}`,
+        `vita al ${Math.max(0, Math.round((prey.hp / Math.max(1, prey.maxHp)) * 100))}%`,
+        isolationOf(prey, party) > 5 ? 'è isolato dal gruppo' : 'è in mezzo al gruppo',
+      ].join(', '),
+      avoid: this.lastTauntText,
+    };
+    this.quips.ask(facts);
+    this.waitingQuip = { key, since: this.time, who: line.who, text: line.text, id: speaker.id, heroId: prey.id };
   }
 
   private stepEnemy(e: EnemyState, dt: number): void {
@@ -2963,6 +3099,7 @@ export class World {
     }
     this.noteCaptain();
     this.jev?.pump(this.time);
+    this.maybeTaunt();
     if (this.enemies.some((e) => e.state === EState.Dead && e.t > CORPSE_TIME)) {
       this.enemies = this.enemies.filter((e) => !(e.state === EState.Dead && e.t > CORPSE_TIME));
     }

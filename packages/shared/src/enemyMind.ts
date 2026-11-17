@@ -35,11 +35,103 @@ export interface SufferRead {
   resisted: AttackFamily | '';
 }
 
+export type TauntTone = 'cruel' | 'mock' | 'dry';
+
 export interface RoomOrder {
   focusId: string | null;
   punish: AttackFamily | 'mix' | null;
   shape: 'surround' | 'peel' | 'hold' | null;
+  tone: TauntTone | null;
   until: number;
+}
+
+const FAMILY_IT: Record<AttackFamily, string> = {
+  blue: 'i blu',
+  red: 'i rossi',
+  shot: 'i dardi',
+  blast: 'le aree',
+  rush: 'le cariche',
+};
+
+/** Italian name of an attack family, the same words the banner uses. */
+export function familyWordIt(family: AttackFamily): string {
+  return FAMILY_IT[family];
+}
+
+function lineOf(lines: string[], salt: string, avoid = ''): string {
+  let h = 0;
+  for (let i = 0; i < salt.length; i++) h = (h * 33 + salt.charCodeAt(i)) >>> 0;
+  const start = h % lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[(start + i) % lines.length]!;
+    if (line !== avoid) return line;
+  }
+  return lines[start]!;
+}
+
+/** A short Italian taunt: unhinged irony. Jev picks a shade; the words stay in the game. */
+export function tauntLine(args: {
+  who: string;
+  hero: string;
+  read: SufferRead;
+  punish: RoomOrder['punish'];
+  shape: RoomOrder['shape'];
+  tone: TauntTone;
+  /** Advances the line so the same observation does not repeat the last sentence. */
+  n?: number;
+  avoid?: string;
+  /** Someone else is eating the hits while this hero watches. */
+  witness?: { hero: string; family: AttackFamily };
+}): { who: string; text: string } {
+  const fam = args.read.family ? FAMILY_IT[args.read.family] : args.punish && args.punish !== 'mix' ? FAMILY_IT[args.punish] : '';
+  const stopped = args.read.resisted ? FAMILY_IT[args.read.resisted] : '';
+  const seen = args.witness ? FAMILY_IT[args.witness.family] : '';
+  const salt = `${args.hero}|${args.tone}|${fam}|${seen}|${args.witness?.hero ?? ''}|${args.shape ?? ''}|${args.n ?? 0}`;
+  let lines: string[];
+  if (fam) {
+    lines = [
+      `${args.hero}, ${fam} ti usano da sacco.`,
+      `Oh ${args.hero}, ${fam} ti schiaffeggiano.`,
+      `${args.hero}, ${fam} ti piegano il mento.`,
+      `${args.hero}, ${fam} hanno scelto il molle.`,
+      `Ancora ${fam}, ${args.hero}? Bersaglio perfetto.`,
+      `${args.hero}, ${fam} ridono di te.`,
+    ];
+  } else if (stopped) {
+    lines = [
+      `${args.hero} para ${stopped} e si crede.`,
+      `${args.hero}, bella parata su ${stopped}. Inutile.`,
+    ];
+  } else if (args.witness) {
+    const other = args.witness.hero;
+    lines = [
+      `${args.hero} fa il bullo. ${other} incassa ${seen}.`,
+      `${args.hero} sogghigna. ${other} prende ${seen}.`,
+      `${args.hero} si nasconde. ${other} prende ${seen}.`,
+      `${args.hero} fa il tifo. ${other} mangia ${seen}.`,
+    ];
+  } else if (args.shape === 'surround') {
+    lines = [
+      `${args.hero} in mezzo. Il più lento.`,
+      `Intorno a ${args.hero}. Che sfottò.`,
+    ];
+  } else if (args.shape === 'peel') {
+    lines = [
+      `${args.hero}, tu sei lo spuntino.`,
+      `${args.hero}, il branco ride di te.`,
+    ];
+  } else if (args.shape === 'hold') {
+    lines = [
+      `${args.hero}, da qui si vede chi trema.`,
+      `${args.hero}, da lontano sei ridicolo.`,
+    ];
+  } else {
+    lines = [
+      `${args.hero}, il più molle si vede.`,
+      `${args.hero}, il vizio deve ancora uscire.`,
+    ];
+  }
+  return { who: args.who, text: lineOf(lines, salt, args.avoid) };
 }
 
 export function familyOf(atk: { kind: 'blue' | 'red'; proj?: unknown; aoe?: number; special?: string; lunge: number }): AttackFamily {
@@ -76,6 +168,16 @@ export function sufferRead(marks: { family: AttackFamily; landed: boolean }[]): 
     }
   }
   return { family, resisted };
+}
+
+/** Same read, in Italian and with an image the taunt can steal. */
+export function sufferSentenceIt(name: string, read: SufferRead): string {
+  const fam = read.family ? FAMILY_IT[read.family] : '';
+  const stop = read.resisted ? FAMILY_IT[read.resisted] : '';
+  if (fam && stop) return `${name} prende ${fam} in faccia a ripetizione, però para bene ${stop}`;
+  if (fam) return `${name} prende ${fam} in faccia a ripetizione, non riesce proprio a evitarli`;
+  if (stop) return `${name} para bene ${stop}, tutto il resto gli passa sopra`;
+  return `${name} non ha ancora un punto debole evidente`;
 }
 
 export function sufferSentence(name: string, read: SufferRead): string {

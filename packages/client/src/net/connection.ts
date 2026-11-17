@@ -65,6 +65,8 @@ function soloJev(): JevAdvisor {
           punishConfidence: 0,
           shape: null,
           shapeConfidence: 0,
+          tone: null,
+          toneConfidence: 0,
           elites: [],
         }
       );

@@ -698,6 +698,38 @@ kbd {
   animation: blink 0.8s steps(2) infinite;
 }
 
+.blade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: min(250px, 34vw);
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--gold);
+  pointer-events: none;
+  animation: blade-in 0.2s ease-out;
+}
+
+.blade b {
+  display: block;
+  font: 600 11px var(--sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.blade span {
+  display: block;
+  margin-top: 4px;
+  font: italic 16px/1.35 var(--serif);
+  color: var(--text);
+  text-shadow: 0 2px 8px #000;
+}
+
+@keyframes blade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .reticle {
   width: 46px;
   height: 46px;
@@ -2701,6 +2733,10 @@ html.touch-mode .combo {
 
 html.touch-mode .banner-title {
   font-size: 32px;
+}
+
+html.touch-mode .blade span {
+  font-size: 14px;
 }
 
 html.touch-mode .callout {

@@ -7,6 +7,7 @@ import compression from 'compression';
 import express from 'express';
 import { defaultProfileFile, FileProfileStore } from './profileStore';
 import { jevEnabled, mountJevRoute } from './jev';
+import { quipLabel, quipsEnabled } from './quips';
 import { closePublicRooms, ensurePublicRoom, MalampuRoom, openPublicRooms, ROOM_NAME } from './room';
 
 export interface AppOptions {
@@ -61,6 +62,11 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
       jevEnabled()
         ? 'Jev tattico attivo: i mostri scelgono tra le mosse legali.'
         : 'Jev tattico spento. Imposta TYPESAFE_API_KEY per le decisioni dei mostri.',
+    );
+    console.log(
+      quipsEnabled()
+        ? `Battute del modello attivo (${quipLabel()}).`
+        : 'Battute scritte. Per generarle: GROQ_API_KEY, OPENAI_API_KEY, o LLM_API_KEY.',
     );
   }
 

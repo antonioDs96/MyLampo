@@ -204,7 +204,6 @@ export class Game {
   readonly input: Input;
   readonly hud: Hud;
   private readonly touch: TouchControls;
-  private touchHinted = false;
   readonly menus: Menus;
   readonly audio = new Audio();
   private readonly cam: IsoCamera;
@@ -245,6 +244,7 @@ export class Game {
   private readonly heroViews = new Map<string, HeroView>();
   private readonly enemyViews = new Map<number, EnemyView>();
   private npcViews: NpcView[] = [];
+  private readonly blades: { id: number; who: string; text: string; until: number }[] = [];
   private enemiesLite: EnemyLite[] = [];
   private alliesLite: AllyLite[] = [];
   private poisLite: PoiLite[] = [];
@@ -301,13 +301,6 @@ export class Game {
     this.touch.onPause = () => this.onKey('KeyH');
     this.touch.onSheet = () => this.toggleSheet();
     this.touch.onPing = () => this.input.pressPing();
-    this.touch.onLayout = (shown) => {
-      if (!shown) return;
-      if (this.info && !this.touchHinted) {
-        this.touchHinted = true;
-        this.hud.hint('Levetta a sinistra per muoverti, comandi a destra. Trascina lo schermo libero per ruotare la visuale.');
-      }
-    };
     this.menus = new Menus(ui, {
       create: (name) => void this.connect(name, null, false),
       join: (name, code) => void this.connect(name, code, false),
@@ -986,8 +979,19 @@ export class Game {
       case 'say':
         this.hud.say(ev.who, ev.text);
         break;
+      case 'taunt': {
+        const live = this.blades.some((b) => b.text === ev.text);
+        if (!live) {
+          for (let i = this.blades.length - 1; i >= 0; i--) {
+            if (this.blades[i]!.id === ev.id) this.blades.splice(i, 1);
+          }
+          this.blades.push({ id: ev.id, who: ev.who, text: ev.text, until: performance.now() + 7500 });
+          if (this.blades.length > 2) this.blades.shift();
+        }
+        break;
+      }
       case 'hint':
-        this.hud.hint(ev.text);
+        // Tutorial and strategy notes stay off the screen. Only enemy taunts are shown.
         break;
       case 'phase': {
         let name = '';
@@ -1729,6 +1733,7 @@ export class Game {
       ev.view.dispose();
       this.enemyViews.delete(id);
     }
+    this.drawBlades();
 
     // ---- zones and projectiles (latest snapshot, advanced to now)
     if (latest) {
@@ -2199,6 +2204,32 @@ export class Game {
     // Lunging attacks travel during the wind-up: the marker follows the enemy.
     vfx.sector(e.x, e.z, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4, y);
     vfx.sector(e.x, e.z, atk.reach * k, e.yaw, atk.arc, c, 0.45, y);
+  }
+
+  /** Lama: a gold rule and the line, sitting to the screen-right of the speaker's head. */
+  private drawBlades(): void {
+    const now = performance.now();
+    const width = this.canvas.clientWidth;
+    const height = this.canvas.clientHeight;
+    const box = Math.min(250, width * 0.34);
+    for (let i = this.blades.length - 1; i >= 0; i--) {
+      const blade = this.blades[i]!;
+      if (now > blade.until) {
+        this.blades.splice(i, 1);
+        continue;
+      }
+      const ev = this.enemyViews.get(blade.id);
+      const snap = ev?.snap;
+      if (!ev || !snap || snap.state === EState.Dead) continue;
+      const at = this.project(snap.x, ev.view.height * 0.72, snap.z);
+      if (!at) {
+        this.hud.holdBlade(blade.id);
+        continue;
+      }
+      const x = Math.min(Math.max(8, at.x + 22), Math.max(8, width - box - 8));
+      const y = Math.min(Math.max(8, at.y - 10), Math.max(8, height - 72));
+      this.hud.blade(blade.id, x, y, blade.who, blade.text);
+    }
   }
 
   private enemyHud(ev: EnemyView, e: EnemySnap, dist: number): void {
