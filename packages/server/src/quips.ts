@@ -7,6 +7,16 @@
 import { pickQuip, type QuipFacts, type QuipWriter } from '@malampu/shared';
 
 let warned = false;
+let warnedTimeout = false;
+
+/** gpt-4o does not finish a chat completion in a couple of seconds. */
+const QUIP_TIMEOUT_MS = 12_000;
+
+function aborted(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('name' in err)) return false;
+  const name = String((err as { name: unknown }).name);
+  return name === 'AbortError' || name === 'TimeoutError';
+}
 
 export interface LiteModel {
   key: string;
@@ -95,7 +105,7 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
         { role: 'user', content: factsText(facts) },
       ],
     }),
-    signal: AbortSignal.timeout(2600),
+    signal: AbortSignal.timeout(QUIP_TIMEOUT_MS),
   });
   if (!res.ok) {
     if (!warned) {
@@ -121,7 +131,14 @@ export function createQuipWriter(): QuipWriter | undefined {
         .then((line) => {
           if (line) ready.set(facts.key, line);
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          if (aborted(err)) {
+            if (!warnedTimeout) {
+              warnedTimeout = true;
+              console.warn('Battute del modello in timeout (12s). Si usano le frasi scritte.');
+            }
+            return;
+          }
           if (!warned) {
             warned = true;
             console.warn('Battute del modello irraggiungibili. Si usano le frasi scritte.');

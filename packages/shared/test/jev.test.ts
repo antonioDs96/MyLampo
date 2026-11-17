@@ -366,6 +366,94 @@ describe('jev decisions', () => {
     expect(taunts).toHaveLength(1);
     if (taunts[0]?.e === 'taunt') expect(taunts[0].text).toBe('Vyncent, i rossi sono la tua dieta.');
   });
+
+  it('keeps the written line off the banner until the model has had 12.5s', () => {
+    const world = new World({
+      layout: parseLayout({
+        id: 'lite-wait',
+        name: 'lite-wait',
+        theme: 'crypt',
+        rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
+      }),
+      seed: 5,
+      quips: {
+        ask: () => undefined,
+        take: () => null,
+      },
+    });
+    const hero = world.addPlayer('a', 'vyncent', 0);
+    hero.hp = 400;
+    const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
+    elite.state = EState.Chase;
+    elite.target = hero.id;
+    elite.cool = 99;
+    const spec = { dmg: 5, red: true, kb: 0, ox: hero.x, oz: hero.z, src: elite.id, family: 'red' as const };
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world.events.length = 0;
+    world.step(0.05);
+    const since = world.time;
+    expect(world.events.some((ev) => ev.e === 'taunt')).toBe(false);
+    while (world.time - since < 12.4) {
+      hero.hp = 400;
+      elite.hp = elite.maxHp;
+      elite.cool = 99;
+      world.step(Math.min(0.2, 12.4 - (world.time - since)));
+      expect(world.events.some((ev) => ev.e === 'taunt')).toBe(false);
+    }
+    hero.hp = 400;
+    elite.hp = elite.maxHp;
+    world.step(0.2);
+    const taunts = world.events.filter((ev) => ev.e === 'taunt');
+    expect(taunts).toHaveLength(1);
+    if (taunts[0]?.e === 'taunt') {
+      expect(taunts[0].text).toContain('Vyncent');
+      expect(taunts[0].text).toContain('i rossi');
+    }
+  });
+
+  it('shows a model line that arrives just before the written fallback', () => {
+    let line: string | null = null;
+    const world = new World({
+      layout: parseLayout({
+        id: 'lite-late',
+        name: 'lite-late',
+        theme: 'crypt',
+        rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
+      }),
+      seed: 6,
+      quips: {
+        ask: () => undefined,
+        take: () => line,
+      },
+    });
+    const hero = world.addPlayer('a', 'vyncent', 0);
+    hero.hp = 400;
+    const elite = world.spawnEnemy('inquisitore', hero.x, hero.z + 4);
+    elite.state = EState.Chase;
+    elite.target = hero.id;
+    elite.cool = 99;
+    const spec = { dmg: 5, red: true, kb: 0, ox: hero.x, oz: hero.z, src: elite.id, family: 'red' as const };
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world['applyHit'](hero, spec);
+    world.events.length = 0;
+    world.step(0.05);
+    const since = world.time;
+    while (world.time - since < 12) {
+      hero.hp = 400;
+      elite.hp = elite.maxHp;
+      elite.cool = 99;
+      world.step(Math.min(0.25, 12 - (world.time - since)));
+    }
+    expect(world.events.some((ev) => ev.e === 'taunt')).toBe(false);
+    line = 'Vyncent, i rossi sono la tua dieta.';
+    world.step(0.05);
+    const taunts = world.events.filter((ev) => ev.e === 'taunt');
+    expect(taunts).toHaveLength(1);
+    if (taunts[0]?.e === 'taunt') expect(taunts[0].text).toBe('Vyncent, i rossi sono la tua dieta.');
+  });
 });
 
 describe('garrison pressure', () => {

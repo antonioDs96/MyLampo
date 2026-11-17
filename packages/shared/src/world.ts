@@ -2088,7 +2088,7 @@ export class World {
         this.waitingQuip = null;
         return;
       }
-      if (!this.quips || this.time - this.waitingQuip.since >= 2.8) {
+      if (!this.quips || this.time - this.waitingQuip.since >= 12.5) {
         this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id, this.waitingQuip.heroId);
         this.waitingQuip = null;
       }
