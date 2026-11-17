@@ -177,14 +177,13 @@ describe('dodge and parry timing, as seen on the player screen', () => {
     });
   }
 
-  it('a parry during the signal stops a red attack; one raised after the blow does not', () => {
+  it('a red attack is not parried by answering its signal: it has to be dodged', () => {
     const net = NETS['good line']!;
-    const answered = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: -400, button: Btn.Block, net });
-    expect(answered.parried).toBe(true);
-    expect(answered.damage).toBe(0);
-    const late = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: 200, button: Btn.Block, net });
-    expect(late.parried).toBe(false);
-    expect(late.damage).toBeGreaterThan(0);
+    const blocked = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: -400, button: Btn.Block, net });
+    expect(blocked.parried).toBe(false);
+    expect(blocked.damage).toBeGreaterThan(0);
+    const dodged = duel({ type: 'predone_sahuagin', attack: 'carica', dist: 7, press: -400, net });
+    expect(dodged.damage).toBe(0);
   });
 
   it('a client that reports nothing still gets the latency estimate', () => {

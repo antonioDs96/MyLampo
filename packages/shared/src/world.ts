@@ -204,8 +204,8 @@ interface HitSpec {
   family?: AttackFamily;
   /**
    * The red or blue signal of this blow, in world seconds: it appeared at `start` and the blow
-   * itself is released at `end`. A dodge or a parry pressed inside that span answers the alert,
-   * so it succeeds even though the hero's invulnerability has already run out.
+   * itself is released at `end`. A dodge pressed inside that span answers the alert. A parry does
+   * too, except on a red attack, which is dodged or it lands.
    */
   alert?: { start: number; end: number };
 }
@@ -1403,8 +1403,8 @@ export class World {
 
   /**
    * The signal is an alert, not the attack. It covers the whole wind-up and ends the instant the
-   * blow is released: a dodge or a parry pressed while it was showing, and before that release,
-   * answers it.
+   * blow is released. A dodge pressed in that span answers it. A parry does too, but never for a
+   * red attack: red is dodged, or it deals damage.
    */
   private alertWindow(e: EnemyState): { start: number; end: number } {
     return { start: this.signalOf(e), end: this.time };
@@ -1417,7 +1417,8 @@ export class World {
     const r = this.reacted.get(p.id);
     if (!r) return null;
     const dodge = r.dodgeAt >= a.start && r.dodgeAt <= a.end;
-    const parry = r.blockAt >= a.start && r.blockAt <= a.end;
+    // Red stays unparryable. Answering its signal with the guard does not turn the blow into a parry.
+    const parry = !spec.red && r.blockAt >= a.start && r.blockAt <= a.end;
     if (dodge && (!parry || r.dodgeAt >= r.blockAt)) return 'dodge';
     if (parry) return 'parry';
     return null;
@@ -1425,7 +1426,7 @@ export class World {
 
   private tryHitPlayer(p: PlayerState, spec: HitSpec): HitResult {
     if (p.act === Act.Downed) return 'none';
-    // Answering the alert beats the blow outright, red or blue: the attack had not started yet.
+    // Answering the alert beats the blow: the attack had not started yet. Red answers only to a dodge.
     const answered = this.answerToSignal(p, spec);
     if (answered === 'dodge') {
       this.perfectDodge(p);

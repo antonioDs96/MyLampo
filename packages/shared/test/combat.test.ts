@@ -348,25 +348,40 @@ describe('defence', () => {
     expect(p.hp).toBeLessThan(HEROES.jusef.hp);
   });
 
-  it('a guard raised while the signal is showing is a parry, and it stops a red attack too', () => {
-    const blue = setup();
-    const e1 = passiveEnemy(blue.world, 'predone_sahuagin', blue.p.x, blue.p.z + 2.4);
-    const w1 = windup(blue.world, e1, blue.p, 'tridente');
-    run(blue.world, 'a', 3);
-    tap(blue.world, 'a', Btn.Block);
-    run(blue.world, 'a', T(w1 + 0.4));
-    expect(events(blue.world, 'parry')).toHaveLength(1);
-    expect(blue.p.hp).toBe(HEROES.jusef.hp);
-    expect(e1.state).toBe(EState.Stagger);
+  it('a guard raised while a blue signal is showing is a parry', () => {
+    const { world, p } = setup();
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
+    const w = windup(world, e, p, 'tridente');
+    run(world, 'a', 3);
+    tap(world, 'a', Btn.Block);
+    run(world, 'a', T(w + 0.4));
+    expect(events(world, 'parry')).toHaveLength(1);
+    expect(p.hp).toBe(HEROES.jusef.hp);
+    expect(e.state).toBe(EState.Stagger);
+  });
 
-    const red = setup();
-    const e2 = passiveEnemy(red.world, 'predone_sahuagin', red.p.x, red.p.z + 2.6);
-    const w2 = windup(red.world, e2, red.p, 'carica');
-    run(red.world, 'a', 3);
-    tap(red.world, 'a', Btn.Block);
-    run(red.world, 'a', T(w2 + 0.4));
-    expect(events(red.world, 'parry')).toHaveLength(1);
-    expect(red.p.hp).toBe(HEROES.jusef.hp);
+  it('a red attack is not parried by answering its signal: it has to be dodged', () => {
+    const blocked = setup();
+    const e1 = passiveEnemy(blocked.world, 'predone_sahuagin', blocked.p.x, blocked.p.z + 2.6);
+    const w1 = windup(blocked.world, e1, blocked.p, 'carica');
+    run(blocked.world, 'a', 3);
+    tap(blocked.world, 'a', Btn.Block);
+    run(blocked.world, 'a', T(w1 + 0.4));
+    expect(events(blocked.world, 'parry')).toHaveLength(0);
+    expect(blocked.p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'carica'));
+
+    const dodged = setup();
+    const e2 = passiveEnemy(dodged.world, 'predone_sahuagin', dodged.p.x, dodged.p.z + 2.6);
+    const w2 = windup(dodged.world, e2, dodged.p, 'carica');
+    run(dodged.world, 'a', 3);
+    tap(dodged.world, 'a', Btn.Dodge, { mz: 1 });
+    run(dodged.world, 'a', T(0.35));
+    dodged.p.iframes = 0;
+    dodged.p.x = e2.x;
+    dodged.p.z = e2.z + 1.2;
+    run(dodged.world, 'a', T(w2 + 0.4));
+    expect(events(dodged.world, 'phit')).toHaveLength(0);
+    expect(dodged.p.hp).toBe(HEROES.jusef.hp);
   });
 
   it('a guard already held before the signal only blocks: chip damage, and red still goes through', () => {
