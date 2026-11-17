@@ -258,7 +258,7 @@ export class World {
   private lastTauntKey = '';
   private lastTauntAt = -99;
   /** Holds the written line until a lite model answers, or the wait runs out. */
-  private waitingQuip: { key: string; since: number; who: string; text: string } | null = null;
+  private waitingQuip: { key: string; since: number; who: string; text: string; id: number } | null = null;
   private readonly ctx: StepCtx;
   private readonly pev: PlayerEvent[] = [];
 
@@ -2022,9 +2022,9 @@ export class World {
     this.jev.noteRoom(brief);
   }
 
-  private emitTaunt(who: string, text: string): void {
+  private emitTaunt(who: string, text: string, id: number): void {
     this.lastTauntAt = this.time;
-    this.events.push({ e: 'taunt', who, text });
+    this.events.push({ e: 'taunt', who, text, id });
   }
 
   /** One banner when the read, or Jev's order, actually changes. */
@@ -2032,12 +2032,12 @@ export class World {
     if (this.waitingQuip) {
       const ready = this.quips?.take(this.waitingQuip.key);
       if (ready) {
-        this.emitTaunt(this.waitingQuip.who, ready);
+        this.emitTaunt(this.waitingQuip.who, ready, this.waitingQuip.id);
         this.waitingQuip = null;
         return;
       }
       if (!this.quips || this.time - this.waitingQuip.since >= 0.8) {
-        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text);
+        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id);
         this.waitingQuip = null;
       }
       return;
@@ -2054,8 +2054,10 @@ export class World {
       : `local|${prey.id}|${read.family}|${read.resisted}`;
     if (key === this.lastTauntKey) return;
     const elite = this.enemies.find((e) => e.state !== EState.Dead && jevEligible(ENEMIES[e.type]));
+    const speaker = elite ?? this.enemies.find((e) => e.state !== EState.Dead && !ENEMIES[e.type].dummy);
+    if (!speaker) return;
     const line = tauntLine({
-      who: elite ? ENEMIES[elite.type].name : 'Il branco',
+      who: ENEMIES[speaker.type].name,
       hero: HEROES[prey.hero].short,
       read,
       punish: order?.punish ?? null,
@@ -2064,7 +2066,7 @@ export class World {
     });
     this.lastTauntKey = key;
     if (!this.quips) {
-      this.emitTaunt(line.who, line.text);
+      this.emitTaunt(line.who, line.text, speaker.id);
       return;
     }
     const facts: QuipFacts = {
@@ -2077,7 +2079,7 @@ export class World {
       shape: order?.shape ?? '',
     };
     this.quips.ask(facts);
-    this.waitingQuip = { key, since: this.time, who: line.who, text: line.text };
+    this.waitingQuip = { key, since: this.time, who: line.who, text: line.text, id: speaker.id };
   }
 
   private stepEnemy(e: EnemyState, dt: number): void {
