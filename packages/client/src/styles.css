@@ -1012,7 +1012,7 @@ input.code {
 
 .sheet > header p {
   margin: 4px 0 0;
-  color: var(--muted);
+  color: #e4dced;
 }
 
 .sheet > footer {
@@ -1021,6 +1021,10 @@ input.code {
   align-items: center;
   gap: 12px;
   padding: 14px 26px 20px;
+}
+
+.sheet > footer .btn.ghost {
+  color: #f4ecdf;
 }
 
 .hero-grid {
@@ -1174,9 +1178,9 @@ input.code {
 
 .council-tabs .tab {
   appearance: none;
-  border: 1px solid rgba(60, 35, 15, 0.35);
-  background: rgba(255, 240, 210, 0.35);
-  color: #2a160a;
+  border: 1px solid #c9ae78;
+  background: #f4e6c8;
+  color: #241408;
   font: 650 14px var(--serif);
   padding: 8px 14px;
   border-radius: 8px;
@@ -1211,19 +1215,20 @@ input.code {
 .proves-col h3 {
   margin: 0;
   font: 700 22px var(--serif);
-  color: #2a160a;
+  color: var(--gold);
 }
 
 .proves-lead {
   margin: 0 0 4px;
-  color: rgba(42, 22, 10, 0.72);
+  color: #efe6d8;
   font-size: 0.95rem;
 }
 
 .prove-card {
-  border: 1px solid rgba(60, 35, 15, 0.28);
+  border: 1px solid #c4a46a;
   border-left: 4px solid #8a4a22;
-  background: linear-gradient(135deg, rgba(255, 245, 220, 0.72), rgba(230, 200, 150, 0.45));
+  background: linear-gradient(180deg, #f7edd8, #ead7b0);
+  color: #241408;
   border-radius: 10px;
   padding: 14px 16px;
   display: flex;
@@ -1232,31 +1237,53 @@ input.code {
 }
 
 .prove-card.arena {
-  border-left-color: #6b2f3a;
-  background: linear-gradient(135deg, rgba(255, 236, 228, 0.75), rgba(210, 160, 140, 0.4));
+  border-left-color: #8a3040;
+  background: linear-gradient(180deg, #f8e8e2, #efd4cb);
 }
 
 .prove-card.chosen {
-  outline: 2px solid #2a160a;
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 .prove-tag {
   font: 700 11px var(--sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(42, 22, 10, 0.65);
+  color: #6a3d16;
 }
 
 .prove-card h4 {
   margin: 0;
   font: 700 18px var(--serif);
-  color: #2a160a;
+  color: #1a0e06;
 }
 
 .prove-card p {
   margin: 0;
-  color: rgba(42, 22, 10, 0.8);
+  color: #2a160c;
   line-height: 1.4;
+}
+
+.prove-card .mission-place {
+  color: #4a2c12;
+  font-weight: 650;
+}
+
+.prove-card .btn.ghost {
+  border: 1px solid rgba(42, 22, 10, 0.45);
+  background: rgba(255, 252, 245, 0.72);
+  color: #241408;
+}
+
+.prove-card .btn.ghost:hover {
+  background: #fffaf0;
+  color: #1a0e06;
+}
+
+.prove-card .locked-note {
+  background: rgba(42, 22, 10, 0.08);
+  color: #2a160c;
 }
 
 @media (max-width: 900px) {
@@ -1345,7 +1372,9 @@ input.code {
 
 .salento .locked .label {
   font-size: 14px;
-  fill: #5a4630;
+  fill: #2a160a;
+  stroke: rgba(244, 228, 196, 0.92);
+  stroke-width: 3px;
 }
 
 .salento .order {
@@ -2003,29 +2032,41 @@ td {
   padding: 6px 10px !important;
 }
 
+.hub-row .btn.ghost {
+  border: 1px solid rgba(244, 236, 223, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4ecdf;
+}
+
+.hub-row .btn.ghost:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .semaforo {
   display: inline-block;
-  font-size: 11px;
+  align-self: flex-start;
+  font: 700 11px var(--sans);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 4px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .semaforo.green {
-  background: rgba(60, 160, 80, 0.25);
-  color: #8dff9c;
+  background: #146b32;
+  color: #f4fff6;
 }
 
 .semaforo.yellow {
-  background: rgba(180, 150, 40, 0.25);
-  color: #ffe27a;
+  background: #8a5a00;
+  color: #fff8e6;
 }
 
 .semaforo.red {
-  background: rgba(180, 50, 50, 0.25);
-  color: #ff8f8f;
+  background: #9a2424;
+  color: #fff1f1;
 }
 
 .bestiary-grid {
@@ -2091,7 +2132,7 @@ td {
 
 .prove-card.contract .mission-place {
   font-size: 12px;
-  color: var(--muted);
+  color: #4a2c12;
 }
 
 /* ------------------------------------------------------------------ touch controls */
