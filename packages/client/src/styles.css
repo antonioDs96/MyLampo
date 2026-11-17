@@ -509,7 +509,7 @@ kbd {
 .prompt {
   position: absolute;
   left: 50%;
-  bottom: 19%;
+  bottom: 26%;
   transform: translateX(-50%);
   padding: 7px 14px;
   border-radius: 8px;
@@ -2811,6 +2811,50 @@ html.touch-mode .downed {
   }
 }
 
+/* Upright phones: the three utility buttons take the whole top row, so the HUD starts below them. */
+@media (max-width: 600px) and (min-height: 521px) {
+  html.touch-mode .me {
+    top: calc(52px + env(safe-area-inset-top));
+  }
+
+  html.touch-mode .room {
+    display: none;
+  }
+
+  html.touch-mode .corner {
+    top: calc(52px + env(safe-area-inset-top));
+  }
+
+  html.touch-mode .top {
+    top: calc(146px + env(safe-area-inset-top));
+    width: calc(100vw - 16px);
+  }
+
+  html.touch-mode .stage {
+    margin-right: 170px;
+  }
+
+  html.touch-mode .banner {
+    top: 27%;
+  }
+
+  html.touch-mode .banner-title {
+    font-size: 24px;
+  }
+
+  html.touch-mode .statuses {
+    top: calc(200px + env(safe-area-inset-top));
+  }
+
+  html.touch-mode .party {
+    top: calc(228px + env(safe-area-inset-top));
+  }
+
+  html.touch-mode .hint {
+    top: calc(236px + env(safe-area-inset-top));
+  }
+}
+
 @media (max-height: 520px) {
   .touch-actions {
     grid-template-columns: 50px 50px 66px;
@@ -2869,7 +2913,7 @@ html.touch-mode .downed {
   }
 
   html.touch-mode .corner {
-    top: calc(84px + env(safe-area-inset-top));
+    top: calc(48px + env(safe-area-inset-top));
     transform: scale(0.56);
   }
 
@@ -2897,8 +2941,16 @@ html.touch-mode .downed {
   }
 
   html.touch-mode .dialog {
-    top: 22%;
-    width: min(420px, 48vw);
+    left: calc(8px + env(safe-area-inset-left));
+    top: calc(72px + env(safe-area-inset-top));
+    transform: none;
+    width: min(300px, 30vw);
+    padding: 8px 11px;
+    font-size: 13px;
+  }
+
+  html.touch-mode .room {
+    display: none;
   }
 
   html.touch-mode .prompt {
@@ -2913,7 +2965,7 @@ html.touch-mode .downed {
   }
 
   html.touch-mode .hint {
-    top: calc(30px + env(safe-area-inset-top));
+    top: calc(64px + env(safe-area-inset-top));
     max-width: min(240px, 40vw);
   }
 
