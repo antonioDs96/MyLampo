@@ -1,4 +1,4 @@
-import { Btn, parseLayout, World, type InputCmd, type LayoutDef, type WaveDef } from '../src';
+import { Btn, parseLayout, World, type InputCmd, type LayoutDef } from '../src';
 
 export const ARENA: LayoutDef = {
   id: 'test',
@@ -18,8 +18,8 @@ export const ARENA: LayoutDef = {
   ],
 };
 
-export function makeWorld(waves: WaveDef[] = [], seed = 7): World {
-  return new World({ layout: parseLayout(ARENA), seed, waves, introDelay: 0 });
+export function makeWorld(seed = 7, def: LayoutDef = ARENA): World {
+  return new World({ layout: parseLayout(def), seed });
 }
 
 let seq = 0;

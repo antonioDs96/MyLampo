@@ -31,7 +31,7 @@ function field(): ReturnType<typeof parseLayout> {
 function sample(partial: Partial<JevSample> = {}): JevSample {
   return {
     enemyId: 7,
-    type: 'cultista',
+    type: 'predone_sahuagin',
     name: 'Cultista del Sole Nero',
     mind: 'duelist',
     rank: 2,
@@ -65,8 +65,8 @@ function sample(partial: Partial<JevSample> = {}): JevSample {
       },
     ],
     attacks: [
-      { id: 'fendente', note: 'blue telegraph, can be parried, melee' },
-      { id: 'affondo', note: 'red telegraph, cannot be parried, melee' },
+      { id: 'tridente', note: 'blue telegraph, can be parried, melee' },
+      { id: 'carica', note: 'red telegraph, cannot be parried, melee' },
     ],
     steers: ['chase', 'circle', 'flank'],
     ...partial,
@@ -78,7 +78,7 @@ describe('jev decisions', () => {
     const body = buildSystemOneBody([sample()], 'jev-latest');
     expect(body.model).toBe('jev-latest');
     const atk = body.questions.atk_7 as { criteria: Record<string, string> };
-    expect(Object.keys(atk.criteria).sort()).toEqual(['affondo', 'fendente', 'wait']);
+    expect(Object.keys(atk.criteria).sort()).toEqual(['carica', 'tridente', 'wait']);
     const tgt = body.questions.tgt_7 as { criteria: Record<string, string> };
     expect(Object.keys(tgt.criteria).sort()).toEqual(['h0', 'h1']);
     expect(JSON.stringify(body)).not.toMatch(/sk-|api[_-]?key/i);
@@ -87,14 +87,14 @@ describe('jev decisions', () => {
   it('maps a System One answer back onto hero ids and drops illegal moves', () => {
     const answers = readJevAnswers([sample()], {
       answers: {
-        atk_7: { type: 'choice', choice: 'affondo', confidence: 0.82 },
+        atk_7: { type: 'choice', choice: 'carica', confidence: 0.82 },
         tgt_7: { type: 'choice', choice: 'h1', confidence: 0.7 },
         steer_7: { type: 'choice', choice: 'flank', confidence: 0.66 },
       },
     });
     expect(answers[0]).toMatchObject({
       enemyId: 7,
-      attackId: 'affondo',
+      attackId: 'carica',
       attackConfidence: 0.82,
       targetId: 'mage',
       steer: 'flank',
@@ -126,8 +126,8 @@ describe('jev decisions', () => {
     ).toEqual([]);
     const clean = sanitizeJevSamples([sample(), { enemyId: 'nope' }]);
     expect(clean).toHaveLength(1);
-    expect(clean[0]?.type).toBe('cultista');
-    expect(clean[0]?.attacks.map((atk) => atk.id)).toEqual(['fendente', 'affondo']);
+    expect(clean[0]?.type).toBe('predone_sahuagin');
+    expect(clean[0]?.attacks.map((atk) => atk.id)).toEqual(['tridente', 'carica']);
   });
 
   it('keeps a confident answer and ignores a coin flip', async () => {
@@ -143,7 +143,7 @@ describe('jev decisions', () => {
     release([
       {
         enemyId: 7,
-        attackId: 'affondo',
+        attackId: 'carica',
         attackConfidence: 0.2,
         targetId: 'mage',
         targetConfidence: 0.9,
@@ -180,11 +180,11 @@ describe('jev decisions', () => {
   });
 
   it('asks Jev only for elites and bosses', () => {
-    expect(jevEligible(ENEMIES.cultista)).toBe(false);
-    expect(jevEligible(ENEMIES.ombra)).toBe(false);
+    expect(jevEligible(ENEMIES.predone_sahuagin)).toBe(false);
+    expect(jevEligible(ENEMIES.tagliagole_reietti)).toBe(false);
     expect(jevEligible(ENEMIES.manichino)).toBe(false);
-    expect(jevEligible(ENEMIES.inquisitore)).toBe(true);
-    expect(jevEligible(ENEMIES.klaus)).toBe(true);
+    expect(jevEligible(ENEMIES.nostromo_senzocchi)).toBe(true);
+    expect(jevEligible(ENEMIES.idra_carsica)).toBe(true);
 
     let elites: string[] = [];
     const world = new World({
@@ -206,14 +206,14 @@ describe('jev decisions', () => {
       },
     });
     const hero = world.addPlayer('a', 'jusef', 0);
-    const grunt = world.spawnEnemy('cultista', hero.x, hero.z + 3);
-    const elite = world.spawnEnemy('inquisitore', hero.x + 2, hero.z + 3);
+    const grunt = world.spawnEnemy('predone_sahuagin', hero.x, hero.z + 3);
+    const elite = world.spawnEnemy('nostromo_senzocchi', hero.x + 2, hero.z + 3);
     grunt.state = EState.Chase;
     elite.state = EState.Chase;
     grunt.cool = 99;
     elite.cool = 99;
     world.step(0.05);
-    expect(elites).toEqual(['inquisitore']);
+    expect(elites).toEqual(['nostromo_senzocchi']);
   });
 
   it('tells the captain which family a hero suffers', () => {
@@ -247,7 +247,7 @@ describe('garrison pressure', () => {
     const layout = field();
     const ahead = TUNING.garrisonVision - 6;
     const layoutNear = field();
-    layoutNear.placed = [{ type: 'cultista', x: 40, z: 40 + ahead, yaw: Math.PI }];
+    layoutNear.placed = [{ type: 'predone_sahuagin', x: 40, z: 40 + ahead, yaw: Math.PI }];
     const seen = new World({ layout: layoutNear, seed: 1 });
     const hero = seen.addPlayer('a', 'jusef', 0);
     hero.x = 40;
@@ -258,7 +258,7 @@ describe('garrison pressure', () => {
     expect(seen.enemies[0]!.target).toBe('a');
 
     const layoutFar = field();
-    layoutFar.placed = [{ type: 'cultista', x: 40, z: 40 + TUNING.garrisonVision + 8, yaw: Math.PI }];
+    layoutFar.placed = [{ type: 'predone_sahuagin', x: 40, z: 40 + TUNING.garrisonVision + 8, yaw: Math.PI }];
     const far = new World({ layout: layoutFar, seed: 1 });
     const hidden = far.addPlayer('a', 'jusef', 0);
     hidden.x = 40;
@@ -267,7 +267,7 @@ describe('garrison pressure', () => {
     far.step(0.05);
     expect(far.enemies[0]!.state).toBe(EState.Idle);
 
-    layout.placed = [{ type: 'cultista', x: 40, z: 58, yaw: 0 }];
+    layout.placed = [{ type: 'predone_sahuagin', x: 40, z: 58, yaw: 0 }];
     const behind = new World({ layout, seed: 1 });
     const back = behind.addPlayer('a', 'jusef', 0);
     back.x = 40;
@@ -280,8 +280,8 @@ describe('garrison pressure', () => {
   it('wakes an idle ally that is looking the other way', () => {
     const layout = field();
     layout.placed = [
-      { type: 'cultista', x: 40, z: 56, yaw: Math.PI },
-      { type: 'cultista', x: 58, z: 56, yaw: 0 },
+      { type: 'predone_sahuagin', x: 40, z: 56, yaw: Math.PI },
+      { type: 'predone_sahuagin', x: 58, z: 56, yaw: 0 },
     ];
     const world = new World({ layout, seed: 2 });
     const hero = world.addPlayer('a', 'jusef', 0);
@@ -317,9 +317,9 @@ describe('jev overrides the persona when it is sure', () => {
       name: 'jev',
       theme: 'crypt',
       rows: ['#########', '#.......#', '#.......#', '#...P...#', '#.......#', '#.......#', '#########'],
-    }), seed: 3, jev: advisor({ attackId: 'fendente' }) });
+    }), seed: 3, jev: advisor({ attackId: 'tridente' }) });
     const hero = world.addPlayer('a', 'alexios', 0);
-    const foe = world.spawnEnemy('cultista', hero.x, hero.z + 2.8);
+    const foe = world.spawnEnemy('predone_sahuagin', hero.x, hero.z + 2.8);
     foe.state = EState.Chase;
     foe.cool = 0;
     let blue = false;
@@ -327,7 +327,7 @@ describe('jev overrides the persona when it is sure', () => {
       hero.act = Act.Block;
       hero.hp = HEROES.alexios.hp;
       world.step(0.05);
-      if (foe.state === EState.Windup && ENEMIES.cultista.attacks[foe.atk]?.kind === 'blue') blue = true;
+      if (foe.state === EState.Windup && ENEMIES.predone_sahuagin.attacks[foe.atk]?.kind === 'blue') blue = true;
     }
     expect(blue).toBe(true);
   });
@@ -344,7 +344,7 @@ describe('jev overrides the persona when it is sure', () => {
       jev: advisor({ wait: true }),
     });
     const hero = world.addPlayer('a', 'alexios', 0);
-    const foe = world.spawnEnemy('cultista', hero.x, hero.z + 2.8);
+    const foe = world.spawnEnemy('predone_sahuagin', hero.x, hero.z + 2.8);
     foe.state = EState.Chase;
     foe.cool = 0;
     for (let i = 0; i < 20; i++) {
@@ -367,7 +367,7 @@ describe('jev overrides the persona when it is sure', () => {
     tank.z = 40;
     mage.x = 52;
     mage.z = 40;
-    const foe = world.spawnEnemy('ombra', 40, 48);
+    const foe = world.spawnEnemy('tagliagole_reietti', 40, 48);
     foe.state = EState.Chase;
     foe.cool = 99;
     foe.retarget = 0;

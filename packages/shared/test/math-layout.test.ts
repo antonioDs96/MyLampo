@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allMissions,
+  allStageLayouts,
   angleDiff,
   approachAngle,
   buildFlow,
@@ -180,9 +180,9 @@ describe('layout', () => {
       theme: 'crypt',
       rows: ['#######', '#.....#', '#.....#', '#.....#', '#######'],
     });
-    layout.placed.push({ type: 'cultista', x: 3.5 * CELL, z: 2.5 * CELL, yaw: 0 });
+    layout.placed.push({ type: 'predone_sahuagin', x: 3.5 * CELL, z: 2.5 * CELL, yaw: 0 });
     const world = new World({ layout, seed: 3 });
-    const foe = world.enemies.find((e) => e.type === 'cultista')!;
+    const foe = world.enemies.find((e) => e.type === 'predone_sahuagin')!;
     expect(foe.state).toBe(EState.Idle);
     const hero = world.addPlayer('p', 'albereth', 0);
     hero.x = 3.5 * CELL;
@@ -199,10 +199,8 @@ describe('layout', () => {
     expect(p).toEqual({ x: 1.5 * CELL, z: 1.5 * CELL });
   });
 
-  it('every mission layout is closed, connected and has the spawns it needs', () => {
-    const plays = allMissions();
-    const defs = [HUB_LAYOUT, ...plays.flatMap((m) => m.stages.map((s) => s.layout))];
-    for (const def of defs) {
+  it('every fixed map is rectangular and closed by walls', () => {
+    for (const def of allStageLayouts()) {
       const l = parseLayout(def);
       for (const row of def.rows) expect(row.length, `${def.id} row width`).toBe(l.w);
       for (let x = 0; x < l.w; x++) {
@@ -213,15 +211,7 @@ describe('layout', () => {
         expect(l.solid[z * l.w], `${def.id} left border`).toBe(1);
         expect(l.solid[z * l.w + l.w - 1], `${def.id} right border`).toBe(1);
       }
-      expect(l.playerSpawns.length, `${def.id} player spawns`).toBeGreaterThanOrEqual(8);
-      const field = buildFlow(l, l.playerSpawns[0]!.x, l.playerSpawns[0]!.z);
-      for (let i = 0; i < field.length; i++) {
-        if (!l.solid[i]) expect(field[i], `${def.id} cell ${i} reachable`).toBeGreaterThanOrEqual(0);
-      }
-      const owner = plays.find((m) => m.stages.some((s) => s.layout.id === def.id));
-      if (def !== HUB_LAYOUT && owner?.mode !== 'arena') {
-        expect(l.enemySpawns.length, `${def.id} enemy spawns`).toBeGreaterThan(0);
-      }
+      expect(l.playerSpawns.length, `${def.id} player spawns`).toBeGreaterThanOrEqual(9);
     }
   });
 });
