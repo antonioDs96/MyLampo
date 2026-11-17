@@ -1,6 +1,6 @@
 import type { HeroId } from './types';
 
-/** Playstyle bucket used by the XP system. */
+/** Playstyle bucket: enemy minds pick their prey by it. */
 export type Archetype = 'striker' | 'guardian' | 'skirmisher' | 'support' | 'arcane' | 'marksman';
 
 export interface ProjectileDef {
@@ -96,7 +96,7 @@ export interface HeroDef {
   name: string;
   short: string;
   role: string;
-  /** How this hero earns XP — so supports/mages level without matching a berserker's kills. */
+  /** Playstyle bucket: enemy minds and tavern dialogue read it. */
   archetype: Archetype;
   /** Home region id in the lore atlas. */
   home: string;
@@ -221,7 +221,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'ombra',
       name: "Passo d'Ombra",
       desc: 'Per 7 secondi svanisce: i nemici lo perdono di vista e ogni suo colpo è un colpo alle spalle critico.',
-      cd: 0,
+      cd: 50,
       dur: 0.6,
       castAt: 0.25,
       anim: 'Throw',
@@ -268,7 +268,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'ballata',
       name: "Ballata dell'Armonia Perduta",
       desc: 'Rialza gli alleati a terra, cura la Compagnia e ne aumenta danni e rapidità per 10 secondi.',
-      cd: 0,
+      cd: 75,
       dur: 1,
       castAt: 0.45,
       anim: 'Cheer',
@@ -285,7 +285,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     home: 'ujian',
     color: '#dc2626',
     desc: 'Assaltatore implacabile, maledetto da un esperimento del Sole Nero. Trova sfogo nel Giardino del Fiolar.',
-    passive: 'Fame eterna: recupera il 10% dei danni inflitti in mischia. La Furia carica la suprema più in fretta colpendo e venendo colpiti.',
+    passive: 'Fame eterna: recupera il 10% dei danni inflitti in mischia. Lo Slancio in battaglia gli sale più in fretta a ogni colpo messo a segno.',
     style: 'Artigli — pressione continua, balzi e trasformazione in licantropo.',
     hp: 140,
     stamina: 100,
@@ -317,7 +317,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'licantropo',
       name: 'Forma Licantropa',
       desc: 'Per 12 secondi diventa la bestia: più danni, più velocità, non barcolla e si cura a ogni colpo.',
-      cd: 0,
+      cd: 70,
       dur: 0.9,
       castAt: 0.4,
       anim: 'Cheer',
@@ -364,7 +364,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'sisma',
       name: 'Onda Sismica',
       desc: "Schianta i pugni al suolo: un'onda d'urto devasta e fa barcollare tutti i nemici intorno.",
-      cd: 0,
+      cd: 60,
       dur: 1.1,
       castAt: 0.6,
       anim: '2H_Melee_Attack_Chop',
@@ -411,7 +411,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'pioggia',
       name: 'Pioggia Eterea',
       desc: "Una pioggia di dardi spettrali flagella per 5 secondi un'ampia zona e marchia chi la attraversa.",
-      cd: 0,
+      cd: 55,
       dur: 0.9,
       castAt: 0.4,
       anim: '2H_Ranged_Reload',
@@ -458,7 +458,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'furia',
       name: 'Furia del Nord',
       desc: 'Per 10 secondi attacca più in fretta, infligge più danni e nulla può farlo barcollare.',
-      cd: 0,
+      cd: 65,
       dur: 0.9,
       castAt: 0.4,
       anim: 'Cheer',
@@ -505,7 +505,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'chiavistello',
       name: 'Luce del Chiavistello',
       desc: 'Un lampo della Madre Originale cura tutta la Compagnia, dissolve le zone di silenzio e travolge i nemici vicini.',
-      cd: 0,
+      cd: 80,
       dur: 1.1,
       castAt: 0.55,
       anim: 'Spellcast_Long',
@@ -552,7 +552,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'collasso',
       name: "Collasso dell'Etere",
       desc: 'Apre una singolarità che risucchia i nemici per 4 secondi e poi esplode.',
-      cd: 0,
+      cd: 60,
       dur: 1,
       castAt: 0.5,
       anim: 'Spellcast_Long',
@@ -569,7 +569,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     home: 'ujian',
     color: '#c4315c',
     desc: 'Ballerina e informante dei bassifondi di Kaza-Massel. La danza le legge le intenzioni; né oro né minacce le fanno lasciare una missione rischiosa. Capelli rosso corvino, intolleranza al lattosio da un veleno, legame simbiotico e competitivo con Anthon.',
-    passive: 'Danza ostinata: i rallentamenti non le cambiano il passo. Le pozioni (a base di latte) la curano a metà e le danno i crampi. Vicino ad Anthon, entrambi infliggono il 12% di danni in più. La schivata è una piroetta lunga.',
+    passive: 'Danza ostinata: i rallentamenti non le cambiano il passo. Vicino ad Anthon, entrambi infliggono il 12% di danni in più. La schivata è una piroetta lunga.',
     style: 'Danza a mani nude — calci, spunti e incanto. Veloce, fragile, controllo di folla.',
     hp: 88,
     stamina: 125,
@@ -600,7 +600,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       id: 'spirale',
       name: 'Spirale Indomita',
       desc: 'Un vortice che colpisce, confonde e marchia tutt\'intorno. Chi le è vicino si muove più rapido.',
-      cd: 0,
+      cd: 55,
       dur: 1.05,
       castAt: 0.5,
       anim: '2H_Melee_Attack_Spinning',

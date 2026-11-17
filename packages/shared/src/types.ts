@@ -11,39 +11,34 @@ export type HeroId =
 
 export type EnemyTypeId =
   | 'manichino'
-  | 'cultista'
-  | 'accolito'
-  | 'inquisitore'
-  | 'creatura'
-  | 'ombra'
-  | 'tessitrice'
-  | 'ombra_maggiore'
-  | 'klaus'
-  // Bestiary 24 (3 biomes × 5 mob + 2 elite + 1 boss)
-  | 'coscritto_sole_nero'
-  | 'balestriere_tetti'
-  | 'mastino_guerra'
-  | 'accolito_silenzio'
-  | 'gargoyle_leccese'
-  | 'scudiero_falange'
-  | 'flagellante_famelico'
-  | 'vaelen'
-  | 'tagliagole_reietti'
+  // Costa Est — base mobs
+  | 'corsaro_annegato'
+  | 'granchio_pietra'
   | 'predone_sahuagin'
-  | 'granchio_scogliera'
+  | 'tagliagole_reietti'
   | 'contrabbandiere_alchemico'
   | 'sciame_polpi'
+  // Costa Est — elites
+  | 'nostromo_senzocchi'
+  | 'madre_spore'
   | 'esecutore_kaza'
   | 'sirena_abisso'
+  // Mini-bosses (one per Environment)
+  | 'quartiermastro'
+  | 'chela_madre'
+  | 'palombaro'
+  | 'esattore_maree'
+  | 'matriarca_spore'
+  | 'cantrice_abissale'
+  | 'capo_sindacato'
+  | 'alchimista_folle'
+  | 'campione_fossa'
+  // City bosses
   | 'idra_carsica'
-  | 'lupo_ombra'
-  | 'cespuglio_spine'
-  | 'sciamano_menhir'
-  | 'cinghiale_murge'
-  | 'fuoco_fatuo'
-  | 'berserker_jugianel'
-  | 'orsogufo_miner'
-  | 'monolito_vivente';
+  | 'arconte_ujian'
+  | 're_reietti'
+  // Region boss
+  | 'leviatano';
 
 /** Input buttons (bitmask). */
 export const Btn = {
@@ -70,6 +65,8 @@ export const Act = {
   Execute: 9,
   Downed: 10,
   Revive: 11,
+  /** Defenceless channel on a point of interest (chest, shrine, portal). */
+  Channel: 12,
 } as const;
 export type ActId = (typeof Act)[keyof typeof Act];
 
@@ -86,8 +83,18 @@ export const PS = {
   Slow: 9,
   Counter: 10,
   Bubble: 11,
-  /** Dalìth's lactose cramp. Threat-slows use PS.Slow and do not touch her. */
+  /** Legacy slot kept so status numbers stay stable. */
   Cramp: 12,
+  /** Momentum tier 1: +20% action speed. */
+  Frenzy: 13,
+  /** Momentum tier 2: +15% critical chance. */
+  Keen: 14,
+  /** Momentum tier 3: stamina floods back. */
+  Surge: 15,
+  /** Momentum tier 4: life-steal aura. */
+  Leech: 16,
+  /** Reflecting shield granted by a Support skill node. */
+  Reflect: 17,
 } as const;
 
 /** Enemy statuses. */
@@ -97,6 +104,14 @@ export const ES = {
   Marked: 3,
   Slow: 4,
   Taunted: 5,
+  /** Laceration: damage over time (power = damage per second). */
+  Bleed: 6,
+  /** Cannot use specials or ranged attacks. */
+  Silenced: 7,
+  /** Underground in a -1 channel: unseen and untouchable until it surfaces. */
+  Burrow: 8,
+  /** Boss shrugging off crowd control. */
+  Ward: 9,
 } as const;
 
 /** Enemy AI states. */
@@ -149,9 +164,16 @@ export interface PlayerState {
   stamina: number;
   /** Max stamina including level bonuses. */
   maxStamina: number;
-  /** Outgoing damage multiplier from hero level. */
+  /** Outgoing damage multiplier (party synergy buffs). */
   dmgMul: number;
+  /** Ultimate charge 0..100. It fills with time: the ultimate has a cooldown. */
   ult: number;
+  /** Special [E] cooldown multiplier (fixed stats and skill tree). Lower is faster. */
+  cdMul: number;
+  /** Ultimate [R] recharge rate multiplier (fixed stats and skill tree). */
+  ultMul: number;
+  /** In-run momentum meter 0..100. Resets with every Environment. */
+  fury: number;
   act: ActId;
   /** Ticks elapsed in the current action (fractional when hasted). */
   t: number;
@@ -223,6 +245,10 @@ export interface EnemyState {
   /** Flinches taken in a row, and seconds left in which hits no longer interrupt. */
   flinches: number;
   resolve: number;
+  /** Seconds of crowd-control immunity left (bosses). */
+  ward: number;
+  /** Seconds until the next anti-zerg check (bosses). */
+  zerg: number;
 }
 
 export interface Projectile {
@@ -291,9 +317,25 @@ export type GameEvent =
   | { e: 'say'; who: string; text: string }
   | { e: 'hint'; text: string }
   | { e: 'phase'; n: number }
-  /** Loot / progression feedback (Megabonk × D&D). */
-  | { e: 'loot'; dropId: string; kind: string; x: number; z: number; amount: number; itemId?: string; rarity?: string; gem?: string }
-  | { e: 'pickup'; id: string; dropId: string; kind: string; amount: number; itemId?: string; toast?: string }
-  | { e: 'levelup'; id: string; level: number; cards: string[] }
-  | { e: 'bonk'; x: number; z: number; r: number }
-  | { e: 'poise'; id: number; dmg: number; x: number; z: number };
+  | { e: 'poise'; id: number; dmg: number; x: number; z: number }
+  /** Instanced loot: only the owner (`to`) receives these. */
+  | { e: 'drop'; to: string; id: number; kind: DropKind; x: number; z: number; amount: number }
+  | { e: 'take'; to: string; id: number; kind: DropKind; amount: number }
+  /** A point of interest changed state. */
+  | { e: 'poi'; id: number; kind: PoiKind; state: number; by: string }
+  /** A Synergy Chest buffed the whole party. */
+  | { e: 'synergy'; buff: string; by: string }
+  /** Momentum threshold crossed. */
+  | { e: 'fury'; id: string; tier: number }
+  /** Nostromo harpoon dragged a hero down to elevation 0. */
+  | { e: 'hook'; id: string; x: number; z: number }
+  /** Toxic water rose (Leviatano). Level is the highest flooded elevation. */
+  | { e: 'flood'; level: number }
+  /** A boss shrugged off crowd control. */
+  | { e: 'immune'; id: number }
+  /** Player ping in the world and on the radar. */
+  | { e: 'ping'; by: string; kind: PingKind; x: number; z: number };
+
+export type DropKind = 'gem' | 'thread' | 'orb';
+export type PoiKind = 'chest' | 'shrine' | 'portal';
+export type PingKind = 'rally' | 'danger' | 'chest' | 'elite';

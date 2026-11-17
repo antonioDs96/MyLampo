@@ -15,6 +15,31 @@ export const HIGH_GROUND_MUL = 1.1;
 const WALL_HALF = 0.5;
 
 export type Theme = 'tavern' | 'alley' | 'inn' | 'crypt' | 'cathedral';
+/** Drives the relief palette and the surroundings drawn by the client. */
+export type Biome = 'urban' | 'wild' | 'coastal';
+
+/** Who fills the numbered slots of a fixed map. Values are EnemyTypeIds. */
+export interface Roster {
+  /** Glyphs '1'..'4'. Shadow spawns ('s') cycle through the same list. */
+  mobs: string[];
+  /** Glyphs '7' and '8'. */
+  elites: string[];
+  /** Glyph 'B': the Mini-Boss of an Environment, or the boss of an arena. */
+  boss: string;
+}
+
+export interface PoiDef {
+  id: number;
+  kind: 'chest' | 'shrine' | 'portal';
+  x: number;
+  z: number;
+}
+
+export interface NpcDef {
+  id: string;
+  x: number;
+  z: number;
+}
 
 export interface PropDef {
   kind: string;
@@ -29,13 +54,21 @@ export interface LayoutDef {
   id: string;
   name: string;
   theme: Theme;
+  biome?: Biome;
   /**
    * One string per row. Legend:
-   *  '#' or ' ' solid, '.' floor, 'P' player spawn, 'E' enemy spawn, 'D' training dummy,
-   *  'M' council table (mission map), 'o' pillar, 'b' barrels, 'c' crates, 't' table,
-   *  'k' keg, 'r' rubble, 'f' brazier, 'B' boss spawn.
+   *  '#' or ' ' solid; terraces '=' -2, '_' -1, '.' 0, '^' +1, '+' +2.
+   *  Every other glyph is a feature standing on the terrace of its neighbour:
+   *  'P' player spawn, 'E' enemy spawn, 'D' training dummy, 'M' Map Table,
+   *  'o' pillar, 'b' barrels, 'c' crates, 't' table, 'k' keg, 'r' rubble, 'f' brazier,
+   *  '1'..'4' roster mob, '7' '8' roster elite, 'B' boss, 's' dormant shadow spawn,
+   *  'C' Synergy Chest, 'S' Healing Shrine, 'X' Extraction Portal,
+   *  'A' Carl, 'I' Iej, 'Y' Saraya, 'L' Eleonora.
    */
   rows: string[];
+  roster?: Roster;
+  /** Tension nodes of an assembled Environment, top to bottom. */
+  nodes?: { kind: string; name: string; chunk: string; row: number; rows: number }[];
 }
 
 export interface Point {
@@ -61,8 +94,12 @@ export interface Layout {
    * Walls and out-of-bounds reads use ELEV_WALL.
    */
   elev: Int8Array;
-  /** Garrison spawned with the map. Empty on authored arenas that still use waves. */
+  /** Garrison spawned with the map: it patrols until a hero walks into view. */
   placed: PlacedFoe[];
+  /** Dormant spawn points that only wake for parties larger than four. */
+  shadows: PlacedFoe[];
+  pois: PoiDef[];
+  npcs: NpcDef[];
   props: PropDef[];
   playerSpawns: Point[];
   enemySpawns: Point[];
@@ -87,20 +124,29 @@ export function cellCenter(cx: number, cz: number): Point {
   return { x: (cx + 0.5) * CELL, z: (cz + 0.5) * CELL };
 }
 
-/** '=' -2, '_' -1, '.' 0, '^' +1, '+' +2. Any other walkable glyph (spawns, props) is terrace 0. */
-function glyphElevation(ch: string): number {
+const NPC_TILES: Record<string, string> = { A: 'carl', I: 'iej', Y: 'saraya', L: 'eleonora' };
+const POI_TILES: Record<string, PoiDef['kind']> = { C: 'chest', S: 'shrine', X: 'portal' };
+
+/** '=' -2, '_' -1, '.' 0, '^' +1, '+' +2. Undefined for walls and feature glyphs. */
+function terraceOf(ch: string | undefined): number | undefined {
   switch (ch) {
     case '=':
       return -2;
     case '_':
       return -1;
+    case '.':
+      return 0;
     case '^':
       return 1;
     case '+':
       return 2;
     default:
-      return 0;
+      return undefined;
   }
+}
+
+function isWall(ch: string | undefined): boolean {
+  return ch === undefined || ch === '#' || ch === ' ';
 }
 
 export function parseLayout(def: LayoutDef): Layout {
@@ -115,6 +161,9 @@ export function parseLayout(def: LayoutDef): Layout {
     solid,
     elev,
     placed: [],
+    shadows: [],
+    pois: [],
+    npcs: [],
     props: [],
     playerSpawns: [],
     enemySpawns: [],
@@ -123,6 +172,7 @@ export function parseLayout(def: LayoutDef): Layout {
     table: null,
     center: { x: (w * CELL) / 2, z: (h * CELL) / 2 },
   };
+  const roster = def.roster;
   let floorCount = 0;
   let sx = 0;
   let sz = 0;
@@ -131,20 +181,45 @@ export function parseLayout(def: LayoutDef): Layout {
     for (let cx = 0; cx < w; cx++) {
       const ch = row[cx] ?? '#';
       const i = cz * w + cx;
-      if (ch === '#' || ch === ' ') {
+      if (isWall(ch)) {
         solid[i] = 1;
         elev[i] = ELEV_WALL;
         continue;
       }
-      elev[i] = glyphElevation(ch);
+      // A feature stands on the terrace next to it: west and north are already resolved.
+      let level = terraceOf(ch);
+      if (level === undefined) {
+        const west = cx > 0 && !solid[i - 1] ? elev[i - 1] : undefined;
+        const east = terraceOf(row[cx + 1]);
+        const north = cz > 0 && !solid[i - w] ? elev[i - w] : undefined;
+        const south = terraceOf(def.rows[cz + 1]?.[cx]);
+        level = west ?? east ?? north ?? south ?? 0;
+      }
+      elev[i] = level;
       const c = cellCenter(cx, cz);
       floorCount++;
       sx += c.x;
       sz += c.z;
       if (ch === 'P') layout.playerSpawns.push(c);
       else if (ch === 'E') layout.enemySpawns.push(c);
-      else if (ch === 'B') layout.bossSpawn = c;
       else if (ch === 'D') layout.dummySpawns.push(c);
+      else if (ch === 'B') {
+        layout.bossSpawn = c;
+        if (roster?.boss) layout.placed.push({ type: roster.boss, x: c.x, z: c.z, yaw: 0 });
+      } else if (ch >= '1' && ch <= '4') {
+        const type = roster?.mobs[(ch.charCodeAt(0) - 49) % Math.max(1, roster.mobs.length)];
+        if (type) layout.placed.push({ type, x: c.x, z: c.z, yaw: ((cx * 7 + cz * 13) % 4) * (Math.PI / 2) });
+      } else if (ch === '7' || ch === '8') {
+        const type = roster?.elites[(ch === '7' ? 0 : 1) % Math.max(1, roster.elites.length)];
+        if (type) layout.placed.push({ type, x: c.x, z: c.z, yaw: ((cx * 5 + cz * 11) % 4) * (Math.PI / 2) });
+      } else if (ch === 's') {
+        const type = roster?.mobs[(cx * 3 + cz) % Math.max(1, roster.mobs.length)];
+        if (type) layout.shadows.push({ type, x: c.x, z: c.z, yaw: 0 });
+      }
+      const poi = POI_TILES[ch];
+      if (poi) layout.pois.push({ id: layout.pois.length, kind: poi, x: c.x, z: c.z });
+      const npc = NPC_TILES[ch];
+      if (npc) layout.npcs.push({ id: npc, x: c.x, z: c.z });
       const prop = PROP_TILES[ch];
       if (prop) {
         // Deterministic pseudo-random rotation so client and server agree without sharing a seed.
@@ -390,6 +465,25 @@ export function nearestFloor(layout: Layout, x: number, z: number): Point {
  * Breadth-first distance field (in cells) from the cell containing (x, z).
  * Unreachable cells hold -1.
  */
+/** Centre of the walkable cell at `elev` closest to the point, or null when the map has none. */
+export function nearestAtElevation(layout: Layout, x: number, z: number, elev: number, minDist = 0): Point | null {
+  let best: Point | null = null;
+  let bestD = Infinity;
+  for (let cz = 0; cz < layout.h; cz++) {
+    for (let cx = 0; cx < layout.w; cx++) {
+      const i = cz * layout.w + cx;
+      if (layout.solid[i] || layout.elev[i] !== elev) continue;
+      const c = cellCenter(cx, cz);
+      const d = (c.x - x) ** 2 + (c.z - z) ** 2;
+      if (d < bestD && d >= minDist * minDist) {
+        bestD = d;
+        best = c;
+      }
+    }
+  }
+  return best;
+}
+
 export function buildFlow(layout: Layout, x: number, z: number, out?: Int16Array): Int16Array {
   const { w, h, solid, elev } = layout;
   const field = out && out.length === w * h ? out : new Int16Array(w * h);
@@ -440,10 +534,11 @@ export function flowDirection(layout: Layout, field: Int16Array, x: number, z: n
   let best = here;
   let bx = cx;
   let bz = cz;
+  const feet = layout.elev[cz * w + cx]!;
   const tryCell = (nx: number, nz: number) => {
     if (nx < 0 || nz < 0 || nx >= w || nz >= h) return;
     const v = field[nz * w + nx]!;
-    if (v >= 0 && v < best) {
+    if (v >= 0 && v < best && canStep(feet, layout.elev[nz * w + nx]!)) {
       best = v;
       bx = nx;
       bz = nz;

@@ -128,38 +128,29 @@ export interface HunterView {
 
 export const ENEMY_PERSONA: Record<EnemyTypeId, Persona> = {
   manichino: { mind: 'dummy', strategy: 'Colpisci, para, schiva: il fantoccio insegna il ritmo.', hunts: [] },
-  cultista: { mind: 'duelist', strategy: 'Para i fendenti blu; schiva l’affondo rosso.', hunts: ['striker'] },
-  accolito: { mind: 'sniper', strategy: 'Chiudigli la distanza: i dardi sono la sua vita.', hunts: ['marksman', 'arcane'] },
-  inquisitore: { mind: 'brute', strategy: 'Non restare in gruppo: i suoi schianti coprono tutto.', hunts: ['guardian'] },
-  creatura: { mind: 'pack', strategy: 'Abbattile e allontanati prima dell’esplosione.', hunts: ['skirmisher'] },
-  ombra: { mind: 'assassin', strategy: 'Si teletrasporta alle spalle: girati e para.', hunts: ['support', 'arcane'] },
-  tessitrice: { mind: 'priest', strategy: 'Priorità: interrompila prima del vincolo.', hunts: ['arcane', 'support'] },
-  ombra_maggiore: { mind: 'brute', strategy: 'Spezza la postura, poi esecuzione. Occhio al passo nel buio.', hunts: ['guardian', 'striker'] },
-  klaus: { mind: 'brute', strategy: 'Schiva i rossi; la Bolla di Gabryel copre il silenzio.', hunts: ['support', 'arcane'] },
-  coscritto_sole_nero: { mind: 'bully', strategy: 'Alexios lo tiene; il resto lo punisce alle spalle.', hunts: ['guardian'] },
-  balestriere_tetti: { mind: 'sniper', strategy: 'Non restare scoperti: chiudigli la mira o usa un muro.', hunts: ['marksman', 'arcane'] },
-  mastino_guerra: { mind: 'hunter', strategy: 'Proteggete i feriti: fiuta il sangue e si avventa.', hunts: ['skirmisher', 'striker'] },
-  accolito_silenzio: { mind: 'priest', strategy: 'Eliminalo prima che pianti il silenzio. Resta nella Bolla.', hunts: ['arcane', 'support'] },
-  gargoyle_leccese: { mind: 'warden', strategy: 'Sveglialo con un pesante K, poi contundente o fulmine.', hunts: ['striker'] },
-  scudiero_falange: { mind: 'warden', strategy: 'I dardi frontali rimbalzano. Provocalo e colpisci alle spalle.', hunts: ['marksman', 'arcane'] },
-  flagellante_famelico: { mind: 'duelist', strategy: 'Interrompi la combo con un’ocarina o una parata, poi gelo/radioso.', hunts: ['striker'] },
-  vaelen: { mind: 'brute', strategy: 'Bolla contro il giudizio. Necrotico e perforante alle spalle.', hunts: ['support', 'guardian'] },
-  tagliagole_reietti: { mind: 'assassin', strategy: 'Non dargli la schiena. Contundente e radioso lo smontano.', hunts: ['support', 'arcane'] },
-  predone_sahuagin: { mind: 'charger', strategy: 'Tiralo fuori dall’acqua e para la carica, poi fulmine.', hunts: ['marksman'] },
-  granchio_scogliera: { mind: 'brute', strategy: 'Para la pinzata blu. Tagliente scivola: usa contundente.', hunts: ['guardian'] },
-  contrabbandiere_alchemico: { mind: 'sniper', strategy: 'Interrompi il lancio con K. Non restare in gruppo.', hunts: ['striker', 'guardian'] },
-  sciame_polpi: { mind: 'pack', strategy: 'Fuoco e radioso dissolvono lo sciame. Non farvi avvolgere.', hunts: ['skirmisher'] },
-  esecutore_kaza: { mind: 'assassin', strategy: 'Il Marchio di Rycard lo rivela nel fumo. Radioso / psichico.', hunts: ['marksman', 'support'] },
-  sirena_abisso: { mind: 'priest', strategy: 'Jusef o Gabryel spezzano il canto. Poi fulmine e perforante.', hunts: ['support', 'arcane'] },
-  idra_carsica: { mind: 'brute', strategy: 'Tieni attivo fuoco o radioso, o rigenera ogni secondo.', hunts: ['guardian', 'striker'] },
-  lupo_ombra: { mind: 'pack', strategy: 'Isola i lupi: in branco fanno più male. Radioso / fuoco.', hunts: ['skirmisher', 'support'] },
-  cespuglio_spine: { mind: 'warden', strategy: 'Non restare fermi: le radici rosse nascono sotto i piedi.', hunts: ['guardian'] },
-  sciamano_menhir: { mind: 'priest', strategy: 'Priorità assoluta. Perforante / veleno, poi la Bolla.', hunts: ['arcane', 'support'] },
-  cinghiale_murge: { mind: 'charger', strategy: 'Para la carica con Q: riempie tutta la barra gialla.', hunts: ['marksman', 'arcane'] },
-  fuoco_fatuo: { mind: 'hunter', strategy: 'Apri con [E] o un contrattacco, poi radioso / forza.', hunts: ['skirmisher', 'arcane'] },
-  berserker_jugianel: { mind: 'bully', strategy: 'Il gelo di Fabyorn spegne l’Ira; poi tutti insieme.', hunts: ['guardian', 'striker'] },
-  orsogufo_miner: { mind: 'brute', strategy: 'Schiva l’urlo. Fuoco e perforante aprono il pellame.', hunts: ['support', 'guardian'] },
-  monolito_vivente: { mind: 'warden', strategy: 'Combo gelo di Fabyorn + pugni di Alexios: ×4 postura.', hunts: ['striker', 'guardian'] },
+  corsaro_annegato: { mind: 'warden', strategy: 'Di fronte il ferro rimbalza sullo scudo: aggirali o usa le abilità.', hunts: ['guardian', 'striker'] },
+  granchio_pietra: { mind: 'hunter', strategy: 'Si interra nei canali bassi: salite di quota o stanatelo con un’area.', hunts: ['skirmisher', 'marksman'] },
+  predone_sahuagin: { mind: 'charger', strategy: 'Para la carica o spostati di lato: poi è scoperto.', hunts: ['marksman'] },
+  tagliagole_reietti: { mind: 'assassin', strategy: 'Non dargli la schiena e non restare isolato.', hunts: ['support', 'arcane'] },
+  contrabbandiere_alchemico: { mind: 'sniper', strategy: 'Interrompi il lancio. Non restate in gruppo sotto le fiale.', hunts: ['striker', 'guardian'] },
+  sciame_polpi: { mind: 'pack', strategy: 'Fragili ma mai soli: un’area li spazza prima che vi avvolgano.', hunts: ['skirmisher'] },
+  nostromo_senzocchi: { mind: 'warden', strategy: 'Punisce chi si accampa in alto: l’arpione vi trascina a quota 0. Schivatelo.', hunts: ['marksman', 'arcane'] },
+  madre_spore: { mind: 'priest', strategy: 'Le nubi restano a terra: muovetevi e abbattetela per prima.', hunts: ['arcane', 'support'] },
+  esecutore_kaza: { mind: 'assassin', strategy: 'Fumo, poi coltello alle spalle. Restate a coppie.', hunts: ['marksman', 'support'] },
+  sirena_abisso: { mind: 'priest', strategy: 'Uscite dal canto prima che si chiuda, poi caricatela.', hunts: ['support', 'arcane'] },
+  quartiermastro: { mind: 'brute', strategy: 'Non ammassatevi: punisce i gruppi con un’onda d’urto. Togliete di mezzo la ciurma.', hunts: ['guardian', 'striker'] },
+  chela_madre: { mind: 'brute', strategy: 'Combattetela fuori dai canali, o si interra. Le chele rallentano.', hunts: ['guardian'] },
+  palombaro: { mind: 'warden', strategy: 'L’arpione cerca chi sta in alto; i rintocchi si schivano attraversandoli.', hunts: ['marksman', 'arcane'] },
+  esattore_maree: { mind: 'duelist', strategy: 'Alterna blu e rossi: parate i primi, schivate i secondi.', hunts: ['striker', 'skirmisher'] },
+  matriarca_spore: { mind: 'priest', strategy: 'Ogni nube toglie terreno: chiudete in fretta e restate larghi.', hunts: ['arcane', 'support'] },
+  cantrice_abissale: { mind: 'priest', strategy: 'Fuori dalle cupole del silenzio le abilità tornano.', hunts: ['support', 'arcane'] },
+  capo_sindacato: { mind: 'assassin', strategy: 'Compare alle spalle di chi resta indietro: guardatevi a vicenda.', hunts: ['support', 'marksman'] },
+  alchimista_folle: { mind: 'sniper', strategy: 'Chiudete la distanza: da vicino ha solo la fuga.', hunts: ['guardian', 'striker'] },
+  campione_fossa: { mind: 'bully', strategy: 'Chi lo circonda in troppi vola via. Due alla volta, a turno.', hunts: ['guardian', 'striker'] },
+  idra_carsica: { mind: 'brute', strategy: 'Dividetevi sulle teste. Ammassati, vi spazza tutti insieme.', hunts: ['guardian', 'striker'] },
+  arconte_ujian: { mind: 'brute', strategy: 'Silenzio e decreti: restate mobili e lontani gli uni dagli altri.', hunts: ['support', 'arcane'] },
+  re_reietti: { mind: 'hunter', strategy: 'Caccia chi è ferito e solo. Il miasma resta: cambiate terreno.', hunts: ['support', 'skirmisher'] },
+  leviatano: { mind: 'brute', strategy: 'L’acqua sale a ogni fase: prendete le piattaforme, ma mai tutti sulla stessa.', hunts: ['guardian', 'arcane'] },
 };
 
 export function personaOf(type: EnemyTypeId): Persona {
@@ -193,6 +184,18 @@ export function clusterCount(prey: PreyView, party: PreyView[], radius = 3.4): n
   return n;
 }
 
+export interface PreySocial {
+  /** Damage this foe recently took from the prey (decays over time). */
+  threat: number;
+  /** Other foes already locked onto the prey. */
+  crowd: number;
+  /** Fair number of foes per hero: beyond it the pack splits. */
+  share: number;
+}
+
+const THREAT_PULL = 0.12;
+const CROWD_PUSH = 8;
+
 /** Lower is more attractive. A Jev target is pulled in front of the persona's preference. */
 export function preyScore(
   persona: Persona,
@@ -202,6 +205,7 @@ export function preyScore(
   party: PreyView[],
   hint?: MindHint,
   order?: { focusId?: string | null; shape?: RoomOrder['shape'] },
+  social?: PreySocial,
 ): number {
   const hero = HEROES[prey.hero];
   const dist = Math.hypot(prey.x - hunter.x, prey.z - hunter.z);
@@ -210,6 +214,11 @@ export function preyScore(
   let s = dist;
 
   if (hint?.targetId === prey.id) s -= 1000;
+  // Aggro fragmentation: whoever hurts this foe draws it, and a hero already mobbed is left to the others.
+  if (social && persona.mind !== 'dummy') {
+    s -= Math.min(12, social.threat * THREAT_PULL);
+    s += Math.max(0, social.crowd - social.share + 1) * CROWD_PUSH;
+  }
   const holdTank = order?.shape === 'peel' && (persona.mind === 'bully' || persona.mind === 'warden');
   if (!holdTank && order?.focusId === prey.id) s -= 14;
   if (prey.id === hunter.target) s -= 3;
@@ -334,8 +343,8 @@ export function attackWeightMul(mind: EnemyMind, atk: EnemyAttackDef, ctx: Attac
       if (atk.proj) m *= 0.5;
       break;
   }
-  if (mind !== 'dummy' && ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
-  if (mind !== 'dummy' && ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
+  if (ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
+  if (ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
   return m;
 }
 
