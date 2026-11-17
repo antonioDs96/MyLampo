@@ -58,7 +58,7 @@ export const COSMETICS: CosmeticDef[] = [
 
   // Idle poses for the Hero Selection screen.
   { id: 'pose_trionfo', kind: 'pose', name: 'Trionfo', desc: 'Braccia al cielo.', cost: 20, clip: 'Cheer' },
-  { id: 'pose_sfida', kind: 'pose', name: 'Sfida', desc: 'Un gesto che invita a farsi avanti.', cost: 20, clip: 'Taunt' },
+  { id: 'pose_sfida', kind: 'pose', name: 'Sfida', desc: 'Un gesto che invita a farsi avanti.', cost: 20, clip: '2H_Melee_Idle' },
   { id: 'pose_guardia', kind: 'pose', name: 'In Guardia', desc: 'Pronto a parare.', cost: 20, clip: 'Blocking' },
   { id: 'pose_evocazione', kind: 'pose', name: 'Evocazione', desc: 'Le mani alzate a chiamare qualcosa.', cost: 30, clip: 'Spellcast_Raise' },
 

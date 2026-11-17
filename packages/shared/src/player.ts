@@ -180,9 +180,9 @@ function findEnemy(ctx: StepCtx, id: number): EnemyLite | undefined {
 function pickTarget(p: PlayerState, hero: HeroDef, def: AttackDef | null, cmd: InputCmd, ctx: StepCtx, reach: number): number {
   const lock = findEnemy(ctx, cmd.lock);
   if (lock) return lock.id;
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
   const ranged = hero.ranged && (!def || !!def.proj || def.charged === 'pull');
-  const want = ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
+  // Top-down: every hero strikes where the player aims (the cursor, or the stick).
+  const want = cmd.aim;
   let best = 0;
   let bestScore = Infinity;
   for (const e of ctx.enemies) {
@@ -237,9 +237,7 @@ function startAttack(p: PlayerState, hero: HeroDef, heavy: boolean, cmd: InputCm
   p.combo = combo;
   setAct(p, heavy ? Act.Heavy : Act.Attack);
   p.tgt = pickTarget(p, hero, def, cmd, ctx, def.proj ? def.proj.range : def.range + def.lunge + 3);
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  const fallback = hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw;
-  faceTarget(p, ctx, fallback, Math.PI * 2);
+  faceTarget(p, ctx, cmd.aim, Math.PI * 2);
 
   if (heavy && def.charged === 'behind' && p.charge >= 1) {
     const e = findEnemy(ctx, p.tgt);
@@ -368,8 +366,7 @@ function startAbility(p: PlayerState, hero: HeroDef, ult: boolean, silenced: boo
   setAct(p, ult ? Act.Ult : Act.Ability);
   p.combo = 0;
   p.tgt = pickTarget(p, hero, null, cmd, ctx, hero.ranged ? 40 : 14);
-  const moving = Math.hypot(cmd.mx, cmd.mz) > 0.2;
-  faceTarget(p, ctx, hero.ranged ? cmd.aim : moving ? yawOf(cmd.mx, cmd.mz) : p.yaw, Math.PI * 2);
+  faceTarget(p, ctx, cmd.aim, Math.PI * 2);
   ev.push({ type: 'abilityStart', ult });
   return true;
 }
@@ -691,8 +688,7 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
       p.t += 1;
       const lock = findEnemy(ctx, cmd.lock);
       if (lock) p.tgt = lock.id;
-      const fallback = hero.ranged ? cmd.aim : moving ? yawOf(mx, mz) : p.yaw;
-      faceTarget(p, ctx, fallback, turn);
+      faceTarget(p, ctx, cmd.aim, turn);
       vx = mx * speed * TUNING.chargeMoveMul;
       vz = mz * speed * TUNING.chargeMoveMul;
       if (p.buf === Btn.Dodge) {
