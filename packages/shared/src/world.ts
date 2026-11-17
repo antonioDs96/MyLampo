@@ -256,6 +256,8 @@ export class World {
   /** Colour of the swing this foe committed last. */
   private readonly lastSwing = new Map<number, 'blue' | 'red'>();
   private lastTauntKey = '';
+  private lastTauntText = '';
+  private tauntN = 0;
   private lastTauntAt = -99;
   /** Holds the written line until a lite model answers, or the wait runs out. */
   private waitingQuip: { key: string; since: number; who: string; text: string; id: number } | null = null;
@@ -265,6 +267,7 @@ export class World {
   constructor(opts: WorldOpts) {
     this.layout = opts.layout;
     this.rng = new Rng(opts.seed);
+    this.tauntN = Math.abs(opts.seed | 0);
     this.safe = !!opts.safe;
     this.pvp = !!opts.pvp;
     this.noRevive = !!opts.noRevive;
@@ -2023,6 +2026,8 @@ export class World {
   }
 
   private emitTaunt(who: string, text: string, id: number): void {
+    if (!text || text === this.lastTauntText) return;
+    this.lastTauntText = text;
     this.lastTauntAt = this.time;
     this.events.push({ e: 'taunt', who, text, id });
   }
@@ -2031,8 +2036,13 @@ export class World {
   private maybeTaunt(): void {
     if (this.waitingQuip) {
       const ready = this.quips?.take(this.waitingQuip.key);
-      if (ready) {
+      if (ready && ready !== this.lastTauntText) {
         this.emitTaunt(this.waitingQuip.who, ready, this.waitingQuip.id);
+        this.waitingQuip = null;
+        return;
+      }
+      if (ready) {
+        this.emitTaunt(this.waitingQuip.who, this.waitingQuip.text, this.waitingQuip.id);
         this.waitingQuip = null;
         return;
       }
@@ -2063,7 +2073,11 @@ export class World {
       punish: order?.punish ?? null,
       shape: order?.shape ?? null,
       tone: order?.tone ?? 'mock',
+      n: this.tauntN,
+      avoid: this.lastTauntText,
     });
+    if (line.text === this.lastTauntText) return;
+    this.tauntN += 1;
     this.lastTauntKey = key;
     if (!this.quips) {
       this.emitTaunt(line.who, line.text, speaker.id);
@@ -2077,6 +2091,7 @@ export class World {
       suffers: sufferSentence(HEROES[prey.hero].short, read),
       punish: order?.punish && order.punish !== 'mix' ? order.punish : read.family,
       shape: order?.shape ?? '',
+      avoid: this.lastTauntText,
     };
     this.quips.ask(facts);
     this.waitingQuip = { key, since: this.time, who: line.who, text: line.text, id: speaker.id };

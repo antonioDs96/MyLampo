@@ -178,6 +178,18 @@ describe('enemy personas', () => {
     expect(line.who).toBe('Inquisitore del Sole Nero');
     expect(line.text).toContain('Vyncent');
     expect(line.text).toContain('i rossi');
+    const again = tauntLine({
+      who: 'Inquisitore del Sole Nero',
+      hero: 'Vyncent',
+      read: { family: 'red', resisted: 'blue' },
+      punish: 'red',
+      shape: null,
+      tone: 'mock',
+      n: 1,
+      avoid: line.text,
+    });
+    expect(again.text).not.toBe(line.text);
+    expect(again.text).toContain('i rossi');
   });
 });
 

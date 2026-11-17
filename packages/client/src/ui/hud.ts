@@ -402,6 +402,7 @@ export class Hud {
       this.world.append(root);
     }
     b.used = true;
+    b.root.classList.remove('hidden');
     b.root.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
     if (b.who !== who) {
       b.who = who;
@@ -411,6 +412,14 @@ export class Hud {
       b.text = text;
       b.textEl.textContent = text;
     }
+  }
+
+  /** Keep the line mounted while the speaker slips out of frame, so it does not replay. */
+  holdBlade(id: number): void {
+    const b = this.blades.get(id);
+    if (!b) return;
+    b.used = true;
+    b.root.classList.add('hidden');
   }
 
   endFrame(): void {

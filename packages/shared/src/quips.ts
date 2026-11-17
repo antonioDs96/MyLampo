@@ -10,6 +10,8 @@ export interface QuipFacts {
   suffers: string;
   punish: string;
   shape: string;
+  /** Last line already shown. The model should not repeat it. */
+  avoid?: string;
 }
 
 export interface QuipWriter {
