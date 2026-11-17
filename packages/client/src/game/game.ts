@@ -911,10 +911,17 @@ export class Game {
       case 'say':
         this.hud.say(ev.who, ev.text);
         break;
-      case 'taunt':
-        this.blades.push({ id: ev.id, who: ev.who, text: ev.text, until: performance.now() + 4200 });
-        if (this.blades.length > 2) this.blades.shift();
+      case 'taunt': {
+        const live = this.blades.some((b) => b.text === ev.text);
+        if (!live) {
+          for (let i = this.blades.length - 1; i >= 0; i--) {
+            if (this.blades[i]!.id === ev.id) this.blades.splice(i, 1);
+          }
+          this.blades.push({ id: ev.id, who: ev.who, text: ev.text, until: performance.now() + 4200 });
+          if (this.blades.length > 2) this.blades.shift();
+        }
         break;
+      }
       case 'hint':
         // Tutorial and strategy notes stay off the screen. Only enemy taunts are shown.
         break;
@@ -1804,7 +1811,10 @@ export class Game {
       const snap = ev?.snap;
       if (!ev || !snap || snap.state === EState.Dead) continue;
       const at = this.project(snap.x, ev.view.height * 0.72, snap.z);
-      if (!at) continue;
+      if (!at) {
+        this.hud.holdBlade(blade.id);
+        continue;
+      }
       const x = Math.min(Math.max(8, at.x + 22), Math.max(8, width - box - 8));
       const y = Math.min(Math.max(8, at.y - 10), Math.max(8, height - 72));
       this.hud.blade(blade.id, x, y, blade.who, blade.text);

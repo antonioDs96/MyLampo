@@ -53,10 +53,15 @@ const FAMILY_IT: Record<AttackFamily, string> = {
   rush: 'le cariche',
 };
 
-function lineOf(lines: string[], salt: string): string {
+function lineOf(lines: string[], salt: string, avoid = ''): string {
   let h = 0;
   for (let i = 0; i < salt.length; i++) h = (h * 33 + salt.charCodeAt(i)) >>> 0;
-  return lines[h % lines.length]!;
+  const start = h % lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[(start + i) % lines.length]!;
+    if (line !== avoid) return line;
+  }
+  return lines[start]!;
 }
 
 /** A short Italian taunt, always understated. Jev picks a shade; the words stay in the game. */
@@ -67,16 +72,22 @@ export function tauntLine(args: {
   punish: RoomOrder['punish'];
   shape: RoomOrder['shape'];
   tone: TauntTone;
+  /** Advances the line so the same observation does not repeat the last sentence. */
+  n?: number;
+  avoid?: string;
 }): { who: string; text: string } {
   const fam = args.read.family ? FAMILY_IT[args.read.family] : args.punish && args.punish !== 'mix' ? FAMILY_IT[args.punish] : '';
   const stopped = args.read.resisted ? FAMILY_IT[args.read.resisted] : '';
-  const salt = `${args.hero}|${args.tone}|${fam}|${args.shape ?? ''}`;
+  const salt = `${args.hero}|${args.tone}|${fam}|${args.shape ?? ''}|${args.n ?? 0}`;
   let lines: string[];
   if (fam) {
     lines = [
       `${args.hero}, ${fam} ti stanno simpatici. Il bis è già in cottura.`,
       `${args.hero} e ${fam}: una storia breve, e la conosciamo già.`,
       `Nota su ${args.hero}. ${fam} entrano. Il resto può aspettare.`,
+      `${args.hero}, di nuovo ${fam}. Non è un caso, è un'abitudine.`,
+      `Prego, ${args.hero}. ${fam} erano già il tuo piatto.`,
+      `${args.hero} insiste. ${fam} restano, il resto no.`,
     ];
   } else if (stopped) {
     lines = [
@@ -92,7 +103,7 @@ export function tauntLine(args: {
   } else {
     lines = [`Vi studiamo, ${args.hero}. Ancora un po' e diventa personale.`, `${args.hero}, non abbiamo ancora un vizio vostro. Arriva.`];
   }
-  return { who: args.who, text: lineOf(lines, salt) };
+  return { who: args.who, text: lineOf(lines, salt, args.avoid) };
 }
 
 export function familyOf(atk: { kind: 'blue' | 'red'; proj?: unknown; aoe?: number; special?: string; lunge: number }): AttackFamily {

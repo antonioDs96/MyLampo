@@ -39,7 +39,8 @@ function factsText(facts: QuipFacts): string {
     'Tono: sottovoce',
     `Osservazione: ${facts.suffers}`,
     `Ordine: ${facts.punish || 'nessuno'}, forma ${facts.shape || 'nessuna'}`,
-  ].join('\n');
+    facts.avoid ? `Non ripetere: ${facts.avoid}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null> {
@@ -57,7 +58,7 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
         {
           role: 'system',
           content:
-            'Sei un mostro di Malampu. Una frase italiana, massimo 18 parole, ironia sottovoce: dici poco e lasci intendere. Nomina l’eroe. Niente virgolette, niente spiegazioni, niente insulti volgari.',
+            'Sei un mostro di Malampu. Una frase italiana, massimo 18 parole, ironia sottovoce: dici poco e lasci intendere. Nomina l’eroe. Cambia le parole ogni volta e non riusare la frase già detta. Niente virgolette, niente spiegazioni, niente insulti volgari.',
         },
         { role: 'user', content: factsText(facts) },
       ],
@@ -72,7 +73,9 @@ async function complete(cfg: LiteModel, facts: QuipFacts): Promise<string | null
     return null;
   }
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return cleanQuip(body.choices?.[0]?.message?.content ?? '');
+  const line = cleanQuip(body.choices?.[0]?.message?.content ?? '');
+  if (!line || line === facts.avoid) return null;
+  return line;
 }
 
 export function createQuipWriter(): QuipWriter | undefined {
