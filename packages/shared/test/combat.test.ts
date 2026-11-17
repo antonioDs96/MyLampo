@@ -290,27 +290,118 @@ describe('defence', () => {
     expect(world.stats.get('a')!.dodges).toBe(1);
   });
 
-  it('an early dodge is not rewarded, and one ending too soon still gets hit', () => {
+  it('a dodge while the signal is showing, before the blow, succeeds even though the roll is long over', () => {
     const { world, p } = setup();
     const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
     const w = windup(world, e, p, 'gancio');
-    // Dodge on the spot far too early: i-frames are over when the blade lands.
+    // Right as the signal appears. The roll and its invulnerability end well before the blade.
     run(world, 'a', 2);
     tap(world, 'a', Btn.Dodge, { mz: 1 });
+    run(world, 'a', T(w + 0.5));
+    expect(p.hp).toBe(HEROES.jusef.hp);
+    expect(events(world, 'pdodge')).toHaveLength(1);
+    expect(events(world, 'phit')).toHaveLength(0);
+  });
+
+  it('one dodge during the signal covers every blow of a multi-hit attack', () => {
+    const { world, p } = setup();
+    const atk = ENEMIES.quartiermastro.attacks.find((a) => a.id === 'vortice')!;
+    const e = passiveEnemy(world, 'quartiermastro', p.x, p.z + 2.2);
+    windup(world, e, p, 'vortice');
+    e.n = 1 + (atk.extraHits ?? 0);
+    run(world, 'a', 2);
+    tap(world, 'a', Btn.Dodge, { mz: 1 });
+    run(world, 'a', T(0.35));
+    // The roll is over: put the hero back inside the swing and leave him there.
+    p.iframes = 0;
+    p.x = e.x;
+    p.z = e.z + 1.4;
+    run(world, 'a', T(atk.windup + (atk.extraHits ?? 0) * (atk.hitGap ?? 0.3) + 0.4));
+    expect(events(world, 'phit')).toHaveLength(0);
+    expect(p.hp).toBe(HEROES.jusef.hp);
+  });
+
+  it('a dodge during a shot signal avoids the projectile, even back on its path', () => {
+    const { world, p } = setup();
+    const spot = { x: p.x, z: p.z };
+    const e = passiveEnemy(world, 'madre_spore', spot.x, spot.z + 8);
+    const w = windup(world, e, p, 'spora');
+    run(world, 'a', 3);
+    tap(world, 'a', Btn.Dodge, { mx: 1 });
+    run(world, 'a', T(0.4));
+    p.iframes = 0;
+    p.x = spot.x;
+    p.z = spot.z;
+    run(world, 'a', T(w + 1.4));
+    expect(events(world, 'phit')).toHaveLength(0);
+    expect(p.hp).toBe(HEROES.jusef.hp);
+  });
+
+  it('a dodge pressed before any signal does not survive until the blow', () => {
+    const { world, p } = setup();
+    const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
+    tap(world, 'a', Btn.Dodge, { mz: 1 });
+    run(world, 'a', T(0.6));
+    const w = windup(world, e, p, 'gancio');
     run(world, 'a', T(w + 0.5));
     expect(events(world, 'pdodge')).toHaveLength(0);
     expect(p.hp).toBeLessThan(HEROES.jusef.hp);
   });
 
-  it('a guard raised early blocks: chip damage and stamina drain', () => {
+  it('a guard raised while a blue signal is showing is a parry', () => {
     const { world, p } = setup();
     const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.4);
     const w = windup(world, e, p, 'tridente');
-    run(world, 'a', T(w + 0.4), { buttons: Btn.Block });
-    expect(events(world, 'block')).toHaveLength(1);
-    expect(events(world, 'parry')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - Math.round(10 * (1 - HEROES.jusef.block.reduction)));
-    expect(p.stamina).toBeLessThan(HEROES.jusef.stamina);
+    run(world, 'a', 3);
+    tap(world, 'a', Btn.Block);
+    run(world, 'a', T(w + 0.4));
+    expect(events(world, 'parry')).toHaveLength(1);
+    expect(p.hp).toBe(HEROES.jusef.hp);
+    expect(e.state).toBe(EState.Stagger);
+  });
+
+  it('a red attack is not parried by answering its signal: it has to be dodged', () => {
+    const blocked = setup();
+    const e1 = passiveEnemy(blocked.world, 'predone_sahuagin', blocked.p.x, blocked.p.z + 2.6);
+    const w1 = windup(blocked.world, e1, blocked.p, 'carica');
+    run(blocked.world, 'a', 3);
+    tap(blocked.world, 'a', Btn.Block);
+    run(blocked.world, 'a', T(w1 + 0.4));
+    expect(events(blocked.world, 'parry')).toHaveLength(0);
+    expect(blocked.p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'carica'));
+
+    const dodged = setup();
+    const e2 = passiveEnemy(dodged.world, 'predone_sahuagin', dodged.p.x, dodged.p.z + 2.6);
+    const w2 = windup(dodged.world, e2, dodged.p, 'carica');
+    run(dodged.world, 'a', 3);
+    tap(dodged.world, 'a', Btn.Dodge, { mz: 1 });
+    run(dodged.world, 'a', T(0.35));
+    dodged.p.iframes = 0;
+    dodged.p.x = e2.x;
+    dodged.p.z = e2.z + 1.2;
+    run(dodged.world, 'a', T(w2 + 0.4));
+    expect(events(dodged.world, 'phit')).toHaveLength(0);
+    expect(dodged.p.hp).toBe(HEROES.jusef.hp);
+  });
+
+  it('a guard already held before the signal only blocks: chip damage, and red still goes through', () => {
+    const blue = setup();
+    run(blue.world, 'a', 6, { buttons: Btn.Block });
+    const e1 = passiveEnemy(blue.world, 'predone_sahuagin', blue.p.x, blue.p.z + 2.4);
+    const w1 = windup(blue.world, e1, blue.p, 'tridente');
+    run(blue.world, 'a', T(w1 + 0.4), { buttons: Btn.Block });
+    expect(events(blue.world, 'parry')).toHaveLength(0);
+    expect(events(blue.world, 'block')).toHaveLength(1);
+    expect(blue.p.hp).toBe(HEROES.jusef.hp - Math.round(10 * (1 - HEROES.jusef.block.reduction)));
+    expect(blue.p.stamina).toBeLessThan(HEROES.jusef.stamina);
+
+    const red = setup();
+    run(red.world, 'a', 6, { buttons: Btn.Block });
+    const e2 = passiveEnemy(red.world, 'predone_sahuagin', red.p.x, red.p.z + 2.6);
+    const w2 = windup(red.world, e2, red.p, 'carica');
+    run(red.world, 'a', T(w2 + 0.4), { buttons: Btn.Block });
+    expect(events(red.world, 'parry')).toHaveLength(0);
+    expect(red.p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'carica'));
   });
 
   it('a guard raised just before impact is a perfect parry that staggers the attacker', () => {
@@ -326,31 +417,25 @@ describe('defence', () => {
     expect(hasStatus(p.st, PS.Counter)).toBe(true);
   });
 
-  it('red attacks go through a guard', () => {
-    const { world, p } = setup();
-    const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.6);
-    const w = windup(world, e, p, 'carica');
-    run(world, 'a', T(w) - 8);
-    run(world, 'a', 30, { buttons: Btn.Block });
-    expect(events(world, 'parry')).toHaveLength(0);
-    expect(p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'carica'));
-  });
-
-  it("Alexios' guard stops red attacks", () => {
+  it("Alexios' guard, already held, stops red attacks", () => {
     const { world, p } = setup('alexios');
+    run(world, 'a', 6, { buttons: Btn.Block });
     const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z + 2.6);
     const w = windup(world, e, p, 'carica');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block });
+    expect(events(world, 'parry')).toHaveLength(0);
     expect(events(world, 'block')).toHaveLength(1);
     expect(p.hp).toBeGreaterThan(HEROES.alexios.hp - 16);
   });
 
-  it('a guard does not cover the back', () => {
+  it('a guard already held does not cover the back', () => {
     const { world, p } = setup();
     const front = passiveEnemy(world, 'manichino', p.x, p.z + 3);
+    run(world, 'a', 6, { buttons: Btn.Block, lock: front.id });
     const e = passiveEnemy(world, 'predone_sahuagin', p.x, p.z - 2.4);
     const w = windup(world, e, p, 'tridente');
     run(world, 'a', T(w + 0.4), { buttons: Btn.Block, lock: front.id });
+    expect(events(world, 'parry')).toHaveLength(0);
     expect(events(world, 'block')).toHaveLength(0);
     expect(p.hp).toBe(HEROES.jusef.hp - damageOf('predone_sahuagin', 'tridente'));
   });
@@ -358,10 +443,10 @@ describe('defence', () => {
   it('blocking with no stamina left breaks the guard', () => {
     const { world, p } = setup();
     const e = passiveEnemy(world, 'nostromo_senzocchi', p.x, p.z + 3);
-    const w = windup(world, e, p, 'gancio');
     run(world, 'a', 4, { buttons: Btn.Block });
     p.stamina = 3;
     p.stamDelay = 600;
+    const w = windup(world, e, p, 'gancio');
     run(world, 'a', T(w + 0.2), { buttons: Btn.Block });
     expect(events(world, 'gbreak')).toHaveLength(1);
     expect(p.act).toBe(Act.Hit);
