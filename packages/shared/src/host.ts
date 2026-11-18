@@ -60,7 +60,7 @@ import {
   type VoteChoice,
   type WorldInfo,
 } from './protocol';
-import { ABILITY_SLOTS, PATH_IDS, type AbilitySlot, type PathId } from './skillTree';
+import { TREE_SLOTS, type ShopSlot } from './skillTree';
 import { Act, type GameEvent, type HeroId, type InputCmd, type PingKind } from './types';
 import type { QuipWriter } from './quips';
 import { World, type PlayerSetup, type PlayerStats, type WorldOpts } from './world';
@@ -340,11 +340,11 @@ export class GameHost {
   private shopTree(c: Client, op: unknown, slot: string, path: string): void {
     if (this.phase === 'run' || !c.hero) return;
     if (op === 'respec') {
-      const only = (ABILITY_SLOTS as string[]).includes(slot) ? (slot as AbilitySlot) : undefined;
+      const only = (TREE_SLOTS as string[]).includes(slot) ? (slot as ShopSlot) : undefined;
       respecTree(c.profile, c.hero, only);
     } else if (op === 'buy') {
-      if (!(ABILITY_SLOTS as string[]).includes(slot) || !(PATH_IDS as string[]).includes(path)) return;
-      if (this.deny(c, buyNode(c.profile, c.hero, slot as AbilitySlot, path as PathId))) return;
+      if (!(TREE_SLOTS as string[]).includes(slot)) return;
+      if (this.deny(c, buyNode(c.profile, c.hero, slot as ShopSlot, path))) return;
     } else return;
     this.world.retune(c.id, treeOf(c.profile, c.hero));
     this.pushProfile(c);

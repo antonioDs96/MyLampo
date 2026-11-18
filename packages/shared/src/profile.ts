@@ -8,14 +8,13 @@ import { CITY_BOSS_STAGE, CITY_IDS, type CityId } from './campaign';
 import { COSMETIC_BY_ID, emptyLoadout, sanitizeLoadout, type Loadout, type LoadoutSlot } from './cosmetics';
 import { HEROES } from './heroes';
 import {
-  ABILITY_SLOTS,
   canBuyNode,
+  emptyNode,
   emptyTree,
   sanitizeTree,
   treeSpent,
-  type AbilitySlot,
   type HeroTree,
-  type PathId,
+  type ShopSlot,
 } from './skillTree';
 import type { HeroId } from './types';
 
@@ -107,32 +106,47 @@ export function loadoutOf(profile: Profile, hero: HeroId): Loadout {
 
 export type ShopResult = { ok: true } | { ok: false; why: string };
 
-/** Iej: buy the next node of a path. Paths are exclusive per ability. */
-export function buyNode(profile: Profile, hero: HeroId, slot: AbilitySlot, path: PathId): ShopResult {
+/** Iej: buy the next catalog node. Branches and winds lock once chosen. */
+export function buyNode(profile: Profile, hero: HeroId, slot: ShopSlot, choice: string): ShopResult {
   const tree = treeOf(profile, hero);
-  const res = canBuyNode(tree, slot, path, profile.gems);
+  const res = canBuyNode(hero, tree, slot, choice, profile.gems);
   if (!res.ok) {
     const why =
       res.why === 'gems'
         ? 'Non hai abbastanza Gemme dell’Eclissi.'
         : res.why === 'path'
-          ? 'Questa abilità segue già un altro sentiero: rimborsala prima di cambiarlo.'
-          : 'Questo sentiero è già al massimo.';
+          ? 'Questa abilità segue già un altro ramo: rimborsala prima di cambiarlo.'
+          : res.why === 'wind'
+            ? 'Scegli un vento di questo ramo, oppure resta su quello già aperto.'
+            : res.why === 'need'
+              ? 'Sblocca almeno tre gradi prima della firma.'
+              : 'Questo sentiero è già al massimo.';
     return { ok: false, why };
   }
   profile.gems -= res.cost;
-  const node = tree[slot];
-  profile.trees[hero] = { ...tree, [slot]: { path, tier: node.tier + 1 } };
+  const next: HeroTree = { ...tree, e: { ...tree.e }, r: { ...tree.r } };
+  if (slot === 'p') next.passive += 1;
+  else if (slot === 'k') next.keystone = true;
+  else {
+    const node = next[slot];
+    node.tier += 1;
+    if (node.tier === 3) node.branch = choice === 'A' || choice === 'B' || choice === 'C' ? choice : node.branch;
+    if (node.tier === 5) node.wind = choice;
+  }
+  profile.trees[hero] = next;
   return { ok: true };
 }
 
 /** Iej: unlimited respec in the hub, with a 100% refund. */
-export function respecTree(profile: Profile, hero: HeroId, slot?: AbilitySlot): number {
+export function respecTree(profile: Profile, hero: HeroId, slot?: ShopSlot): number {
   const tree = treeOf(profile, hero);
-  const next = { ...tree };
-  const before = treeSpent(tree);
-  for (const s of ABILITY_SLOTS) if (!slot || slot === s) next[s] = { path: '', tier: 0 };
-  const refund = before - treeSpent(next);
+  const next: HeroTree = { ...tree, e: { ...tree.e }, r: { ...tree.r } };
+  const before = treeSpent(hero, tree);
+  if (!slot || slot === 'p' || slot === 'k') next.keystone = false;
+  if (!slot || slot === 'p') next.passive = 0;
+  if (!slot || slot === 'e') next.e = emptyNode();
+  if (!slot || slot === 'r') next.r = emptyNode();
+  const refund = before - treeSpent(hero, next);
   profile.gems += refund;
   profile.trees[hero] = next;
   return refund;
