@@ -1,3 +1,4 @@
 3D models: KayKit Adventurers, Skeletons and Dungeon Remastered packs by Kay Lousberg (www.kaylousberg.com).
 License: Creative Commons Zero (CC0) — http://creativecommons.org/publicdomain/zero/1.0/
 Sources: https://github.com/KayKit-Game-Assets
+Harpoon: generated for this game with Meshy (https://www.meshy.ai).
