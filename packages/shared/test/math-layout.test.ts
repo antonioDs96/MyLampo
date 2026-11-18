@@ -10,6 +10,7 @@ import {
   EState,
   flowDirection,
   getCellElevation,
+  isSolidCell,
   HUB_LAYOUT,
   losClear,
   nearestFloor,
@@ -203,13 +204,21 @@ describe('layout', () => {
     for (const def of allStageLayouts()) {
       const l = parseLayout(def);
       for (const row of def.rows) expect(row.length, `${def.id} row width`).toBe(l.w);
-      for (let x = 0; x < l.w; x++) {
-        expect(l.solid[x], `${def.id} top border`).toBe(1);
-        expect(l.solid[(l.h - 1) * l.w + x], `${def.id} bottom border`).toBe(1);
-      }
-      for (let z = 0; z < l.h; z++) {
-        expect(l.solid[z * l.w], `${def.id} left border`).toBe(1);
-        expect(l.solid[z * l.w + l.w - 1], `${def.id} right border`).toBe(1);
+      if (def.sealedVoid) {
+        // The diorama opens onto the sea and the north gate. Leaving the grid is still a wall.
+        expect(isSolidCell(l, -1, 0), `${def.id} west of the map`).toBe(true);
+        expect(isSolidCell(l, l.w, 0), `${def.id} east of the map`).toBe(true);
+        expect(isSolidCell(l, 0, -1), `${def.id} south of the map`).toBe(true);
+        expect(isSolidCell(l, 0, l.h), `${def.id} north of the map`).toBe(true);
+      } else {
+        for (let x = 0; x < l.w; x++) {
+          expect(l.solid[x], `${def.id} top border`).toBe(1);
+          expect(l.solid[(l.h - 1) * l.w + x], `${def.id} bottom border`).toBe(1);
+        }
+        for (let z = 0; z < l.h; z++) {
+          expect(l.solid[z * l.w], `${def.id} left border`).toBe(1);
+          expect(l.solid[z * l.w + l.w - 1], `${def.id} right border`).toBe(1);
+        }
       }
       expect(l.playerSpawns.length, `${def.id} player spawns`).toBeGreaterThanOrEqual(9);
     }

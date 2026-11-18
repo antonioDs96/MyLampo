@@ -250,6 +250,7 @@ export const ENEMY_PERSONA: Record<EnemyTypeId, Persona> = {
   alchimista_folle: { mind: 'sniper', strategy: 'Chiudete la distanza: da vicino ha solo la fuga.', hunts: ['guardian', 'striker'] },
   campione_fossa: { mind: 'bully', strategy: 'Chi lo circonda in troppi vola via. Due alla volta, a turno.', hunts: ['guardian', 'striker'] },
   idra_carsica: { mind: 'brute', strategy: 'Dividetevi sulle teste. Ammassati, vi spazza tutti insieme.', hunts: ['guardian', 'striker'] },
+  masseus: { mind: 'brute', strategy: 'La carica è lunga: mettete una colonna tra voi e lui, e non restate in gruppo sotto il vortice.', hunts: ['guardian', 'striker'] },
   arconte_ujian: { mind: 'brute', strategy: 'Silenzio e decreti: restate mobili e lontani gli uni dagli altri.', hunts: ['support', 'arcane'] },
   re_reietti: { mind: 'hunter', strategy: 'Caccia chi è ferito e solo. Il miasma resta: cambiate terreno.', hunts: ['support', 'skirmisher'] },
   leviatano: { mind: 'brute', strategy: 'L’acqua sale a ogni fase: prendete le piattaforme, ma mai tutti sulla stessa.', hunts: ['guardian', 'arcane'] },

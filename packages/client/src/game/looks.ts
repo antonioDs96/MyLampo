@@ -362,6 +362,17 @@ export const ENEMY_LOOKS: Record<EnemyTypeId, Look> = {
     run: 'Running_B',
   },
   // —— City Bosses ——
+  masseus: {
+    model: 'Barbarian',
+    scale: 2.6,
+    tint: [0.45, 0.55, 0.5],
+    tintAll: true,
+    recolor: { from: [[185, 240]], hue: 170, sat: 0.45, val: 0.42 },
+    show: ['2H_Axe', 'Barbarian_Cape'],
+    idle: '2H_Melee_Idle',
+    run: 'Walking_A',
+    eyes: [0.15, 0.85, 0.7],
+  },
   idra_carsica: {
     model: 'Skeleton_Warrior',
     scale: 2.5,

@@ -7,7 +7,10 @@
  */
 import { BOUNTY_BY_ID, judgeBounty, type BountyVerdict, type StageLog } from './bounties';
 import {
+  CITIES,
+  CITY_IDS,
   HUB_LAYOUT,
+  cityUnlocked,
   isCityId,
   stageBlurb,
   stageIndex,
@@ -498,6 +501,11 @@ export class GameHost {
       }
       stage = { kind: 'regionBoss' };
     } else if (isCityId(target)) {
+      if (!cityUnlocked(host.profile.cleared, target)) {
+        const prev = CITY_IDS[CITY_IDS.indexOf(target) - 1]!;
+        this.io.send(host.id, { t: 'error', text: `${CITIES[target].name} è sigillata: prima deve cadere ${CITIES[prev].name}.` });
+        return;
+      }
       stage = stageOf(target, checkpointOf(host.profile, target));
     } else {
       // Regions beyond the Costa Est stay sealed until the Region Boss falls.

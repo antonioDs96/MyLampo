@@ -69,6 +69,11 @@ export interface LayoutDef {
   roster?: Roster;
   /** Tension nodes of an assembled Environment, top to bottom. */
   nodes?: { kind: string; name: string; chunk: string; row: number; rows: number }[];
+  /**
+   * Elevation −2 is the sea, not a floor. Those cells block movement and sight
+   * the way a wall does, and the client leaves them open so the water shows.
+   */
+  sealedVoid?: boolean;
 }
 
 export interface Point {
@@ -194,6 +199,11 @@ export function parseLayout(def: LayoutDef): Layout {
         const north = cz > 0 && !solid[i - w] ? elev[i - w] : undefined;
         const south = terraceOf(def.rows[cz + 1]?.[cx]);
         level = west ?? east ?? north ?? south ?? 0;
+      }
+      if (def.sealedVoid && ch === '=') {
+        solid[i] = 1;
+        elev[i] = -2;
+        continue;
       }
       elev[i] = level;
       const c = cellCenter(cx, cz);

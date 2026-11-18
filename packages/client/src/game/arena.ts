@@ -273,6 +273,8 @@ export class Arena {
         const x = (cx + 0.5) * CELL;
         const z = (cz + 0.5) * CELL;
         if (solid(cx, cz)) {
+          // Sealed sea stays open water: the coastal plane shows through.
+          if (layout.def.sealedVoid && terrace(cx, cz) === -2) continue;
           const near =
             !solid(cx - 1, cz) || !solid(cx + 1, cz) || !solid(cx, cz - 1) || !solid(cx, cz + 1) ||
             !solid(cx - 1, cz - 1) || !solid(cx + 1, cz - 1) || !solid(cx - 1, cz + 1) || !solid(cx + 1, cz + 1);
