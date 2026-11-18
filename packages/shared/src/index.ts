@@ -71,6 +71,7 @@ export {
   MIN_CORRIDOR_WIDTH,
   NavGrid,
   SEPARATION_RADIUS,
+  SOFT_SEPARATION_YIELD,
   SPORE_ARM_SECONDS,
   SPORE_DOT,
   SPORE_MAX_STACKS,
@@ -81,6 +82,7 @@ export {
   pointRectDistance,
   segmentHitsAabb,
   separationOffset,
+  yieldFromAlly,
 } from './navigation/NavMeshService';
 export type { CameraSample, ElevationPhysics, HazardBody, HazardResult, NavTile, WorldPoint } from './navigation/NavMeshService';
 export {

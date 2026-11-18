@@ -11,10 +11,11 @@ import {
   VertexBuffer,
   VertexData,
 } from '@babylonjs/core';
+import { ENEMY_ALERT_ORDER, HERO_DECAL_LIFT, HERO_DECAL_ORDER, HERO_RING_ORDER } from './decals';
 import { appendRadial, appendRibbon, emptySheet, type HeightAt, type Sheet } from './drape';
 import type { RGB } from './looks';
 
-const DECAL_Y = 0.1;
+const DECAL_Y = HERO_DECAL_LIFT;
 
 /** A growable set of thin instances of one mesh, refilled every frame. */
 class Batch {
@@ -141,6 +142,8 @@ class Drape {
     this.mesh.hasVertexAlpha = true;
     this.mesh.isPickable = false;
     this.mesh.alwaysSelectAsActiveMesh = true;
+    // Draped tells are enemy alerts. Draw them after the flat hero decals.
+    this.mesh.alphaIndex = ENEMY_ALERT_ORDER;
     this.mesh.setEnabled(false);
   }
 
@@ -220,6 +223,9 @@ export class Vfx {
   private readonly smoke: Batch;
   private readonly discs: Batch;
   private readonly rings: Batch;
+  /** Enemy tells. A later alpha index than the hero decals, so a zone cannot cover them. */
+  private readonly alertDiscs: Batch;
+  private readonly alertRings: Batch;
   private readonly drapeDiscs: Drape;
   private readonly drapeRings: Drape;
   private readonly drapeLines: Drape;
@@ -228,6 +234,7 @@ export class Vfx {
   private readonly domes: Batch;
   private readonly darkDomes: Batch;
   private readonly sectors = new Map<number, Batch>();
+  private readonly alertSectors = new Map<number, Batch>();
   private readonly additive: (tex: Texture | null, name: string) => StandardMaterial;
   private readonly discTex: Texture;
   private readonly effects: Effect[] = [];
@@ -305,6 +312,8 @@ export class Vfx {
     };
     this.discs = new Batch(ground('discs'), this.additive(this.discTex, 'disc'));
     this.rings = new Batch(ground('rings'), this.additive(ring, 'ring'));
+    this.alertDiscs = new Batch(ground('alertDiscs'), this.additive(this.discTex, 'alertDisc'));
+    this.alertRings = new Batch(ground('alertRings'), this.additive(ring, 'alertRing'));
     this.drapeDiscs = new Drape(scene, drapeMat(this.discTex, 'drapeDisc'));
     this.drapeRings = new Drape(scene, drapeMat(ring, 'drapeRing'));
     this.drapeLines = new Drape(scene, drapeMat(null, 'drapeLine'));
@@ -313,8 +322,12 @@ export class Vfx {
     const dome = (name: string) => MeshBuilder.CreateSphere(name, { diameter: 2, slice: 0.5, segments: 18 }, scene);
     this.domes = new Batch(dome('domes'), this.additive(null, 'dome'), 8);
     this.darkDomes = new Batch(dome('darkDomes'), material(null, 'darkDome', false), 8);
-    // Draw order: ground marks first, then volumes, then sprites.
-    for (const b of [this.discs, this.rings, this.glows]) b.mesh.renderingGroupId = 0;
+    // Draw order: hero ground marks first, enemy tells (higher in the world) after them, then volumes.
+    for (const b of [this.discs, this.rings, this.alertDiscs, this.alertRings, this.glows]) b.mesh.renderingGroupId = 0;
+    this.discs.mesh.alphaIndex = HERO_DECAL_ORDER;
+    this.rings.mesh.alphaIndex = HERO_RING_ORDER;
+    this.alertDiscs.mesh.alphaIndex = ENEMY_ALERT_ORDER;
+    this.alertRings.mesh.alphaIndex = ENEMY_ALERT_ORDER;
     this.darkDomes.mesh.alphaIndex = 10;
     this.domes.mesh.alphaIndex = 11;
     this.smoke.mesh.alphaIndex = 20;
@@ -351,9 +364,9 @@ export class Vfx {
     return mesh;
   }
 
-  private sectorBatch(arcDeg: number): Batch {
+  private sectorBatch(store: Map<number, Batch>, name: string, arcDeg: number): Batch {
     const key = Math.round(arcDeg);
-    let b = this.sectors.get(key);
+    let b = store.get(key);
     if (b) return b;
     const seg = Math.max(6, Math.round(key / 6));
     const half = (key * Math.PI) / 360;
@@ -373,10 +386,11 @@ export class Vfx {
     vd.uvs = uvs;
     vd.indices = indices;
     vd.normals = positions.map((_, i) => (i % 3 === 1 ? 1 : 0));
-    const mesh = new Mesh(`sector${key}`, this.scene);
+    const mesh = new Mesh(`${name}${key}`, this.scene);
     vd.applyToMesh(mesh);
-    b = new Batch(mesh, this.additive(this.discTex, `sector${key}`), 16);
-    this.sectors.set(key, b);
+    mesh.alphaIndex = name.startsWith('alert') ? ENEMY_ALERT_ORDER : HERO_DECAL_ORDER;
+    b = new Batch(mesh, this.additive(this.discTex, `${name}${key}`), 16);
+    store.set(key, b);
     return b;
   }
 
@@ -389,6 +403,16 @@ export class Vfx {
 
   ring(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     this.rings.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
+  }
+
+  /** The same disc as `disc`, drawn after every hero decal. */
+  alertDisc(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
+    this.alertDiscs.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
+  }
+
+  /** The same ring as `ring`, drawn after every hero decal. */
+  alertRing(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
+    this.alertRings.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
   private height(heightAt: HeightAt | undefined): HeightAt {
@@ -422,7 +446,13 @@ export class Vfx {
 
   sector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     if (arcDeg >= 359) this.disc(x, z, r, c, a, y);
-    else this.sectorBatch(arcDeg).flat(x, y, z, r, r, yaw, c[0], c[1], c[2], a);
+    else this.sectorBatch(this.sectors, 'sector', arcDeg).flat(x, y, z, r, r, yaw, c[0], c[1], c[2], a);
+  }
+
+  /** Melee cone drawn with the enemy tells, above hero decals. */
+  alertSector(x: number, z: number, r: number, yaw: number, arcDeg: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
+    if (arcDeg >= 359) this.alertDisc(x, z, r, c, a, y);
+    else this.sectorBatch(this.alertSectors, 'alertSector', arcDeg).flat(x, y, z, r, r, yaw, c[0], c[1], c[2], a);
   }
 
   dome(x: number, z: number, r: number, c: RGB, a: number, dark = false): void {
@@ -772,6 +802,9 @@ export class Vfx {
     this.smoke.flush();
     this.discs.flush();
     this.rings.flush();
+    this.alertDiscs.flush();
+    this.alertRings.flush();
+    for (const b of this.alertSectors.values()) b.flush();
     this.drapeDiscs.flush();
     this.drapeRings.flush();
     this.drapeLines.flush();

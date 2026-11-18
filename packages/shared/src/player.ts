@@ -5,6 +5,7 @@
 import { DT, TICK_HZ, TUNING } from './constants';
 import { HEROES, type AbilityDef, type AttackDef, type HeroDef } from './heroes';
 import { collide, standElevation, type Layout, type Point } from './layout';
+import { yieldFromAlly } from './navigation/NavMeshService';
 import { angleDiff, approachAngle, clamp, yawOf } from './math';
 import { statIframeBonus, statSpeedMul } from './stats';
 import { Act, Btn, PS, type HeroId, type InputCmd, type PlayerState, type Status } from './types';
@@ -475,6 +476,13 @@ function move(p: PlayerState, ctx: StepCtx, dx: number, dz: number, pushEnemies:
         z = e.z + (ez / d) * min;
       }
     }
+  }
+  // Allies yield instead of forming a hard plug. A downed body stays where it fell.
+  for (const ally of ctx.allies) {
+    if (ally.id === p.id || ally.downed) continue;
+    const nudged = yieldFromAlly(x, z, ally.x, ally.z);
+    x = nudged.x;
+    z = nudged.z;
   }
   collide(ctx.layout, x, z, TUNING.playerRadius, tmp, standElevation(ctx.layout, p.x, p.z));
   p.x = tmp.x;
