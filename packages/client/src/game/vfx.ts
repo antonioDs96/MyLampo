@@ -176,6 +176,7 @@ export class Vfx {
   private readonly sprites: Batch;
   private readonly smoke: Batch;
   private readonly discs: Batch;
+  private readonly tiles: Batch;
   private readonly rings: Batch;
   private readonly glows: Batch;
   private readonly slashes: Batch;
@@ -197,6 +198,11 @@ export class Vfx {
    * call works on any terrace.
    */
   ground: (x: number, z: number) => number = () => 0;
+  /**
+   * Floor height under a point, or NaN where there is no floor (a wall). Expanding rings use
+   * it to climb from one terrace to the next instead of staying on the height they started at.
+   */
+  terrace: (x: number, z: number) => number = (x, z) => this.ground(x, z);
 
   constructor(private readonly scene: Scene) {
     const material = (tex: Texture | null, name: string, add: boolean): StandardMaterial => {
@@ -222,6 +228,23 @@ export class Vfx {
     this.discTex = canvasTexture(scene, 'disc', 256, 256, (ctx) =>
       radial(ctx, 256, [[0, 0.1], [0.7, 0.2], [0.9, 0.42], [0.955, 1], [0.985, 0.9], [1, 0]]),
     );
+    const tile = canvasTexture(scene, 'tile', 64, 64, (ctx) => {
+      const img = ctx.createImageData(64, 64);
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 64; x++) {
+          const u = Math.abs(x / 63 - 0.5) * 2;
+          const v = Math.abs(y / 63 - 0.5) * 2;
+          const e = Math.max(u, v);
+          const a = e < 0.88 ? 1 : Math.max(0, 1 - (e - 0.88) / 0.12);
+          const i = (y * 64 + x) * 4;
+          img.data[i] = 255;
+          img.data[i + 1] = 255;
+          img.data[i + 2] = 255;
+          img.data[i + 3] = Math.round(a * 255);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    });
     const ring = canvasTexture(scene, 'ring', 256, 256, (ctx) => radial(ctx, 256, [[0, 0], [0.8, 0], [0.9, 0.35], [0.955, 1], [0.985, 0.6], [1, 0]]));
     const slash = canvasTexture(scene, 'slash', 128, 32, (ctx) => {
       const img = ctx.createImageData(128, 32);
@@ -248,6 +271,7 @@ export class Vfx {
     this.sprites = new Batch(quad('sprites'), this.additive(dot, 'dot'), 512);
     this.smoke = new Batch(quad('smoke'), material(puff, 'puff', false), 128);
     this.discs = new Batch(ground('discs'), this.additive(this.discTex, 'disc'));
+    this.tiles = new Batch(ground('tiles'), this.additive(tile, 'tile'), 256);
     this.rings = new Batch(ground('rings'), this.additive(ring, 'ring'));
     this.glows = new Batch(ground('glows'), this.additive(dot, 'glow'));
     this.slashes = new Batch(this.bandMesh(150), this.additive(slash, 'slash'));
@@ -255,7 +279,7 @@ export class Vfx {
     this.domes = new Batch(dome('domes'), this.additive(null, 'dome'), 8);
     this.darkDomes = new Batch(dome('darkDomes'), material(null, 'darkDome', false), 8);
     // Draw order: ground marks first, then volumes, then sprites.
-    for (const b of [this.discs, this.rings, this.glows]) b.mesh.renderingGroupId = 0;
+    for (const b of [this.discs, this.tiles, this.rings, this.glows]) b.mesh.renderingGroupId = 0;
     this.darkDomes.mesh.alphaIndex = 10;
     this.domes.mesh.alphaIndex = 11;
     this.smoke.mesh.alphaIndex = 20;
@@ -330,6 +354,12 @@ export class Vfx {
 
   ring(x: number, z: number, r: number, c: RGB, a: number, y = this.ground(x, z) + DECAL_Y): void {
     this.rings.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
+  }
+
+  /** A square of light the size of one floor cell, used when an alert steps between terraces. */
+  tile(x: number, y: number, z: number, world: number, c: RGB, a: number): void {
+    const s = world / 2;
+    this.tiles.flat(x, y, z, s, s, 0, c[0], c[1], c[2], a);
   }
 
   glow(x: number, z: number, r: number, c: RGB, a: number): void {
@@ -477,18 +507,59 @@ export class Vfx {
     this.effects.push({ t: 0, dur, draw });
   }
 
-  /** Ring racing outward from a point. */
+  /**
+   * A ring on the floor. On one terrace it is a single circle. Where the circle crosses a step
+   * it becomes short strokes, each end on the floor under it, so the wave is visible on every
+   * height it reaches. Walls leave a gap instead of a stroke through the stone.
+   */
+  groundRing(x: number, z: number, r: number, c: RGB, a: number, width = 0.42): void {
+    if (r < 0.15 || a <= 0) return;
+    const n = Math.min(72, Math.max(14, Math.ceil(r * 3.2)));
+    const ys: number[] = [];
+    let min = Infinity;
+    let max = -Infinity;
+    let known = 0;
+    let y0 = 0;
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2;
+      const y = this.terrace(x + Math.sin(ang) * r, z + Math.cos(ang) * r);
+      ys.push(y);
+      if (Number.isNaN(y)) continue;
+      known++;
+      y0 = y;
+      if (y < min) min = y;
+      if (y > max) max = y;
+    }
+    if (known === 0 || max - min < 0.5) {
+      this.ring(x, z, r, c, a, (known === 0 ? this.ground(x, z) : y0) + DECAL_Y);
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      const yA = ys[i]!;
+      const yB = ys[(i + 1) % n]!;
+      if (Number.isNaN(yA) || Number.isNaN(yB)) continue;
+      const a0 = (i / n) * Math.PI * 2;
+      const a1 = ((i + 1) / n) * Math.PI * 2;
+      this.beamAt(
+        x + Math.sin(a0) * r, yA + DECAL_Y, z + Math.cos(a0) * r,
+        x + Math.sin(a1) * r, yB + DECAL_Y, z + Math.cos(a1) * r,
+        width, c, a,
+      );
+    }
+  }
+
+  /** Ring racing outward from a point. It climbs any terrace the wave crosses. */
   shockwave(x: number, z: number, r: number, c: RGB, dur = 0.45, strength = 1): void {
     this.add(dur, (u) => {
       const e = 1 - (1 - u) * (1 - u);
-      this.ring(x, z, 0.4 + (r - 0.4) * e, c, (1 - u) * strength);
+      this.groundRing(x, z, 0.4 + (r - 0.4) * e, c, (1 - u) * strength, 0.45);
       this.glow(x, z, r * (0.5 + e * 0.6), c, (1 - u) * 0.35 * strength);
     });
   }
 
   /** Ring closing in on a point. */
   implode(x: number, z: number, r: number, c: RGB, dur = 0.4): void {
-    this.add(dur, (u) => this.ring(x, z, r * (1 - u * u) + 0.2, c, 0.3 + u * 0.7));
+    this.add(dur, (u) => this.groundRing(x, z, r * (1 - u * u) + 0.2, c, 0.3 + u * 0.7, 0.4));
   }
 
   flash(x: number, y: number, z: number, size: number, c: RGB, dur = 0.14): void {

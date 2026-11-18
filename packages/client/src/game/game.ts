@@ -4,6 +4,7 @@ import {
   angleDiff,
   BOUNTY_BY_ID,
   Btn,
+  CELL,
   channelTime,
   clonePlayer,
   COSMETIC_BY_ID,
@@ -73,6 +74,7 @@ import { Radar } from '../ui/radar';
 import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
 import { profileId, SoloProfileArchive } from '../net/profile';
 import { shotAlertLength } from './attackClip';
+import { arcSpans, discMarks, lineSpans, ringSpans, sectorMarks } from './terrainAlert';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
@@ -288,6 +290,11 @@ export class Game {
     this.cam = new IsoCamera(scene);
     this.vfx = new Vfx(scene);
     this.vfx.ground = (x, z) => this.groundY(x, z);
+    this.vfx.terrace = (x, z) => {
+      if (!this.layout) return this.groundY(x, z);
+      const elev = getCellElevation(this.layout, x, z);
+      return elev === ELEV_WALL ? Number.NaN : FLOOR_Y + elev * STEP_HEIGHT;
+    };
     this.shadow = makeShadowSource(scene);
     this.water = this.makeWater();
     this.hud = new Hud(ui);
@@ -2218,29 +2225,26 @@ export class Game {
    * It is drawn where the blow will actually be thrown from, lunge included, and it flares once
    * the attacker has committed: from then on it no longer turns to follow anyone. A teleport
    * marks its landing while the enemy is still standing where it started. A harpoon paints its
-   * whole range.
+   * whole range. Wherever the mark crosses a step it is drawn again on that terrace, so a blow
+   * thrown from the floor below is visible to whoever stands above it.
    */
   private telegraph(e: EnemySnap, radius: number, atk: EnemyAttackDef, k: number, c: RGB, melee: boolean, committed: boolean): void {
-    const vfx = this.vfx;
-    const y = this.groundY(e.x, e.z) + 0.04;
     const hot = committed ? 0.25 : 0;
     if (atk.aoe) {
-      const ay = this.groundY(e.ax, e.az) + 0.04;
-      vfx.disc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4 + hot, ay);
-      vfx.disc(e.ax, e.az, atk.aoe * k, c, 0.5, ay);
+      this.paintDisc(e.ax, e.az, atk.aoe, c, 0.35 + k * 0.4 + hot);
+      this.paintDisc(e.ax, e.az, atk.aoe * k, c, 0.5);
       return;
     }
     if (atk.special === 'teleport') {
-      const oy = this.groundY(e.ax, e.az) + 0.04;
       const run = Math.hypot(e.ax - e.x, e.az - e.z);
-      if (run > 0.8) vfx.beamAt(e.x, y + 0.05, e.z, e.ax, oy + 0.05, e.az, radius * 1.1, c, 0.28 + k * 0.35 + hot);
-      vfx.ring(e.ax, e.az, radius + 0.45, c, 0.55 + k * 0.4 + hot, oy);
-      vfx.sector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot, oy);
-      vfx.sector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45, oy);
+      if (run > 0.8) this.paintLine(e.x, e.z, e.ax, e.az, radius * 1.1, c, 0.28 + k * 0.35 + hot);
+      this.paintRing(e.ax, e.az, radius + 0.45, c, 0.55 + k * 0.4 + hot);
+      this.paintSector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot);
+      this.paintSector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45);
       return;
     }
     if (!melee) {
-      vfx.ring(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5, y);
+      this.paintRing(e.x, e.z, radius + 0.6 + (1 - k) * 1.2, c, 0.4 + k * 0.5);
       if (atk.proj) {
         // The line of fire: it stops turning when the shooter commits. A harpoon shows every metre it can travel.
         const len = shotAlertLength(atk.proj.range, atk.special === 'harpoon');
@@ -2248,19 +2252,101 @@ export class Game {
         const width = atk.special === 'harpoon' ? Math.max(1.5, atk.proj.r * 2.2) : atk.proj.r * 1.4;
         for (let i = 0; i < count; i++) {
           const a = e.yaw + (i - (count - 1) / 2) * 0.22;
-          const tx = e.x + Math.sin(a) * len;
-          const tz = e.z + Math.cos(a) * len;
-          vfx.beamAt(e.x, y + 0.05, e.z, tx, y + 0.05, tz, width, c, 0.12 + k * 0.25 + hot);
+          this.paintLine(e.x, e.z, e.x + Math.sin(a) * len, e.z + Math.cos(a) * len, width, c, 0.12 + k * 0.25 + hot);
         }
       }
       return;
     }
     const run = Math.hypot(e.ax - e.x, e.az - e.z);
-    const oy = this.groundY(e.ax, e.az) + 0.04;
     // A charge shows the lane it is about to cross.
-    if (run > 1.2) vfx.beamAt(e.x, y + 0.05, e.z, e.ax, oy + 0.05, e.az, radius * 1.6, c, 0.35 + k * 0.35 + hot);
-    vfx.sector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot, oy);
-    vfx.sector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45, oy);
+    if (run > 1.2) this.paintLine(e.x, e.z, e.ax, e.az, radius * 1.6, c, 0.35 + k * 0.35 + hot);
+    this.paintSector(e.ax, e.az, atk.reach, e.yaw, atk.arc, c, 0.3 + k * 0.4 + hot);
+    this.paintSector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45);
+  }
+
+  /** Floor height of a terrace, just above the slab so the mark is not buried in it. */
+  private alertY(elev: number): number {
+    return FLOOR_Y + elev * STEP_HEIGHT + 0.04;
+  }
+
+  /** Filled circle. One disc when the ground is level; one tile per terrace when it is not. */
+  private paintDisc(x: number, z: number, r: number, c: RGB, a: number): void {
+    const layout = this.layout;
+    if (!layout || r <= 0.05) {
+      this.vfx.disc(x, z, r, c, a);
+      return;
+    }
+    const fill = discMarks(layout, x, z, r);
+    if (fill.marks.length === 0 || fill.uniform) {
+      const y = fill.marks.length === 0 ? this.groundY(x, z) + 0.04 : this.alertY(fill.elev);
+      this.vfx.disc(x, z, r, c, a, y);
+      return;
+    }
+    for (const m of fill.marks) this.vfx.tile(m.x, this.alertY(m.elev), m.z, CELL * 0.98, c, a);
+    this.paintRing(x, z, r, c, Math.min(1, a + 0.3), 0.5);
+  }
+
+  /** Circle. One ring on a single terrace; strokes that follow the floor when the circle steps. */
+  private paintRing(x: number, z: number, r: number, c: RGB, a: number, width = 0.45): void {
+    const layout = this.layout;
+    if (!layout || r <= 0.05) {
+      this.vfx.ring(x, z, r, c, a);
+      return;
+    }
+    const ring = ringSpans(layout, x, z, r);
+    if (ring.uniform) {
+      this.vfx.ring(x, z, r, c, a, this.alertY(ring.elev));
+      return;
+    }
+    for (const s of ring.spans) {
+      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, width, c, a);
+    }
+  }
+
+  /** Melee cone, drawn on every terrace it covers. */
+  private paintSector(x: number, z: number, r: number, yaw: number, arc: number, c: RGB, a: number): void {
+    if (arc >= 359) {
+      this.paintDisc(x, z, r, c, a);
+      return;
+    }
+    const layout = this.layout;
+    if (!layout || r <= 0.05) {
+      this.vfx.sector(x, z, r, yaw, arc, c, a);
+      return;
+    }
+    const fill = sectorMarks(layout, x, z, r, yaw, arc);
+    if (fill.marks.length === 0 || fill.uniform) {
+      const y = fill.marks.length === 0 ? this.groundY(x, z) + 0.04 : this.alertY(fill.elev);
+      this.vfx.sector(x, z, r, yaw, arc, c, a, y);
+      return;
+    }
+    for (const m of fill.marks) this.vfx.tile(m.x, this.alertY(m.elev), m.z, CELL * 0.98, c, a);
+    const edge = Math.min(1, a + 0.25);
+    const half = (arc * Math.PI) / 360;
+    this.paintLine(x, z, x + Math.sin(yaw - half) * r, z + Math.cos(yaw - half) * r, 0.35, c, edge);
+    this.paintLine(x, z, x + Math.sin(yaw + half) * r, z + Math.cos(yaw + half) * r, 0.35, c, edge);
+    for (const s of arcSpans(layout, x, z, r, yaw, arc).spans) {
+      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, 0.4, c, edge);
+    }
+  }
+
+  /** A straight warning. Level ground stays one stroke; a step becomes a stroke that climbs it. */
+  private paintLine(x0: number, z0: number, x1: number, z1: number, width: number, c: RGB, a: number): void {
+    const layout = this.layout;
+    if (!layout) {
+      const y = this.groundY(x0, z0) + 0.08;
+      this.vfx.beamAt(x0, y, z0, x1, y, z1, width, c, a);
+      return;
+    }
+    const line = lineSpans(layout, x0, z0, x1, z1);
+    if (line.spans.length === 0) {
+      const y = this.groundY(x0, z0) + 0.08;
+      this.vfx.beamAt(x0, y, z0, x1, y, z1, width, c, a);
+      return;
+    }
+    for (const s of line.spans) {
+      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, width, c, a);
+    }
   }
 
   /** Lama: a gold rule and the line, sitting to the screen-right of the speaker's head. */
@@ -2355,17 +2441,17 @@ export class Game {
           break;
         case 'ring': {
           const r = Math.max(0.3, t * 10);
-          vfx.ring(z.x, z.z, r, RED, 1);
-          vfx.ring(z.x, z.z, r - 0.35, [1, 0.45, 0.2], 0.8);
-          vfx.ring(z.x, z.z, r + 0.3, RED, 0.35);
+          this.paintRing(z.x, z.z, r, RED, 1, 0.55);
+          this.paintRing(z.x, z.z, Math.max(0.2, r - 0.35), [1, 0.45, 0.2], 0.8, 0.4);
+          this.paintRing(z.x, z.z, r + 0.3, RED, 0.35, 0.35);
           break;
         }
         case 'burst':
         case 'shock': {
           const k = Math.min(1, t / z.dur);
-          vfx.disc(z.x, z.z, z.r, RED, 0.3 + k * 0.5);
-          vfx.disc(z.x, z.z, z.r * k, [1, 0.5, 0.2], 0.5);
-          if (z.kind === 'shock') vfx.ring(z.x, z.z, z.r, WHITE, 0.4 + k * 0.6);
+          this.paintDisc(z.x, z.z, z.r, RED, 0.3 + k * 0.5);
+          this.paintDisc(z.x, z.z, z.r * k, [1, 0.5, 0.2], 0.5);
+          if (z.kind === 'shock') this.paintRing(z.x, z.z, z.r, WHITE, 0.4 + k * 0.6, 0.45);
           break;
         }
         case 'toxic':
