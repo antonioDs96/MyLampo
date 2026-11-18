@@ -20,6 +20,13 @@ export interface CharTemplate {
   groups: Map<string, AnimationGroup>;
 }
 
+/** A painted hero mesh. No skeleton: the view poses the whole body. */
+export interface FigureTemplate {
+  name: string;
+  container: AssetContainer;
+  texture: BaseTexture | null;
+}
+
 export interface StaticTemplate {
   /** Geometry with node transforms baked in. */
   data: VertexData;
@@ -37,6 +44,11 @@ export interface Recolor {
 export const CHAR_MODELS = [
   'Knight', 'Barbarian', 'Mage', 'Rogue', 'Rogue_Hooded',
   'Skeleton_Minion', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Rogue',
+];
+
+/** Painted hero meshes in public/assets/heroes. Names match HeroId. */
+export const HERO_FIGURES = [
+  'albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith',
 ];
 
 export const WEAPON_MODELS = [
@@ -107,6 +119,7 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
 
 export class Assets {
   readonly chars = new Map<string, CharTemplate>();
+  readonly figures = new Map<string, FigureTemplate>();
   readonly weapons = new Map<string, StaticTemplate>();
   readonly env = new Map<string, VertexData>();
   envTexture: BaseTexture | null = null;
@@ -115,11 +128,12 @@ export class Assets {
   constructor(private readonly scene: Scene) {}
 
   async load(onProgress: (done: number, total: number) => void): Promise<void> {
-    const total = CHAR_MODELS.length + WEAPON_MODELS.length + ENV_MODELS.length;
+    const total = CHAR_MODELS.length + HERO_FIGURES.length + WEAPON_MODELS.length + ENV_MODELS.length;
     let done = 0;
     const tick = () => onProgress(++done, total);
     const jobs: (() => Promise<void>)[] = [
       ...CHAR_MODELS.map((n) => () => this.loadChar(n).then(tick)),
+      ...HERO_FIGURES.map((n) => () => this.loadFigure(n).then(tick)),
       ...WEAPON_MODELS.map((n) => () => this.loadWeapon(n).then(tick)),
       ...ENV_MODELS.map((n) => () => this.loadEnv(n).then(tick)),
     ];
@@ -140,6 +154,17 @@ export class Assets {
       groups.set(g.name, g);
     }
     this.chars.set(name, { name, container, texture: albedoOf(container), groups });
+  }
+
+  private async loadFigure(name: string): Promise<void> {
+    const container = await LoadAssetContainerAsync(`/assets/heroes/${name}.glb`, this.scene, LOAD_OPTIONS);
+    for (const g of container.animationGroups) g.stop();
+    const texture = albedoOf(container);
+    if (!texture) {
+      const kinds = container.materials.map((m) => m.getClassName()).join(',') || 'none';
+      throw new Error(`hero figure ${name} has no albedo (${kinds}, textures ${container.textures.length})`);
+    }
+    this.figures.set(name, { name, container, texture });
   }
 
   private bake(container: AssetContainer, gltfSpace: boolean): VertexData {

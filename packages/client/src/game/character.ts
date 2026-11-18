@@ -22,7 +22,7 @@ import {
   type EnemySnap,
   type PlayerState,
 } from '@malampu/shared';
-import type { Assets, CharTemplate } from './assets';
+import type { Assets, CharTemplate, FigureTemplate } from './assets';
 import { attackClipTime } from './attackClip';
 import { CLIP_FALLBACK, type Look, type RGB } from './looks';
 
@@ -32,13 +32,32 @@ const FPS = 60;
 
 const c3 = (c: RGB): Color3 => new Color3(c[0], c[1], c[2]);
 
+type FigureKind = 'idle' | 'move' | 'swing' | 'spin' | 'block' | 'hit' | 'down' | 'dodge' | 'cast';
+
+/** Groups KayKit clip names into the motions a rigid mesh can actually perform. */
+function figureKind(clip: string): FigureKind {
+  const c = clip.toLowerCase();
+  if (c.includes('death') || c.startsWith('lie')) return 'down';
+  if (c.includes('hit')) return 'hit';
+  if (c.includes('block')) return 'block';
+  if (c.includes('dodge')) return 'dodge';
+  if (c.includes('spin')) return 'spin';
+  if (c.includes('attack') || c.includes('chop') || c.includes('slice') || c.includes('stab') || c.includes('kick')) return 'swing';
+  if (c.includes('run') || c.includes('walk') || c.includes('strafe')) return 'move';
+  if (c.includes('spell') || c.includes('use_item') || c.includes('interact') || c.includes('cheer') || c.includes('cast')) return 'cast';
+  return 'idle';
+}
+
 export class CharacterView {
   readonly root: TransformNode;
   readonly height: number;
   /** Extra emissive requested by gameplay (telegraphs, statuses). */
   readonly glow = new Color3(0, 0, 0);
-  private readonly tmpl: CharTemplate;
-  private readonly model: TransformNode;
+  private readonly tmpl: CharTemplate | null;
+  /** Whole-body pose for a painted mesh that has no skeleton. */
+  private readonly pose: TransformNode | null;
+  /** Painted mesh: the texture is the final colour, so lighting must not shade it again. */
+  private readonly painted: boolean;
   private readonly nodes = new Map<string, TransformNode>();
   private readonly groups = new Map<string, AnimationGroup>();
   private readonly mats: StandardMaterial[] = [];
@@ -68,31 +87,128 @@ export class CharacterView {
     name: string,
     shadowSource: Mesh | null,
   ) {
-    const tmpl = assets.chars.get(look.model);
-    if (!tmpl) throw new Error(`missing character model ${look.model}`);
-    this.tmpl = tmpl;
     this.root = new TransformNode(`char:${name}`, scene);
     this.root.rotationQuaternion = null;
     this.height = 2.35 * look.scale;
     this.baseEmissive = c3(look.emissive ?? [0, 0, 0]);
     this.baseAlpha = look.alpha ?? 1;
+    this.root.scaling.setAll(look.scale);
 
+    const figure = look.figure ? assets.figures.get(look.figure) : undefined;
+    if (figure) {
+      this.tmpl = null;
+      this.painted = true;
+      this.pose = this.buildFigure(figure, name);
+    } else {
+      const tmpl = assets.chars.get(look.model);
+      if (!tmpl) throw new Error(`missing character model ${look.model}`);
+      this.tmpl = tmpl;
+      this.painted = false;
+      this.pose = null;
+      this.buildRigged(tmpl, name);
+    }
+
+    if (shadowSource) {
+      const shadow = shadowSource.createInstance(`shadow:${name}`);
+      shadow.parent = this.root;
+      shadow.position.y = 0.04;
+      shadow.scaling.setAll(1.5);
+      shadow.isPickable = false;
+      this.owned.push(shadow);
+    }
+    this.applyMaterialState();
+  }
+
+  /**
+   * Painted hero. The mesh is one piece, already textured, and faces +Z.
+   * It is fitted so the feet sit on the root and the head lands on the framed height.
+   * Weapons, horns and cloth are in the texture, so the rigged parts and dyes stay off.
+   */
+  private buildFigure(figure: FigureTemplate, name: string): TransformNode {
+    const pose = new TransformNode(`pose:${name}`, this.scene);
+    pose.rotationQuaternion = null;
+    const fit = new TransformNode(`fit:${name}`, this.scene);
+    fit.parent = pose;
+
+    const entries = figure.container.instantiateModelsToScene((n) => `${n}:${name}`, false, {
+      doNotInstantiate: true,
+      predicate: (e) => !(e instanceof AnimationGroup),
+    });
+    const model = entries.rootNodes[0] as TransformNode;
+    model.parent = fit;
+    for (const s of entries.skeletons) this.owned.push(s);
+
+    const mat = new StandardMaterial(`figure:${name}`, this.scene);
+    // The emissive texture is added, then multiplied by the diffuse colour.
+    // Lighting stays off so the dungeon lights do not shade the painted albedo a second time.
+    mat.emissiveTexture = figure.texture;
+    mat.linkEmissiveWithDiffuse = true;
+    mat.diffuseColor = c3(this.look.tint);
+    mat.emissiveColor = Color3.Black();
+    mat.ambientColor = Color3.Black();
+    mat.disableLighting = true;
+    mat.specularColor = Color3.Black();
+    mat.backFaceCulling = false;
+    if (this.baseAlpha < 1) mat.needDepthPrePass = true;
+    this.mats.push(mat);
+    this.owned.push(mat);
+
+    const meshes = model.getChildMeshes(false);
+    if (model instanceof Mesh && model.getTotalVertices() > 0) meshes.push(model);
+    model.computeWorldMatrix(true);
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (const m of meshes) {
+      // The container's material is shared. Swap it, and leave the original for the next clone.
+      m.material = mat;
+      m.alwaysSelectAsActiveMesh = true;
+      m.isPickable = false;
+      m.computeWorldMatrix(true);
+      const bb = m.getBoundingInfo().boundingBox;
+      minX = Math.min(minX, bb.minimumWorld.x);
+      minY = Math.min(minY, bb.minimumWorld.y);
+      minZ = Math.min(minZ, bb.minimumWorld.z);
+      maxX = Math.max(maxX, bb.maximumWorld.x);
+      maxY = Math.max(maxY, bb.maximumWorld.y);
+      maxZ = Math.max(maxZ, bb.maximumWorld.z);
+    }
+    // Measured before the pose joins the scaled root, so look.scale still makes a hero taller.
+    const span = Math.max(0.001, maxY - minY);
+    const s = 2.35 / span;
+    fit.scaling.setAll(s);
+    fit.position.set(-((minX + maxX) / 2) * s, -minY * s, -((minZ + maxZ) / 2) * s);
+    pose.parent = this.root;
+
+    // Spell glints ask for a hand. The mesh has no bone, so a point in front of the chest stands in.
+    for (const [slot, x] of [['handslot.r', 0.42], ['handslot.l', -0.42]] as const) {
+      const hand = new TransformNode(slot, this.scene);
+      hand.parent = pose;
+      hand.position.set(x, 1.15, 0.35);
+      this.nodes.set(slot, hand);
+    }
+    return pose;
+  }
+
+  /** KayKit rig: separate parts, a shared palette, and clips parented onto the bones. */
+  private buildRigged(tmpl: CharTemplate, name: string): void {
     const entries = tmpl.container.instantiateModelsToScene((n) => n, false, {
       doNotInstantiate: true,
       predicate: (e) => !(e instanceof AnimationGroup),
     });
-    this.model = entries.rootNodes[0] as TransformNode;
-    this.model.parent = this.root;
-    this.root.scaling.setAll(look.scale);
+    const model = entries.rootNodes[0] as TransformNode;
+    model.parent = this.root;
     for (const s of entries.skeletons) this.owned.push(s);
+    for (const n of model.getChildTransformNodes(false)) this.nodes.set(n.name, n);
 
-    for (const n of this.model.getChildTransformNodes(false)) this.nodes.set(n.name, n);
-
-    const body = this.material('body', look.tint);
-    const head = look.tintAll ? body : this.material('head', [1, 1, 1]);
+    const body = this.material('body', this.look.tint, tmpl.texture);
+    const head = this.look.tintAll ? body : this.material('head', [1, 1, 1], tmpl.texture);
     let eyes: StandardMaterial | null = null;
-    const show = new Set(look.show);
-    for (const m of this.model.getChildMeshes(false)) {
+    const show = new Set(this.look.show);
+    for (const m of model.getChildMeshes(false)) {
       const part = m.name.replace(/_primitive\d+$/, '');
       if (!BODY_PART.test(part) && !show.has(part)) {
         m.setEnabled(false);
@@ -101,9 +217,9 @@ export class CharacterView {
       const original = m.material;
       if (original?.name === 'Glow') {
         if (!eyes) {
-          eyes = new StandardMaterial(`eyes:${name}`, scene);
+          eyes = new StandardMaterial(`eyes:${name}`, this.scene);
           eyes.disableLighting = true;
-          eyes.emissiveColor = c3(look.eyes ?? [1, 1, 0.2]);
+          eyes.emissiveColor = c3(this.look.eyes ?? [1, 1, 0.2]);
           this.owned.push(eyes);
         }
         m.material = eyes;
@@ -114,30 +230,20 @@ export class CharacterView {
       m.isPickable = false;
     }
 
-    for (const a of look.attach ?? []) this.attach(a.slot, a.model, a.scale ?? 1);
-    for (const extra of look.extras ?? []) this.addExtra(extra);
+    for (const a of this.look.attach ?? []) this.attach(a.slot, a.model, a.scale ?? 1);
+    for (const extra of this.look.extras ?? []) this.addExtra(extra);
 
-    if (shadowSource) {
-      const shadow = shadowSource.createInstance(`shadow:${name}`);
-      shadow.parent = this.root;
-      shadow.position.y = 0.04;
-      shadow.scaling.setAll(1.5);
-      shadow.isPickable = false;
-      this.owned.push(shadow);
-    }
-
-    if (look.recolor) {
-      void assets.recolor(look.model, look.recolor).then((tex) => {
+    if (this.look.recolor) {
+      void this.assets.recolor(this.look.model, this.look.recolor).then((tex) => {
         if (!tex || this.disposed) return;
-        for (const m of this.mats) m.diffuseTexture = tex;
+        for (const m of this.mats) if (!m.emissiveTexture) m.diffuseTexture = tex;
       });
     }
-    this.applyMaterialState();
   }
 
-  private material(kind: string, tint: RGB): StandardMaterial {
+  private material(kind: string, tint: RGB, texture: StandardMaterial['diffuseTexture']): StandardMaterial {
     const m = new StandardMaterial(`${kind}:${this.root.name}`, this.scene);
-    m.diffuseTexture = this.tmpl.texture;
+    m.diffuseTexture = texture;
     m.diffuseColor = c3(tint);
     m.specularColor = Color3.Black();
     m.backFaceCulling = false;
@@ -366,6 +472,7 @@ export class CharacterView {
   private group(name: string): AnimationGroup | null {
     const cached = this.groups.get(name);
     if (cached) return cached;
+    if (!this.tmpl) return null;
     const src =
       this.tmpl.groups.get(name) ?? this.tmpl.groups.get(CLIP_FALLBACK[name] ?? '') ?? this.tmpl.groups.get('Idle');
     if (!src) return null;
@@ -382,6 +489,10 @@ export class CharacterView {
 
   /** Shows the pose of `clip` at `time` seconds. The pose is a pure function of the arguments. */
   play(clip: string, time: number, loop: boolean): void {
+    if (this.pose) {
+      this.applyFigurePose(clip, time);
+      return;
+    }
     const g = this.group(clip);
     if (!g) return;
     if (g !== this.cur) {
@@ -410,14 +521,82 @@ export class CharacterView {
 
   private applyMaterialState(): void {
     const f = this.flash;
+    const er = this.baseEmissive.r + this.glow.r + this.flashColor.r * f;
+    const eg = this.baseEmissive.g + this.glow.g + this.flashColor.g * f;
+    const eb = this.baseEmissive.b + this.glow.b + this.flashColor.b * f;
+    const tint = this.look.tint;
     for (const m of this.mats) {
-      m.emissiveColor.set(
-        this.baseEmissive.r + this.glow.r + this.flashColor.r * f,
-        this.baseEmissive.g + this.glow.g + this.flashColor.g * f,
-        this.baseEmissive.b + this.glow.b + this.flashColor.b * f,
-      );
+      m.emissiveColor.set(er, eg, eb);
+      if (this.painted) m.diffuseColor.set(tint[0], tint[1], tint[2]);
       m.alpha = this.baseAlpha * this.fade;
     }
+  }
+
+  /**
+   * The mesh cannot bend, so the whole body leans, bobs and lunges.
+   * `time` is the same clock the rigged clips use, so hits still line up with the motion.
+   */
+  private applyFigurePose(clip: string, time: number): void {
+    const n = this.pose;
+    if (!n) return;
+    const kind = figureKind(clip);
+    let y = 0;
+    let z = 0;
+    let rx = 0;
+    let ry = 0;
+    let rz = 0;
+    switch (kind) {
+      case 'idle':
+        y = Math.sin(time * 2.1) * 0.035;
+        rx = Math.sin(time * 1.2) * 0.025;
+        break;
+      case 'move':
+        y = Math.abs(Math.sin(time * Math.PI * 2)) * 0.09;
+        rx = 0.14;
+        rz = Math.sin(time * Math.PI * 2) * 0.07;
+        break;
+      case 'swing': {
+        const u = Math.min(1, Math.max(0, time) / 0.55);
+        const swing = Math.sin(u * Math.PI);
+        z = swing * 0.32;
+        rx = -0.2 + swing * 0.7;
+        ry = swing * 0.4;
+        break;
+      }
+      case 'spin':
+        ry = time * 8;
+        y = Math.abs(Math.sin(time * 6)) * 0.06;
+        break;
+      case 'block':
+        y = -0.1;
+        rx = 0.22;
+        z = -0.08;
+        break;
+      case 'hit': {
+        const u = Math.min(1, Math.max(0, time) * 3);
+        rx = -0.4 * u;
+        z = -0.16 * u;
+        break;
+      }
+      case 'down': {
+        const u = Math.min(1, Math.max(0, time) / 0.7);
+        rx = u * 1.35;
+        y = u * 0.15;
+        break;
+      }
+      case 'dodge':
+        rx = 0.5;
+        y = Math.abs(Math.sin(Math.min(1, Math.max(0, time)) * Math.PI)) * 0.16;
+        z = 0.2;
+        break;
+      case 'cast':
+        y = Math.sin(time * 3) * 0.05;
+        rx = -0.16;
+        ry = Math.sin(time * 2.2) * 0.2;
+        break;
+    }
+    n.position.set(0, y, z);
+    n.rotation.set(rx, ry, rz);
   }
 
   update(dt: number): void {

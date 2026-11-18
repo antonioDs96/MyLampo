@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ENEMIES, HEROES } from '../src';
+import { ENEMIES, HEROES, HERO_IDS } from '../src';
 
 const assets = join(dirname(fileURLToPath(import.meta.url)), '../../client/public/assets');
 
@@ -31,6 +31,9 @@ describe('3D assets', () => {
   it('are present', () => {
     for (const f of ['Knight', 'Barbarian', 'Mage', 'Rogue', 'Rogue_Hooded', 'Skeleton_Minion', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Rogue']) {
       expect(existsSync(join(assets, 'chars', `${f}.glb`)), f).toBe(true);
+    }
+    for (const id of HERO_IDS) {
+      expect(existsSync(join(assets, 'heroes', `${id}.glb`)), id).toBe(true);
     }
   });
 

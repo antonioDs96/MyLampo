@@ -1,3 +1,5 @@
-3D models: KayKit Adventurers, Skeletons and Dungeon Remastered packs by Kay Lousberg (www.kaylousberg.com).
+World, enemies, weapons: KayKit Adventurers, Skeletons and Dungeon Remastered packs by Kay Lousberg (www.kaylousberg.com).
 License: Creative Commons Zero (CC0) — http://creativecommons.org/publicdomain/zero/1.0/
 Sources: https://github.com/KayKit-Game-Assets
+
+Hero figures in assets/heroes: painted meshes generated with Meshy for this game. They are not part of the KayKit packs and are not CC0.

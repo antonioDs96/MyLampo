@@ -11,8 +11,13 @@ export interface Attachment {
 }
 
 export interface Look {
-  /** Character GLB in assets/chars. */
+  /** Character GLB in assets/chars. Rigged fallback when `figure` is absent. */
   model: string;
+  /**
+   * Painted hero mesh in assets/heroes, with no skeleton.
+   * When it is loaded, it replaces the rigged model. Enemies never set this.
+   */
+  figure?: string;
   scale: number;
   /** Multiplies the colour of clothes and armour. */
   tint: RGB;
@@ -36,6 +41,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Satyr: tattered tan tunic, ram horns, twin knives (ocarina stays in the portrait / HUD).
   albereth: {
     model: 'Rogue_Hooded',
+    figure: 'albereth',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 34, sat: 0.5, val: 0.78 },
@@ -47,6 +53,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Half-elf bard: forest-green cloak, rapier, pointed ears.
   jusef: {
     model: 'Knight',
+    figure: 'jusef',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[318, 12]], hue: 142, sat: 0.7, val: 0.78 },
@@ -58,6 +65,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Lycanthrope mid-change: pale shredded shirt, dark wild hair, claws.
   vyncent: {
     model: 'Barbarian',
+    figure: 'vyncent',
     scale: 1.1,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 30, sat: 0.12, val: 1.35 },
@@ -69,8 +77,10 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Living stone: bare rocky body, face visible, mossy glow.
   alexios: {
     model: 'Knight',
+    figure: 'alexios',
     scale: 1.48,
-    tint: [0.62, 0.64, 0.6],
+    // The painted mesh already is stone. White leaves that texture alone; the recolor below is only the rigged fallback.
+    tint: [1, 1, 1],
     tintAll: true,
     recolor: { from: [], hue: 95, sat: 0.18, val: 0.72 },
     show: [],
@@ -82,6 +92,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Elven marksman: silver-green cloak, crossbow as bow stand-in, pointed ears.
   rycard: {
     model: 'Rogue',
+    figure: 'rycard',
     scale: 1.02,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 138, sat: 0.55, val: 0.7 },
@@ -93,6 +104,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Northern warrior: leather + fur cape, long brown hair, axe and round shield.
   fabyorn: {
     model: 'Barbarian',
+    figure: 'fabyorn',
     scale: 1.16,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 28, sat: 0.55, val: 0.68 },
@@ -104,6 +116,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Light weaver: warm grey-brown robes, staff, soft halo (no tall hat).
   gabryel: {
     model: 'Mage',
+    figure: 'gabryel',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[225, 345]], hue: 38, sat: 0.28, val: 0.95 },
@@ -116,6 +129,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Wild mage: deep purple robes, wand and floating violet orb.
   anthon: {
     model: 'Mage',
+    figure: 'anthon',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[225, 345]], hue: 286, sat: 1.2, val: 0.72 },
@@ -127,6 +141,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   // Hypnotic dancer: wine-red clothes, short raven-red bob, no weapon in hand.
   dalith: {
     model: 'Rogue',
+    figure: 'dalith',
     scale: 0.98,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 348, sat: 0.62, val: 0.52 },
@@ -463,6 +478,19 @@ export const NPC_LOOKS: Record<'carl' | 'iej' | 'saraya' | 'eleonora', Look> = {
   },
 };
 
+/** Pulls a palette hue toward white, so a painted mesh keeps its detail and still shows the dye. */
+function dyeTint(hue: number, sat: number, val: number): RGB {
+  const v = Math.min(1, Math.max(0, val));
+  const s = Math.min(1, Math.max(0, sat));
+  const c = v * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = v - c;
+  const [r, g, b] =
+    hue < 60 ? [c, x, 0] : hue < 120 ? [x, c, 0] : hue < 180 ? [0, c, x] : hue < 240 ? [0, x, c] : hue < 300 ? [x, 0, c] : [c, 0, x];
+  const mix = 0.45;
+  return [(1 - mix) + (r + m) * mix, (1 - mix) + (g + m) * mix, (1 - mix) + (b + m) * mix];
+}
+
 /** A hero's look with the cosmetics bought from Saraya folded in. */
 export function dressHero(hero: HeroId, loadout: Loadout | undefined): Look {
   const base = HERO_LOOKS[hero];
@@ -473,12 +501,15 @@ export function dressHero(hero: HeroId, loadout: Loadout | undefined): Look {
   const look: Look = { ...base };
   if (palette && palette.hue !== undefined) {
     look.recolor = { from: base.recolor?.from ?? [], hue: palette.hue, sat: palette.sat ?? 1, val: palette.val ?? 1 };
+    // The painted mesh has no cloth mask to recolor. A wash is enough to show the dye.
+    if (base.figure) look.tint = dyeTint(palette.hue, palette.sat ?? 1, palette.val ?? 1);
   }
   if (skin?.color) {
     const [r, g, b] = skin.color;
     const e = base.emissive ?? [0, 0, 0];
     look.emissive = [e[0] + r * 0.32, e[1] + g * 0.32, e[2] + b * 0.32];
-    look.tint = [base.tint[0] * (0.6 + r * 0.5), base.tint[1] * (0.6 + g * 0.5), base.tint[2] * (0.6 + b * 0.5)];
+    const src = base.figure ? look.tint : base.tint;
+    look.tint = [src[0] * (0.6 + r * 0.5), src[1] * (0.6 + g * 0.5), src[2] * (0.6 + b * 0.5)];
     if (skin.alpha !== undefined) {
       look.alpha = skin.alpha;
       look.tintAll = true;
