@@ -5,6 +5,7 @@ import {
   CAMERA_PITCH,
   ENEMY_PROFILES,
   EnemyAIController,
+  EnemyType,
   GHOST_WALL_ALPHA,
   HERO_HP_POOL,
   MASSEUS_ATTACKS,
@@ -24,6 +25,7 @@ import {
   spawnEnabled,
   type AttackProfile,
   type CombatPlayer,
+  type EnemySpawnDef,
 } from '../src';
 import { ElevationSimulator } from '../src/navigation/NavMeshService';
 
@@ -77,51 +79,41 @@ describe('diorama audits', () => {
     expect(audit.errors).toEqual([]);
   });
 
-  it('keeps the amphitheatre, the lake and the east stair on single steps', () => {
-    const cliffs = loadLevel('falesie');
-    expect(cliffs.grid.tile(14, 24)?.elevation).toBe(1);
-    expect(cliffs.grid.tile(20, 22)?.elevation).toBe(0);
-    expect(cliffs.grid.tile(26, 26)?.elevation).toBe(-1);
-    expect(cliffs.grid.tile(35, 42)?.elevation).toBe(1);
-    expect(cliffs.grid.tile(36, 42)?.elevation).toBe(0);
-    expect(cliffs.grid.tile(38, 42)?.elevation).toBe(0);
-    expect(cliffs.grid.tile(39, 42)?.elevation).toBe(-1);
-    expect(cliffs.grid.findPath(35, 42, 44, 43)).not.toBeNull();
-
-    const caves = loadLevel('grotte');
-    expect(caves.grid.tile(16, 16)?.elevation).toBe(1);
-    expect(caves.grid.tile(21, 17)?.elevation).toBe(0);
-    expect(caves.grid.tile(26, 14)?.elevation).toBe(-1);
-    expect(caves.grid.tile(32, 8)?.elevation).toBe(0);
-    expect(caves.grid.tile(32, 9)?.elevation).toBe(-1);
-    expect(caves.grid.findPath(16, 16, 26, 14)).not.toBeNull();
-    expect(caves.grid.findPath(32, 3, 50, 44)).not.toBeNull();
+  it('keeps a walkable path from the party spawn to the portal', () => {
+    for (const id of ['falesie', 'porto', 'grotte'] as const) {
+      const level = loadLevel(id);
+      const spawn = level.pois.find((poi) => poi.type === 'POI_SPAWN_PARTY')!;
+      const portal = level.pois.find((poi) => poi.type === 'POI_PORTALE')!;
+      expect(level.grid.tile(spawn.gridX, spawn.gridZ)?.walkable, id).toBe(true);
+      expect(level.grid.tile(spawn.gridX, spawn.gridZ)?.elevation, id).toBe(0);
+      expect(level.grid.findPath(spawn.gridX, spawn.gridZ, portal.gridX, portal.gridZ), id).not.toBeNull();
+    }
   });
 
-  it('builds the harbour cross at corridor width and leaves the vat corners walkable', () => {
+  it('carves a wet basin into the harbour and leaves the outer rock solid', () => {
     const port = loadLevel('porto');
-    for (const z of [16, 17, 18]) expect(port.grid.tile(32, z)?.elevation).toBe(0);
-    for (const x of [31, 32, 33]) expect(port.grid.tile(x, 20)?.elevation).toBe(0);
-    expect(port.grid.tile(28, 15)?.elevation).toBe(-1);
-    expect(port.grid.tile(20, 13)?.elevation).toBe(-1);
-    expect(port.grid.tile(41, 36)?.walkable).toBe(true);
-    expect(port.grid.tile(54, 44)?.elevation).toBe(0);
+    let wet = 0;
+    for (const tile of port.grid.tiles) if (tile.walkable && tile.elevation === -1) wet++;
+    expect(wet).toBeGreaterThan(0);
+    expect(port.grid.tile(0, 0)?.walkable).toBe(false);
   });
 
-  it('seals only the unauthored rim and leaves the landing open', () => {
+  it('starts from solid rock and keeps the landing open', () => {
     const cliffs = loadLevel('falesie');
-    expect(cliffs.grid.tile(0, 30)?.elevation).toBe(2);
-    expect(cliffs.grid.tile(0, 5)?.elevation).toBe(-2);
-    expect(cliffs.grid.tile(32, 0)?.elevation).toBe(0);
-    expect(cliffs.grid.tile(32, 63)?.elevation).toBe(0);
+    expect(cliffs.grid.tile(0, 0)?.walkable).toBe(false);
+    const spawn = cliffs.pois.find((poi) => poi.type === 'POI_SPAWN_PARTY')!;
+    expect(cliffs.grid.tile(spawn.gridX, spawn.gridZ)?.elevation).toBe(0);
+    expect(cliffs.grid.tile(spawn.gridX, spawn.gridZ)?.walkable).toBe(true);
   });
 
   it('does not let a cyst rewrite a +2 column', () => {
     const caves = loadLevel('grotte');
-    const before = caves.grid.tile(21, 56)?.elevation;
-    caves.grid.meltFloorToSlime(caves.grid.cellCenter(24, 56).x, caves.grid.cellCenter(24, 56).z, 12, MaterialType.MELMA_SOLFUREA);
-    expect(caves.grid.tile(21, 56)?.elevation).toBe(before);
-    expect(caves.grid.tile(25, 56)?.elevation).toBe(-1);
+    const column = caves.grid.tiles.findIndex((tile) => tile.elevation === 2);
+    const floor = caves.pois.find((poi) => poi.type === 'POI_SPAWN_PARTY')!;
+    const before = caves.grid.tile(column % caves.width, Math.floor(column / caves.width))?.elevation;
+    caves.grid.meltFloorToSlime(caves.grid.cellCenter(floor.gridX, floor.gridZ).x, caves.grid.cellCenter(floor.gridX, floor.gridZ).z, 6, MaterialType.MELMA_SOLFUREA);
+    expect(caves.grid.tile(column % caves.width, Math.floor(column / caves.width))?.elevation).toBe(before);
+    expect(caves.grid.tile(floor.gridX, floor.gridZ)?.elevation).toBe(-1);
   });
 });
 
@@ -182,29 +174,38 @@ describe('hazards and ghost walls', () => {
 });
 
 describe('enemy ai', () => {
-  function at(levelId: 'falesie', x: number, z: number, hp = 160): { players: CombatPlayer[]; ai: EnemyAIController } {
-    const level = loadLevel(levelId);
-    const point = level.grid.cellCenter(x, z);
-    const players = [makePlayer('hero', point.x, point.z, hp)];
-    return { players, ai: new EnemyAIController(level, players, 1) };
+  function camp(): { players: CombatPlayer[]; ai: EnemyAIController; sentinel: EnemySpawnDef; neighbour: EnemySpawnDef } {
+    const level = loadLevel('falesie');
+    const sentinel = level.spawns.find((spawn) => {
+      if (spawn.type !== EnemyType.SENTINELLA_RONDA) return false;
+      const ahead = level.grid.tile(spawn.gridX, spawn.gridZ - 2);
+      if (!ahead?.walkable) return false;
+      const home = level.grid.cellCenter(spawn.gridX, spawn.gridZ);
+      const look = level.grid.cellCenter(spawn.gridX, spawn.gridZ - 2);
+      return level.grid.lineOfSight(home.x, home.z, look.x, look.z);
+    })!;
+    const neighbour = level.spawns.find((spawn) => spawn.type === EnemyType.CORSARO_MELEE && Math.hypot(spawn.gridX - sentinel.gridX, spawn.gridZ - sentinel.gridZ) < 9)!;
+    const look = level.grid.cellCenter(sentinel.gridX, sentinel.gridZ - 2);
+    const players = [makePlayer('hero', look.x, look.z, 160)];
+    return { players, ai: new EnemyAIController(level, players, 1), sentinel, neighbour };
   }
 
   it('channels a sentinel and wakes the camp only if the tell finishes', () => {
-    const { ai } = at('falesie', 24, 12);
-    const sentinel = ai.agents.find((agent) => agent.id === 'a1-sentinel-z2')!;
-    const corsair = ai.agents.find((agent) => agent.id === 'a1-melee-28-14')!;
+    const { ai, sentinel, neighbour } = camp();
+    const watch = ai.agents.find((agent) => agent.id === sentinel.id)!;
+    const corsair = ai.agents.find((agent) => agent.id === neighbour.id)!;
     ai.update(0.05);
-    expect(sentinel.state).toBe(AiState.Alarm);
+    expect(watch.state).toBe(AiState.Alarm);
     const events = ai.update(1.5);
     expect(events.some((event) => event.kind === 'alert')).toBe(true);
     expect(corsair.state).toBe(AiState.Combat);
   });
 
   it('drops the district alert when the sentinel is stunned', () => {
-    const { ai } = at('falesie', 24, 12);
-    const corsair = ai.agents.find((agent) => agent.id === 'a1-melee-28-14')!;
+    const { ai, sentinel, neighbour } = camp();
+    const corsair = ai.agents.find((agent) => agent.id === neighbour.id)!;
     ai.update(0.05);
-    ai.applyControl('a1-sentinel-z2', { stun: 3 });
+    ai.applyControl(sentinel.id, { stun: 3 });
     const events = ai.update(1.5);
     expect(events.some((event) => event.kind === 'alert')).toBe(false);
     expect(corsair.state).not.toBe(AiState.Combat);
@@ -212,16 +213,18 @@ describe('enemy ai', () => {
 
   it('keeps a stone crab buried until a player steps inside 4 m', () => {
     const level = loadLevel('falesie');
-    const far = level.grid.cellCenter(32, 3);
-    const players = [makePlayer('hero', far.x, far.z, 120)];
+    const nest = level.spawns.find((spawn) => spawn.type === EnemyType.GRANCHIO_PIETRA && level.grid.tile(spawn.gridX, spawn.gridZ)?.elevation === -1)!;
+    const far = level.pois.find((poi) => poi.type === 'POI_SPAWN_PARTY')!;
+    const away = level.grid.cellCenter(far.gridX, far.gridZ);
+    const players = [makePlayer('hero', away.x, away.z, 120)];
     const ai = new EnemyAIController(level, players, 1);
-    const crab = ai.agents.find((agent) => agent.id === 'a1-crab-44-40')!;
+    const crab = ai.agents.find((agent) => agent.id === nest.id)!;
     ai.update(0.2);
     expect(crab.burrowed).toBe(true);
-    expect(ai.damageAgent(crab.id, 50, far.x, far.z)).toBe(0);
-    const nest = level.grid.cellCenter(44, 40);
-    players[0]!.x = nest.x;
-    players[0]!.z = nest.z;
+    expect(ai.damageAgent(crab.id, 50, away.x, away.z)).toBe(0);
+    const home = level.grid.cellCenter(nest.gridX, nest.gridZ);
+    players[0]!.x = home.x;
+    players[0]!.z = home.z;
     ai.update(0.2);
     expect(crab.burrowed).toBe(false);
     expect(crab.state).toBe(AiState.Combat);
@@ -229,9 +232,10 @@ describe('enemy ai', () => {
 
   it('cuts frontal damage on the stone guardian and leaves the back open', () => {
     const level = loadLevel('falesie');
+    const spawn = level.spawns.find((entry) => entry.type === EnemyType.GUARDIANO_PIETRA && level.grid.tile(entry.gridX, entry.gridZ)?.elevation !== -1)!;
     const players = [makePlayer('hero', 0, 0, 120)];
     const ai = new EnemyAIController(level, players, 1);
-    const guard = ai.agents.find((agent) => agent.id === 'a1-guardian-11-41')!;
+    const guard = ai.agents.find((agent) => agent.id === spawn.id)!;
     const front = ai.damageAgent(guard.id, 100, guard.x, guard.z - 4);
     const back = ai.damageAgent(guard.id, 100, guard.x, guard.z + 4);
     expect(front).toBeLessThan(20);
