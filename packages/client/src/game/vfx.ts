@@ -8,8 +8,10 @@ import {
   StandardMaterial,
   type Texture,
   Vector3,
+  VertexBuffer,
   VertexData,
 } from '@babylonjs/core';
+import { appendRadial, appendRibbon, emptySheet, type HeightAt, type Sheet } from './drape';
 import type { RGB } from './looks';
 
 const DECAL_Y = 0.1;
@@ -128,6 +130,47 @@ class Batch {
   }
 }
 
+/** One mesh rebuilt every frame: a soft alert draped over the floor. */
+class Drape {
+  private geom: Sheet = emptySheet();
+  private readonly mesh: Mesh;
+
+  constructor(scene: Scene, material: StandardMaterial) {
+    this.mesh = new Mesh('drape', scene);
+    this.mesh.material = material;
+    this.mesh.hasVertexAlpha = true;
+    this.mesh.isPickable = false;
+    this.mesh.alwaysSelectAsActiveMesh = true;
+    this.mesh.setEnabled(false);
+  }
+
+  addRadial(x: number, z: number, r: number, yaw: number, arc: number, c: RGB, a: number, heightAt: HeightAt, inner = 0): void {
+    appendRadial(this.geom, x, z, r, yaw, arc, [c[0], c[1], c[2], a], heightAt, inner);
+  }
+
+  addRibbon(x0: number, z0: number, x1: number, z1: number, width: number, c: RGB, a: number, heightAt: HeightAt): void {
+    appendRibbon(this.geom, x0, z0, x1, z1, width, [c[0], c[1], c[2], a], heightAt);
+  }
+
+  flush(): void {
+    const g = this.geom;
+    if (g.indices.length === 0) {
+      this.mesh.setEnabled(false);
+      this.geom = emptySheet();
+      return;
+    }
+    const normals = new Float32Array(g.positions.length);
+    for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+    this.mesh.setEnabled(true);
+    this.mesh.setVerticesData(VertexBuffer.PositionKind, new Float32Array(g.positions), true);
+    this.mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+    this.mesh.setVerticesData(VertexBuffer.UVKind, new Float32Array(g.uvs), true);
+    this.mesh.setVerticesData(VertexBuffer.ColorKind, new Float32Array(g.colors), true);
+    this.mesh.setIndices(g.indices);
+    this.geom = emptySheet();
+  }
+}
+
 function canvasTexture(scene: Scene, name: string, w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): DynamicTexture {
   const tex = new DynamicTexture(name, { width: w, height: h }, scene, true);
   const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
@@ -176,8 +219,10 @@ export class Vfx {
   private readonly sprites: Batch;
   private readonly smoke: Batch;
   private readonly discs: Batch;
-  private readonly tiles: Batch;
   private readonly rings: Batch;
+  private readonly drapeDiscs: Drape;
+  private readonly drapeRings: Drape;
+  private readonly drapeLines: Drape;
   private readonly glows: Batch;
   private readonly slashes: Batch;
   private readonly domes: Batch;
@@ -228,23 +273,6 @@ export class Vfx {
     this.discTex = canvasTexture(scene, 'disc', 256, 256, (ctx) =>
       radial(ctx, 256, [[0, 0.1], [0.7, 0.2], [0.9, 0.42], [0.955, 1], [0.985, 0.9], [1, 0]]),
     );
-    const tile = canvasTexture(scene, 'tile', 64, 64, (ctx) => {
-      const img = ctx.createImageData(64, 64);
-      for (let y = 0; y < 64; y++) {
-        for (let x = 0; x < 64; x++) {
-          const u = Math.abs(x / 63 - 0.5) * 2;
-          const v = Math.abs(y / 63 - 0.5) * 2;
-          const e = Math.max(u, v);
-          const a = e < 0.88 ? 1 : Math.max(0, 1 - (e - 0.88) / 0.12);
-          const i = (y * 64 + x) * 4;
-          img.data[i] = 255;
-          img.data[i + 1] = 255;
-          img.data[i + 2] = 255;
-          img.data[i + 3] = Math.round(a * 255);
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-    });
     const ring = canvasTexture(scene, 'ring', 256, 256, (ctx) => radial(ctx, 256, [[0, 0], [0.8, 0], [0.9, 0.35], [0.955, 1], [0.985, 0.6], [1, 0]]));
     const slash = canvasTexture(scene, 'slash', 128, 32, (ctx) => {
       const img = ctx.createImageData(128, 32);
@@ -270,16 +298,23 @@ export class Vfx {
 
     this.sprites = new Batch(quad('sprites'), this.additive(dot, 'dot'), 512);
     this.smoke = new Batch(quad('smoke'), material(puff, 'puff', false), 128);
+    const drapeMat = (tex: Texture | null, name: string): StandardMaterial => {
+      const m = this.additive(tex, name);
+      m.zOffset = -2;
+      return m;
+    };
     this.discs = new Batch(ground('discs'), this.additive(this.discTex, 'disc'));
-    this.tiles = new Batch(ground('tiles'), this.additive(tile, 'tile'), 256);
     this.rings = new Batch(ground('rings'), this.additive(ring, 'ring'));
+    this.drapeDiscs = new Drape(scene, drapeMat(this.discTex, 'drapeDisc'));
+    this.drapeRings = new Drape(scene, drapeMat(ring, 'drapeRing'));
+    this.drapeLines = new Drape(scene, drapeMat(null, 'drapeLine'));
     this.glows = new Batch(ground('glows'), this.additive(dot, 'glow'));
     this.slashes = new Batch(this.bandMesh(150), this.additive(slash, 'slash'));
     const dome = (name: string) => MeshBuilder.CreateSphere(name, { diameter: 2, slice: 0.5, segments: 18 }, scene);
     this.domes = new Batch(dome('domes'), this.additive(null, 'dome'), 8);
     this.darkDomes = new Batch(dome('darkDomes'), material(null, 'darkDome', false), 8);
     // Draw order: ground marks first, then volumes, then sprites.
-    for (const b of [this.discs, this.tiles, this.rings, this.glows]) b.mesh.renderingGroupId = 0;
+    for (const b of [this.discs, this.rings, this.glows]) b.mesh.renderingGroupId = 0;
     this.darkDomes.mesh.alphaIndex = 10;
     this.domes.mesh.alphaIndex = 11;
     this.smoke.mesh.alphaIndex = 20;
@@ -356,10 +391,29 @@ export class Vfx {
     this.rings.flat(x, y, z, r, r, 0, c[0], c[1], c[2], a);
   }
 
-  /** A square of light the size of one floor cell, used when an alert steps between terraces. */
-  tile(x: number, y: number, z: number, world: number, c: RGB, a: number): void {
-    const s = world / 2;
-    this.tiles.flat(x, y, z, s, s, 0, c[0], c[1], c[2], a);
+  private height(heightAt: HeightAt | undefined): HeightAt {
+    return heightAt ?? ((x, z) => this.terrace(x, z));
+  }
+
+  /** The same soft disc as `disc`, with each vertex on the floor under it. */
+  drapeDisc(x: number, z: number, r: number, c: RGB, a: number, heightAt?: HeightAt): void {
+    this.drapeDiscs.addRadial(x, z, r, 0, 360, c, a, this.height(heightAt));
+  }
+
+  /** The same soft ring as `ring`, climbing whatever terrace the circle crosses. */
+  drapeRing(x: number, z: number, r: number, c: RGB, a: number, heightAt?: HeightAt): void {
+    this.drapeRings.addRadial(x, z, r, 0, 360, c, a, this.height(heightAt), 0.78);
+  }
+
+  /** A melee cone draped over the floor. */
+  drapeSector(x: number, z: number, r: number, yaw: number, arc: number, c: RGB, a: number, heightAt?: HeightAt): void {
+    if (arc >= 359) this.drapeDisc(x, z, r, c, a, heightAt);
+    else this.drapeDiscs.addRadial(x, z, r, yaw, arc, c, a, this.height(heightAt));
+  }
+
+  /** A stripe on the floor from one point to another. */
+  drapeLine(x0: number, z0: number, x1: number, z1: number, width: number, c: RGB, a: number, heightAt?: HeightAt): void {
+    this.drapeLines.addRibbon(x0, z0, x1, z1, width, c, a, this.height(heightAt));
   }
 
   glow(x: number, z: number, r: number, c: RGB, a: number): void {
@@ -509,13 +563,11 @@ export class Vfx {
 
   /**
    * A ring on the floor. On one terrace it is a single circle. Where the circle crosses a step
-   * it becomes short strokes, each end on the floor under it, so the wave is visible on every
-   * height it reaches. Walls leave a gap instead of a stroke through the stone.
+   * the same ring is draped over the floor, so the wave stays visible on every height it reaches.
    */
-  groundRing(x: number, z: number, r: number, c: RGB, a: number, width = 0.42): void {
+  groundRing(x: number, z: number, r: number, c: RGB, a: number, _width = 0.42): void {
     if (r < 0.15 || a <= 0) return;
     const n = Math.min(72, Math.max(14, Math.ceil(r * 3.2)));
-    const ys: number[] = [];
     let min = Infinity;
     let max = -Infinity;
     let known = 0;
@@ -523,7 +575,6 @@ export class Vfx {
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2;
       const y = this.terrace(x + Math.sin(ang) * r, z + Math.cos(ang) * r);
-      ys.push(y);
       if (Number.isNaN(y)) continue;
       known++;
       y0 = y;
@@ -534,18 +585,10 @@ export class Vfx {
       this.ring(x, z, r, c, a, (known === 0 ? this.ground(x, z) : y0) + DECAL_Y);
       return;
     }
-    for (let i = 0; i < n; i++) {
-      const yA = ys[i]!;
-      const yB = ys[(i + 1) % n]!;
-      if (Number.isNaN(yA) || Number.isNaN(yB)) continue;
-      const a0 = (i / n) * Math.PI * 2;
-      const a1 = ((i + 1) / n) * Math.PI * 2;
-      this.beamAt(
-        x + Math.sin(a0) * r, yA + DECAL_Y, z + Math.cos(a0) * r,
-        x + Math.sin(a1) * r, yB + DECAL_Y, z + Math.cos(a1) * r,
-        width, c, a,
-      );
-    }
+    this.drapeRing(x, z, r, c, a, (px, pz) => {
+      const y = this.terrace(px, pz);
+      return Number.isNaN(y) ? Number.NaN : y + DECAL_Y;
+    });
   }
 
   /** Ring racing outward from a point. It climbs any terrace the wave crosses. */
@@ -729,6 +772,9 @@ export class Vfx {
     this.smoke.flush();
     this.discs.flush();
     this.rings.flush();
+    this.drapeDiscs.flush();
+    this.drapeRings.flush();
+    this.drapeLines.flush();
     this.glows.flush();
     this.slashes.flush();
     this.domes.flush();

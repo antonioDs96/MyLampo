@@ -4,7 +4,6 @@ import {
   angleDiff,
   BOUNTY_BY_ID,
   Btn,
-  CELL,
   channelTime,
   clonePlayer,
   COSMETIC_BY_ID,
@@ -74,7 +73,7 @@ import { Radar } from '../ui/radar';
 import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
 import { profileId, SoloProfileArchive } from '../net/profile';
 import { shotAlertLength } from './attackClip';
-import { arcSpans, discMarks, lineSpans, ringSpans, sectorMarks } from './terrainAlert';
+import { discMarks, lineSpans, ringSpans, sectorMarks } from './terrainAlert';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
@@ -2269,7 +2268,15 @@ export class Game {
     return FLOOR_Y + elev * STEP_HEIGHT + 0.04;
   }
 
-  /** Filled circle. One disc when the ground is level; one tile per terrace when it is not. */
+  /** Floor under a point, or NaN on a wall, so a draped alert can leave a hole there. */
+  private alertHeight(x: number, z: number): number {
+    const layout = this.layout;
+    if (!layout) return this.groundY(x, z) + 0.04;
+    const elev = getCellElevation(layout, x, z);
+    return elev === ELEV_WALL ? Number.NaN : this.alertY(elev);
+  }
+
+  /** Filled circle. One disc on level ground; the same disc bent over the steps otherwise. */
   private paintDisc(x: number, z: number, r: number, c: RGB, a: number): void {
     const layout = this.layout;
     if (!layout || r <= 0.05) {
@@ -2282,12 +2289,11 @@ export class Game {
       this.vfx.disc(x, z, r, c, a, y);
       return;
     }
-    for (const m of fill.marks) this.vfx.tile(m.x, this.alertY(m.elev), m.z, CELL * 0.98, c, a);
-    this.paintRing(x, z, r, c, Math.min(1, a + 0.3), 0.5);
+    this.vfx.drapeDisc(x, z, r, c, a, (px, pz) => this.alertHeight(px, pz));
   }
 
-  /** Circle. One ring on a single terrace; strokes that follow the floor when the circle steps. */
-  private paintRing(x: number, z: number, r: number, c: RGB, a: number, width = 0.45): void {
+  /** Circle. One ring on a single terrace; the same ring climbing the floor when it steps. */
+  private paintRing(x: number, z: number, r: number, c: RGB, a: number, _width = 0.45): void {
     const layout = this.layout;
     if (!layout || r <= 0.05) {
       this.vfx.ring(x, z, r, c, a);
@@ -2298,12 +2304,10 @@ export class Game {
       this.vfx.ring(x, z, r, c, a, this.alertY(ring.elev));
       return;
     }
-    for (const s of ring.spans) {
-      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, width, c, a);
-    }
+    this.vfx.drapeRing(x, z, r, c, a, (px, pz) => this.alertHeight(px, pz));
   }
 
-  /** Melee cone, drawn on every terrace it covers. */
+  /** Melee cone. Level ground keeps the flat cone; a step bends that cone onto each terrace. */
   private paintSector(x: number, z: number, r: number, yaw: number, arc: number, c: RGB, a: number): void {
     if (arc >= 359) {
       this.paintDisc(x, z, r, c, a);
@@ -2320,17 +2324,10 @@ export class Game {
       this.vfx.sector(x, z, r, yaw, arc, c, a, y);
       return;
     }
-    for (const m of fill.marks) this.vfx.tile(m.x, this.alertY(m.elev), m.z, CELL * 0.98, c, a);
-    const edge = Math.min(1, a + 0.25);
-    const half = (arc * Math.PI) / 360;
-    this.paintLine(x, z, x + Math.sin(yaw - half) * r, z + Math.cos(yaw - half) * r, 0.35, c, edge);
-    this.paintLine(x, z, x + Math.sin(yaw + half) * r, z + Math.cos(yaw + half) * r, 0.35, c, edge);
-    for (const s of arcSpans(layout, x, z, r, yaw, arc).spans) {
-      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, 0.4, c, edge);
-    }
+    this.vfx.drapeSector(x, z, r, yaw, arc, c, a, (px, pz) => this.alertHeight(px, pz));
   }
 
-  /** A straight warning. Level ground stays one stroke; a step becomes a stroke that climbs it. */
+  /** A straight warning. Level ground stays one stroke; a step becomes a stripe that climbs it. */
   private paintLine(x0: number, z0: number, x1: number, z1: number, width: number, c: RGB, a: number): void {
     const layout = this.layout;
     if (!layout) {
@@ -2339,14 +2336,12 @@ export class Game {
       return;
     }
     const line = lineSpans(layout, x0, z0, x1, z1);
-    if (line.spans.length === 0) {
-      const y = this.groundY(x0, z0) + 0.08;
+    if (line.spans.length <= 1 && line.uniform) {
+      const y = line.spans.length === 0 ? this.groundY(x0, z0) + 0.08 : this.alertY(line.elev);
       this.vfx.beamAt(x0, y, z0, x1, y, z1, width, c, a);
       return;
     }
-    for (const s of line.spans) {
-      this.vfx.beamAt(s.x0, this.alertY(s.elev0), s.z0, s.x1, this.alertY(s.elev1), s.z1, width, c, a);
-    }
+    this.vfx.drapeLine(x0, z0, x1, z1, Math.max(0.35, width), c, Math.max(a, 0.45), (px, pz) => this.alertHeight(px, pz));
   }
 
   /** Lama: a gold rule and the line, sitting to the screen-right of the speaker's head. */
