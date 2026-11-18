@@ -11,8 +11,10 @@ import {
   CITY_IDS,
   ELEV_WALL,
   ENEMIES,
+  isSolidCell,
   HUB_LAYOUT,
   NODE_ORDER,
+  loadLevel,
   parseLayout,
   REGION,
   CELL,
@@ -34,6 +36,7 @@ function reach(layout: Layout): Set<number> {
       const nx = cx + dx;
       const nz = cz + dz;
       if (nx < 0 || nz < 0 || nx >= layout.w || nz >= layout.h) continue;
+      if (isSolidCell(layout, nx, nz)) continue;
       const to = cellElevation(layout, nx, nz);
       if (to === ELEV_WALL || !canStep(here, to)) continue;
       const k = nz * layout.w + nx;
@@ -125,8 +128,13 @@ describe('campaign geography', () => {
         expect(kinds.filter((k) => k === 'shrine').length).toBeGreaterThanOrEqual(1);
         expect(kinds.filter((k) => k === 'chest').length).toBeGreaterThanOrEqual(1);
         for (const p of layout.pois) {
+          if (id === 'badiscar') continue;
           if (p.kind === 'shrine') expect(elevAt(layout, p.x, p.z)).toBe(-1);
           if (p.kind === 'chest') expect(elevAt(layout, p.x, p.z)).toBe(2);
+        }
+        if (id === 'badiscar') {
+          expect(layout.w).toBe(64);
+          expect(layout.h).toBe(64);
         }
         // L'Approdo: elevation 0, and nothing hostile in it.
         const approdo = env.nodes[0]!;
@@ -144,6 +152,43 @@ describe('campaign geography', () => {
       });
     }
   }
+
+  it('Badiscar is the new diorama, then Kaza-Massel, then Ujian', () => {
+    expect(CITY_IDS).toEqual(['badiscar', 'kaza', 'ujian']);
+    const pairs = [
+      ['badiscar_porto', 'porto'],
+      ['badiscar_falesie', 'falesie'],
+      ['badiscar_grotte', 'grotte'],
+    ] as const;
+    for (const [layoutId, levelId] of pairs) {
+      const level = loadLevel(levelId);
+      const layout = parseLayout(CITIES.badiscar.environments.find((env) => env.layout.id === layoutId)!.layout);
+      expect(layout.w).toBe(64);
+      expect(layout.h).toBe(64);
+      for (let z = 0; z < 64; z++) {
+        for (let x = 0; x < 64; x++) {
+          const tile = level.grid.tile(x, z)!;
+          const elev = cellElevation(layout, x, z);
+          if (!tile.walkable && tile.elevation === -2) {
+            expect(isSolidCell(layout, x, z), `${levelId} sea ${x},${z}`).toBe(true);
+            expect(elev).toBe(-2);
+          } else if (!tile.walkable) {
+            expect(isSolidCell(layout, x, z), `${levelId} wall ${x},${z}`).toBe(true);
+          } else {
+            expect(isSolidCell(layout, x, z), `${levelId} floor ${x},${z}`).toBe(false);
+            expect(elev, `${levelId} ${x},${z}`).toBe(tile.elevation);
+          }
+        }
+      }
+    }
+    const bastion = parseLayout(CITIES.badiscar.boss.layout);
+    expect(CITIES.badiscar.boss.boss).toBe('masseus');
+    expect(bastion.w).toBe(32);
+    expect(bastion.h).toBe(32);
+    expect(cellElevation(bastion, 16, 16)).toBe(0);
+    expect(isSolidCell(bastion, 8, 8)).toBe(true);
+    expect(isSolidCell(bastion, 0, 16)).toBe(true);
+  });
 
   it('boss arenas place exactly their boss and no portal', () => {
     const arenas = [...CITY_IDS.map((c) => CITIES[c].boss), REGION.boss];

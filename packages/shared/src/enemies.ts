@@ -517,6 +517,23 @@ const DEFS: EnemyDef[] = [
     ],
   }),
 
+  cityBoss({
+    id: 'masseus',
+    name: 'Masseus',
+    desc: 'Il corsaro che tiene il bastione a nord di Badiscar. La carica si spezza solo contro le colonne.',
+    hp: 4200,
+    speed: 4.2,
+    radius: 1.5,
+    summons: ['corsaro_annegato'],
+    taunts: ['Le reti prima, la carica dopo.', 'Il bastione non ha un secondo padrone.'],
+    attacks: [
+      ea({ id: 'alabarda', name: 'Alabarda', anim: '2H_Melee_Attack_Slice', impact: 0.4, windup: 0.85, dmg: 28, startRange: 6, reach: 6, arc: 180, lunge: 1.4, kb: 6, cd: 1.8, weight: 3 }),
+      ea({ id: 'reti', name: 'Reti', anim: 'Throw', impact: 0.72, windup: 1.1, kind: 'red', dmg: 12, startRange: 14, reach: 0, lunge: 0, aoe: 2.4, aoeRange: 12, slow: 3, cd: 5, weight: 2 }),
+      ea({ id: 'carica', name: 'Carica Inarrestabile', anim: '2H_Melee_Attack_Stab', impact: 0.4, windup: 1.6, recover: 1, kind: 'red', dmg: 42, startRange: 20, minRange: 6, reach: 4.5, arc: 80, lunge: 16, kb: 12, cd: 6, weight: 2, phase: 1 }),
+      ea({ id: 'vortice', name: 'Vortice', anim: '2H_Melee_Attack_Spin', animStart: 0.3, impact: 0.74, windup: 1.4, kind: 'red', dmg: 34, startRange: 8, reach: 7, arc: 360, extraHits: 1, hitGap: 0.35, kb: 8, cd: 4.5, weight: 2, phase: 1 }),
+    ],
+  }),
+
   // ------------------------------------------------------------------ Region boss
   cityBoss({
     id: 'leviatano',

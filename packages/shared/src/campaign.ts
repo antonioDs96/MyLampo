@@ -5,11 +5,22 @@
  * defeating the Region Boss, and are listed here as locked destinations.
  */
 import { assemble, type NodeSpan } from './chunks';
+import { type LevelId } from './levels/LevelDataTypes';
+import { loadLevel } from './levels/LevelLoader';
+import { bakeDiorama } from './levels/toLayout';
 import type { Biome, LayoutDef, Roster, Theme } from './layout';
 import type { EnemyTypeId } from './types';
 
 export type CityId = 'badiscar' | 'ujian' | 'kaza';
-export const CITY_IDS: CityId[] = ['badiscar', 'ujian', 'kaza'];
+/** Badiscar opens the coast. Kaza-Massel follows its boss, then Ujian. */
+export const CITY_IDS: CityId[] = ['badiscar', 'kaza', 'ujian'];
+
+/** A city is open when every city before it on the coast has fallen. */
+export function cityUnlocked(cleared: readonly string[], city: CityId): boolean {
+  const at = CITY_IDS.indexOf(city);
+  if (at <= 0) return true;
+  return cleared.includes(CITY_IDS[at - 1]!);
+}
 
 /** Environments in a City. After the third comes the City Boss arena. */
 export const ENVIRONMENTS_PER_CITY = 3;
@@ -79,6 +90,42 @@ function environment(city: CityId, index: number, spec: EnvSpec): EnvironmentDef
   };
 }
 
+function diorama(
+  city: CityId,
+  index: number,
+  spec: {
+    id: string;
+    name: string;
+    blurb: string;
+    theme: Theme;
+    biome: Biome;
+    level: LevelId;
+    roster: { mobs: EnemyTypeId[]; elites: EnemyTypeId[]; boss: EnemyTypeId };
+  },
+): EnvironmentDef {
+  const baked = bakeDiorama(loadLevel(spec.level));
+  const roster: Roster = spec.roster;
+  return {
+    id: spec.id,
+    city,
+    index,
+    name: spec.name,
+    blurb: spec.blurb,
+    miniBoss: spec.roster.boss,
+    nodes: baked.nodes,
+    layout: {
+      id: spec.id,
+      name: spec.name,
+      theme: spec.theme,
+      biome: spec.biome,
+      rows: baked.rows,
+      roster,
+      nodes: baked.nodes,
+      sealedVoid: true,
+    },
+  };
+}
+
 function arena(
   id: string,
   name: string,
@@ -100,70 +147,69 @@ const BADISCAR: CityDef = {
   blurb: 'Porto di contrabbandieri a picco sulle scogliere. La marea ha restituito la sua ciurma peggiore.',
   color: '#0ea5e9',
   environments: [
-    environment('badiscar', 0, {
+    diorama('badiscar', 0, {
       id: 'badiscar_porto',
       name: 'Il Porto Marcescente',
-      blurb: 'Moli sfondati e sartiame marcio. I Corsari Annegati tengono ancora il loro posto in falange.',
+      blurb: 'Quattro vasche di salagione, il mercato sul molo e il bastione del dazio. Il mare chiude la mappa: non si cammina.',
       theme: 'alley',
       biome: 'coastal',
-      chunks: ['molo', 'ponte_rotto', 'bivio_scala', 'assedio_bastioni', 'arena_tonda'],
+      level: 'porto',
       roster: {
-        mobs: ['corsaro_annegato', 'predone_sahuagin', 'corsaro_annegato', 'contrabbandiere_alchemico'],
-        elites: ['nostromo_senzocchi', 'madre_spore'],
+        mobs: ['corsaro_annegato', 'predone_sahuagin', 'granchio_pietra', 'sciame_polpi'],
+        elites: ['nostromo_senzocchi', 'nostromo_senzocchi'],
         boss: 'quartiermastro',
       },
     }),
-    environment('badiscar', 1, {
+    diorama('badiscar', 1, {
       id: 'badiscar_falesie',
       name: 'Le Falesie Erose',
-      blurb: 'Cenge strette sul mare e canali di risacca. Ciò che sembra roccia, a volte, ha le chele.',
+      blurb: 'Approdo sulla scogliera, conca sotto il piano e la gola a est. La Chela Madre chiude la cava.',
       theme: 'alley',
       biome: 'coastal',
-      chunks: ['cancello', 'canale', 'bivio_torre~', 'assedio_terrazze', 'arena_canali'],
+      level: 'falesie',
       roster: {
-        mobs: ['granchio_pietra', 'predone_sahuagin', 'granchio_pietra', 'sciame_polpi'],
-        elites: ['nostromo_senzocchi', 'sirena_abisso'],
+        mobs: ['corsaro_annegato', 'predone_sahuagin', 'granchio_pietra', 'sciame_polpi'],
+        elites: ['nostromo_senzocchi', 'nostromo_senzocchi'],
         boss: 'chela_madre',
       },
     }),
-    environment('badiscar', 2, {
+    diorama('badiscar', 2, {
       id: 'badiscar_grotte',
-      name: 'Le Grotte della Risacca',
-      blurb: 'Sotto il porto la roccia è cava. Una campana di bronzo batte il tempo nel buio.',
+      name: 'Le Grotte Carsiche',
+      blurb: 'Lago di melma, ponti di calcite e l’altare in fondo. Il Palombaro Cieco aspetta oltre il lago.',
       theme: 'crypt',
       biome: 'coastal',
-      chunks: ['molo~', 'vicolo_salita', 'bivio_tetti', 'assedio_fossa~', 'arena_palchi'],
+      level: 'grotte',
       roster: {
-        mobs: ['sciame_polpi', 'granchio_pietra', 'corsaro_annegato', 'predone_sahuagin'],
-        elites: ['madre_spore', 'nostromo_senzocchi'],
+        mobs: ['corsaro_annegato', 'predone_sahuagin', 'granchio_pietra', 'sciame_polpi'],
+        elites: ['nostromo_senzocchi', 'madre_spore'],
         boss: 'palombaro',
       },
     }),
   ],
-  boss: arena(
-    'badiscar_boss',
-    "La Tana dell'Idra",
-    'La grotta più profonda di Badiscar. Tre teste aspettano nella vasca.',
-    'idra_carsica',
-    'crypt',
-    'coastal',
-    [
-      '#######################',
-      '########.PPPPP.########',
-      '#######..PPPP...#######',
-      '#####.............#####',
-      '###..^^.........^^..###',
-      '##..^++^..___..^++^..##',
-      '##..^^^.._____..^^^..##',
-      '#E......___B___......E#',
-      '##..^^^.._____..^^^..##',
-      '##..^++^..___..^++^..##',
-      '###..^^.........^^..###',
-      '#####......E......#####',
-      '#######################',
-    ],
-  ),
+  boss: (() => {
+    const baked = bakeDiorama(loadLevel('masseus'), true);
+    return {
+      id: 'badiscar_boss',
+      name: 'Il Bastione di Masseus',
+      blurb: 'Arena quadrata sul mare, quattro colonne e il corsaro che le usa come freno. Dopo di lui si apre Kaza-Massel.',
+      boss: 'masseus' as const,
+      layout: {
+        id: 'badiscar_boss',
+        name: 'Il Bastione di Masseus',
+        theme: 'crypt' as const,
+        biome: 'coastal' as const,
+        rows: baked.rows,
+        roster: { mobs: [], elites: [], boss: 'masseus' },
+        sealedVoid: true,
+      },
+    };
+  })(),
 };
+
+// Ujian and Kaza-Massel stay on these chunk maps. A later pass replaces each
+// city through diorama(), the same matrix as Badiscar, and only then changes
+// topography and encounter design.
 
 // ---------------------------------------------------------------------------- Ujian
 
@@ -330,7 +376,7 @@ export const REGION: RegionDef = {
   id: 'costa_est',
   name: 'Costa Est',
   subtitle: 'Regione 1',
-  blurb: 'Badiscar, Ujian e Kaza-Massel: tre città strette tra le scogliere e ciò che sale dal mare.',
+  blurb: 'Badiscar, poi Kaza-Massel, poi Ujian. Ogni città è tre ambienti e il suo boss: la successiva resta chiusa finché quello non cade.',
   cities: CITY_IDS,
   boss: arena(
     'costa_est_boss',

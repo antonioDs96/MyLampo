@@ -35,6 +35,7 @@ export type EnemyTypeId =
   | 'campione_fossa'
   // City bosses
   | 'idra_carsica'
+  | 'masseus'
   | 'arconte_ujian'
   | 're_reietti'
   // Region boss

@@ -5,6 +5,7 @@ import {
   CITIES,
   CITY_BOSS_STAGE,
   CITY_IDS,
+  cityUnlocked,
   COSMETICS,
   COSMETIC_KINDS,
   COSMETIC_KIND_NAMES,
@@ -374,9 +375,11 @@ export class Menus {
       const city = CITIES[id];
       const cp = Math.max(0, Math.min(CITY_BOSS_STAGE, table.checkpoint[id] ?? 0));
       const cleared = table.cleared.includes(id);
+      const open = cityUnlocked(table.cleared, id);
+      const prev = CITY_IDS[CITY_IDS.indexOf(id) - 1];
       return h(
         'article',
-        { class: `city-card ${cleared ? 'is-cleared' : ''}`, style: `--c:${city.color}` },
+        { class: `city-card ${cleared ? 'is-cleared' : ''} ${open ? '' : 'is-locked'}`, style: `--c:${city.color}` },
         h('h3', { text: city.name }),
         h('div', { class: 'city-sub', text: city.subtitle }),
         h('p', { text: city.blurb }),
@@ -388,8 +391,13 @@ export class Menus {
           ),
           h('li', { class: cp >= CITY_BOSS_STAGE ? 'next boss' : 'boss' }, h('b', { text: 'Boss di Città · ' }), `${city.boss.name} — ${ENEMIES[city.boss.boss].name}`),
         ),
-        h('div', { class: 'city-state', text: `${cleared ? 'Boss sconfitto · ' : ''}Checkpoint: ${STAGE_NAMES[cp]}` }),
-        go(id, `Parti da ${STAGE_NAMES[cp]}`, true),
+        h('div', {
+          class: 'city-state',
+          text: open
+            ? `${cleared ? 'Boss sconfitto · ' : ''}Checkpoint: ${STAGE_NAMES[cp]}`
+            : `Sigillata: prima deve cadere ${CITIES[prev!].name}.`,
+        }),
+        go(id, `Parti da ${STAGE_NAMES[cp]}`, open),
       );
     });
     const boss = h(

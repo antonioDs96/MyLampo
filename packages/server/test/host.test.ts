@@ -110,7 +110,7 @@ describe('hero selection', () => {
     party.host.onMessage('bot2', { t: 'hero', hero: 'rycard' });
     party.host.onMessage('bot2', { t: 'ready', on: true });
     expect(party.host.world.players.get('bot2')!.hero).toBe('rycard');
-    party.host.onMessage('bot1', { t: 'run', city: 'ujian' });
+    party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
     party.host.onMessage('bot2', { t: 'reselect' });
     expect(party.host.world.players.has('bot2')).toBe(true);
   });
@@ -130,6 +130,9 @@ describe('map table', () => {
     party.host.onMessage('bot1', { t: 'run', city: 'terre_rosse' });
     expect(party.host.phase).toBe('hub');
     expect(party.errors.at(-1)).toMatch(/sigillata/);
+    party.host.onMessage('bot1', { t: 'run', city: 'kaza' });
+    expect(party.host.phase).toBe('hub');
+    expect(party.errors.at(-1)).toMatch(/Kaza-Massel/);
     party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });
     expect(party.host.phase).toBe('run');
     expect(party.lobby.run).toMatchObject({ stage: { kind: 'env', city: 'badiscar', index: 0 }, streak: 0, fervor: 0 });
@@ -156,6 +159,7 @@ describe('map table', () => {
   it('a run starts from the City checkpoint of the Host', () => {
     const archive = new MemoryProfileArchive();
     const p = emptyProfile();
+    p.cleared = ['badiscar', 'kaza'];
     p.checkpoint.ujian = 2;
     archive.save(uuid(2), p);
     const party = company(['jusef'], 3, archive);
@@ -220,7 +224,12 @@ describe('extraction portal and push-your-luck', () => {
   });
 
   it('extracting banks the satchel, saves the checkpoint and resets the Fervor', () => {
-    const party = company(['jusef', 'alexios']);
+    const archive = new MemoryProfileArchive();
+    const opened = emptyProfile();
+    opened.cleared = ['badiscar'];
+    archive.save(uuid(3), opened);
+    const party = company(['jusef', 'alexios'], 3, archive);
+    party.host.onMessage('bot1', { t: 'profile', id: uuid(3) });
     party.host.onMessage('bot1', { t: 'run', city: 'kaza' });
     party.host.world.satchelOf('bot1').gems += 30;
     openPortal(party);
