@@ -207,6 +207,10 @@ const BADISCAR: CityDef = {
   })(),
 };
 
+// Ujian and Kaza-Massel stay on these chunk maps. A later pass replaces each
+// city through diorama(), the same matrix as Badiscar, and only then changes
+// topography and encounter design.
+
 // ---------------------------------------------------------------------------- Ujian
 
 const UJIAN: CityDef = {
