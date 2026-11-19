@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   abilityMods,
   abilityTooltip,
+  catalogEffects,
   Act,
   afterWipe,
   bountiesUnlocked,
@@ -22,6 +23,7 @@ import {
   equipCosmetic,
   ES,
   EState,
+  getStatus,
   fairShare,
   fervorBonus,
   FLOOD_DRY,
@@ -54,7 +56,7 @@ import {
   type LayoutDef,
   type StageLog,
 } from '../src';
-import { Btn, cmd, makeWorld, run } from './helpers';
+import { Btn, cmd, makeWorld, run, tap } from './helpers';
 
 const T = (s: number) => Math.ceil(s * TICK_HZ);
 const ALL_HEROES = Object.keys(HEROES) as HeroId[];
@@ -202,13 +204,48 @@ describe('skill tree', () => {
     expect(profile.trees.jusef).toBeUndefined();
   });
 
-  it('folds catalog statuses into the combat modifiers', () => {
+  it('folds catalog statuses into the effects a cast will apply', () => {
     const haste = abilityMods('jusef', 'e', { tier: 2, branch: '', wind: '' });
-    const bleed = abilityMods('jusef', 'e', { tier: 5, branch: 'A', wind: 'SCIROCCO' });
-    const shield = abilityMods('jusef', 'e', { tier: 3, branch: 'C', wind: '' });
+    const bleed = catalogEffects('jusef', 'e', { tier: 5, branch: 'A', wind: 'SCIROCCO' });
+    const shield = catalogEffects('jusef', 'e', { tier: 3, branch: 'C', wind: '' });
     expect(haste.haste).toBeGreaterThan(1);
-    expect(bleed.bleed).toBeGreaterThan(0);
-    expect(shield.reflect).toBeGreaterThan(0);
+    expect(bleed.enemy.bleedDps).toBe(3);
+    expect(bleed.enemy.vulnerable).toBeGreaterThan(0);
+    expect(shield.party.shieldHp).toBe(6);
+    expect(catalogEffects('jusef', 'e', { tier: 5, branch: 'A', wind: 'SCIROCCO' }).enemy.vulnerable).toBeLessThanOrEqual(0.15);
+  });
+
+  it('lands the bought branch on the fight', () => {
+    const tree = {
+      passive: 0,
+      keystone: false,
+      e: { tier: 5, branch: 'A' as const, wind: 'SCIROCCO' },
+      r: { tier: 0, branch: '' as const, wind: '' },
+    };
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'jusef', 0, { tree });
+    const enemy = world.spawnEnemy('corsaro_annegato', p.x + 2, p.z);
+    enemy.state = EState.Chase;
+    enemy.cool = 999;
+    tap(world, 'a', Btn.Ability);
+    run(world, 'a', Math.ceil(HEROES.jusef.ability.dur * 60) + 4);
+    expect(getStatus(enemy.st, ES.Bleed)?.p).toBe(3);
+    expect(getStatus(enemy.st, ES.Vulnerable)?.p).toBeCloseTo(0.08);
+  });
+
+  it('raises the catalog barrier on the party', () => {
+    const tree = {
+      passive: 0,
+      keystone: false,
+      e: { tier: 3, branch: 'C' as const, wind: '' },
+      r: { tier: 0, branch: '' as const, wind: '' },
+    };
+    const world = makeWorld();
+    const p = world.addPlayer('a', 'jusef', 0, { tree });
+    tap(world, 'a', Btn.Ability);
+    run(world, 'a', Math.ceil(HEROES.jusef.ability.dur * 60) + 4);
+    expect(getStatus(p.st, PS.Barrier)?.p).toBe(6);
+    expect(getStatus(p.st, PS.Stamina)?.p).toBe(12);
   });
 
   it('equipped nodes shorten the cooldown in the world and show in the tooltip', () => {

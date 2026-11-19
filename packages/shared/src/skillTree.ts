@@ -136,7 +136,7 @@ export function abilityMods(hero: HeroId, slot: AbilitySlot, node: ActiveNode): 
   const ability = abilityOf(hero, slot);
   if (!ability || node.tier < 1) return NO_MODS;
   const mods = { ...NO_MODS };
-  for (const step of unlockedSteps(ability, node)) foldStep(mods, ability.cooldownSec, step.text, step.statuses);
+  for (const step of unlockedSteps(ability, node)) foldStep(mods, ability.cooldownSec, step.text);
   return mods;
 }
 
@@ -162,18 +162,163 @@ function unlockedSteps(ability: AbilityTreeSpec, node: ActiveNode): { text: stri
   return steps;
 }
 
-function foldStep(mods: AbilityMods, baseCooldown: number, text: string, statuses: StatusPayload[]): void {
+function foldStep(mods: AbilityMods, baseCooldown: number, text: string): void {
   const cooldown = /cooldown ridotto a\s+([\d.]+)\s*s/i.exec(text);
   if (cooldown) {
     const next = Number(cooldown[1]);
     if (next > 0 && baseCooldown > next) mods.haste = Math.max(mods.haste, baseCooldown / next);
   }
-  for (const status of statuses) {
-    if (status.type === 'EMPOWER') mods.power += status.intensity / 100;
-    else if (status.type === 'HASTE') mods.haste += status.intensity / 100;
-    else if (status.type === 'DOT') mods.bleed = Math.max(mods.bleed, status.durationSec);
-    else if (status.type === 'SHIELD') mods.reflect = Math.max(mods.reflect, status.durationSec);
+}
+
+/** Team caps from the handoff combat rules. Fractions, except the shield which is a share of max HP. */
+export const CATALOG_CAPS = {
+  slow: 0.2,
+  vulnerable: 0.15,
+  empower: 0.2,
+  haste: 0.2,
+  shieldHp: 0.25,
+  rootSec: 1.5,
+} as const;
+
+export interface EnemyCatalogEffects {
+  bleedDps: number;
+  bleedSec: number;
+  slow: number;
+  slowSec: number;
+  vulnerable: number;
+  vulnerableSec: number;
+  stunSec: number;
+  rootSec: number;
+  pushM: number;
+  pullM: number;
+}
+
+export interface HeroCatalogEffects {
+  shieldHp: number;
+  shieldSec: number;
+  haste: number;
+  hasteSec: number;
+  empower: number;
+  empowerSec: number;
+  regenHp: number;
+  regenSec: number;
+  stamina: number;
+  staminaSec: number;
+  armorSec: number;
+  stealthSec: number;
+  slow: number;
+  slowSec: number;
+}
+
+export interface CatalogEffects {
+  enemy: EnemyCatalogEffects;
+  self: HeroCatalogEffects;
+  party: HeroCatalogEffects;
+}
+
+function emptyEnemyEffects(): EnemyCatalogEffects {
+  return { bleedDps: 0, bleedSec: 0, slow: 0, slowSec: 0, vulnerable: 0, vulnerableSec: 0, stunSec: 0, rootSec: 0, pushM: 0, pullM: 0 };
+}
+
+function emptyHeroEffects(): HeroCatalogEffects {
+  return {
+    shieldHp: 0,
+    shieldSec: 0,
+    haste: 0,
+    hasteSec: 0,
+    empower: 0,
+    empowerSec: 0,
+    regenHp: 0,
+    regenSec: 0,
+    stamina: 0,
+    staminaSec: 0,
+    armorSec: 0,
+    stealthSec: 0,
+    slow: 0,
+    slowSec: 0,
+  };
+}
+
+function foldEnemy(foe: EnemyCatalogEffects, status: StatusPayload, secs: number): void {
+  if (status.type === 'DOT') {
+    foe.bleedDps = Math.max(foe.bleedDps, status.intensity);
+    foe.bleedSec = Math.max(foe.bleedSec, secs);
+  } else if (status.type === 'SLOW') {
+    foe.slow = Math.min(CATALOG_CAPS.slow, foe.slow + status.intensity / 100);
+    foe.slowSec = Math.max(foe.slowSec, secs);
+  } else if (status.type === 'VULNERABLE') {
+    foe.vulnerable = Math.min(CATALOG_CAPS.vulnerable, foe.vulnerable + status.intensity / 100);
+    foe.vulnerableSec = Math.max(foe.vulnerableSec, secs);
+  } else if (status.type === 'STUN') foe.stunSec = Math.max(foe.stunSec, secs);
+  else if (status.type === 'ROOT') foe.rootSec = Math.max(foe.rootSec, Math.min(CATALOG_CAPS.rootSec, secs));
+  else if (status.type === 'DISPLACE') {
+    if (status.unit.toLowerCase().includes('pull')) foe.pullM = Math.max(foe.pullM, status.intensity);
+    else foe.pushM = Math.max(foe.pushM, status.intensity);
   }
+}
+
+function foldHero(who: HeroCatalogEffects, status: StatusPayload, secs: number): void {
+  if (status.type === 'SHIELD') {
+    who.shieldHp += status.intensity;
+    who.shieldSec = Math.max(who.shieldSec, secs);
+  } else if (status.type === 'HASTE') {
+    who.haste = Math.min(CATALOG_CAPS.haste, who.haste + status.intensity / 100);
+    who.hasteSec = Math.max(who.hasteSec, secs);
+  } else if (status.type === 'EMPOWER') {
+    who.empower = Math.min(CATALOG_CAPS.empower, who.empower + status.intensity / 100);
+    who.empowerSec = Math.max(who.empowerSec, secs);
+  } else if (status.type === 'REGEN') {
+    if (status.unit.toLowerCase().includes('stam')) {
+      who.stamina = Math.max(who.stamina, status.intensity);
+      who.staminaSec = Math.max(who.staminaSec, secs);
+    } else if (status.unit.toLowerCase().includes('hp')) {
+      who.regenHp = Math.max(who.regenHp, status.intensity);
+      who.regenSec = Math.max(who.regenSec, secs);
+    }
+  } else if (status.type === 'SUPER_ARMOR') who.armorSec = Math.max(who.armorSec, secs || 2);
+  else if (status.type === 'STEALTH_CAMO') who.stealthSec = Math.max(who.stealthSec, secs);
+  else if (status.type === 'SLOW') {
+    who.slow = Math.min(CATALOG_CAPS.slow, who.slow + status.intensity / 100);
+    who.slowSec = Math.max(who.slowSec, secs);
+  }
+}
+
+/** Party and self both land on the caster, still inside the team caps. */
+export function combineHeroEffects(a: HeroCatalogEffects, b: HeroCatalogEffects): HeroCatalogEffects {
+  return {
+    shieldHp: a.shieldHp + b.shieldHp,
+    shieldSec: Math.max(a.shieldSec, b.shieldSec),
+    haste: Math.min(CATALOG_CAPS.haste, a.haste + b.haste),
+    hasteSec: Math.max(a.hasteSec, b.hasteSec),
+    empower: Math.min(CATALOG_CAPS.empower, a.empower + b.empower),
+    empowerSec: Math.max(a.empowerSec, b.empowerSec),
+    regenHp: Math.max(a.regenHp, b.regenHp),
+    regenSec: Math.max(a.regenSec, b.regenSec),
+    stamina: Math.max(a.stamina, b.stamina),
+    staminaSec: Math.max(a.staminaSec, b.staminaSec),
+    armorSec: Math.max(a.armorSec, b.armorSec),
+    stealthSec: Math.max(a.stealthSec, b.stealthSec),
+    slow: Math.min(CATALOG_CAPS.slow, a.slow + b.slow),
+    slowSec: Math.max(a.slowSec, b.slowSec),
+  };
+}
+
+/** Statuses the equipped node actually grants, folded with the team caps. */
+export function catalogEffects(hero: HeroId, slot: AbilitySlot, node: ActiveNode): CatalogEffects {
+  const out: CatalogEffects = { enemy: emptyEnemyEffects(), self: emptyHeroEffects(), party: emptyHeroEffects() };
+  const ability = abilityOf(hero, slot);
+  if (!ability) return out;
+  for (const step of unlockedSteps(ability, node)) {
+    for (const status of step.statuses) {
+      const secs = Math.max(0, status.durationSec);
+      if (status.target === 'enemy') {
+        foldEnemy(out.enemy, status, secs);
+        continue;
+      }
+      foldHero(status.target === 'self' ? out.self : out.party, status, secs);
+    }
+  }
+  return out;
 }
 
 /** What the catalog says the next unlocked step does. */

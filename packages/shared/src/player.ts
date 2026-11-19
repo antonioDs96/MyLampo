@@ -166,7 +166,7 @@ export function isDowned(p: PlayerState): boolean {
 export function isArmored(p: PlayerState, red: boolean): boolean {
   const hero = HEROES[p.hero];
   if (p.act === Act.Ult || p.act === Act.Execute) return true;
-  if (hasStatus(p.st, PS.Wolf) || hasStatus(p.st, PS.Berserk)) return true;
+  if (hasStatus(p.st, PS.SuperArmor) || hasStatus(p.st, PS.Wolf) || hasStatus(p.st, PS.Berserk)) return true;
   if (hero.stoic && !red) return true;
   const a = currentAttack(p);
   return !!a?.armor && !red;
@@ -514,6 +514,9 @@ export function stepPlayer(p: PlayerState, cmd: InputCmd, ctx: StepCtx, ev: Play
     switch (s.k) {
       case PS.Regen:
         if (p.act !== Act.Downed) p.hp = Math.min(p.maxHp || hero.hp, p.hp + s.p * DT);
+        break;
+      case PS.Stamina:
+        if (p.act !== Act.Downed) p.stamina = Math.min(p.maxStamina || hero.stamina, p.stamina + s.p * DT);
         break;
       case PS.Haste:
         rate *= 1 + s.p;
