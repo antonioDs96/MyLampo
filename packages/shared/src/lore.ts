@@ -127,7 +127,7 @@ export function npcLine(npc: NpcId, hero: HeroId | '', turn: number): string {
 export const HUB_LINES: string[] = [
   'Benvenuti alla Taverna di Carl. La tregua vale per tutti, persino per voi.',
   'Il Tavolo della Mappa è al centro. Chi guida la Compagnia sceglie la rotta.',
-  'I fantocci nel retro non si offendono. Usateli per imparare a parare prima di imparare a sanguinare.',
+  'I fantocci accanto all’ingresso non si offendono. Usateli per imparare a parare prima di imparare a sanguinare.',
 ];
 
 /** Short lessons shown on loading screens and in the hub. */

@@ -624,7 +624,7 @@ export class Menus {
   private carlBody(): HTMLElement[] {
     return [
       h('h3', { class: 'section', text: 'La Taverna di Carl' }),
-      h('p', { class: 'note', text: 'Qui non si combatte. Il Tavolo della Mappa è al centro, Iej tiene l’Albero delle Abilità, Saraya cuce, Eleonora paga i contratti. I fantocci nel retro non rispondono ai colpi.' }),
+      h('p', { class: 'note', text: 'Qui non si combatte. Il Tavolo della Mappa è al centro, Carl è al bancone a nord, Iej tiene l’Albero delle Abilità, Saraya cuce, Eleonora paga i contratti. I fantocci accanto all’ingresso non rispondono ai colpi.' }),
       h(
         'div',
         { class: 'row' },

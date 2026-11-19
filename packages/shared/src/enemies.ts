@@ -161,7 +161,7 @@ const DEFS: EnemyDef[] = [
   mob({
     id: 'manichino',
     name: 'Fantoccio di Carl',
-    desc: "Uno scheletro incantato che Carl tiene nel retro per l'addestramento. Colpisce piano, ma insegna bene.",
+    desc: "Uno scheletro incantato che Carl tiene accanto all'ingresso per l'addestramento. Colpisce piano, ma insegna bene.",
     hp: 400,
     speed: 0,
     radius: 0.7,

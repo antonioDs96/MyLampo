@@ -369,7 +369,11 @@ export const LOCKED_REGIONS: { id: string; name: string; blurb: string }[] = [
 
 // ---------------------------------------------------------------------------- Hub
 
-/** La Taverna di Carl: the only safe place. A Carl, I Iej, Y Saraya, L Eleonora, M the Map Table. */
+/**
+ * La Taverna di Carl: the only safe place.
+ * +Z is north. A Carl behind the north bar, I Iej, Y Saraya, L Eleonora,
+ * M the Map Table, D the training dummies by the south door.
+ */
 export const HUB_LAYOUT: LayoutDef = {
   id: 'taverna',
   name: 'La Taverna di Carl',
@@ -377,16 +381,16 @@ export const HUB_LAYOUT: LayoutDef = {
   biome: 'urban',
   rows: [
     '###############',
-    '#k.A.t...t.b.k#',
+    '#...D.....D...#',
     '#.............#',
     '#I...........Y#',
     '#..P.P.P.P.P..#',
     '#......M......#',
     '#..P.P.P.P....#',
     '#L............#',
-    '#c....f.....t.#',
     '#.............#',
-    '#b...D...D...k#',
+    '#.............#',
+    '#......A......#',
     '###############',
   ],
 };

@@ -1,3 +1,5 @@
+import { tavernPieces, type TavernAnchors } from './tavern';
+
 /**
  * Tile-based arena layouts: parsing, collision, line of sight and flow-field navigation.
  * Walkable cells carry one of five elevations. Movement, sight and pathing stay on XZ;
@@ -12,7 +14,7 @@ export const ELEV_WALL = 127;
 /** Passive damage multiplier when the attacker stands strictly above the target. */
 export const HIGH_GROUND_MUL = 1.1;
 /** Walls sit on cell edges and are 1 unit thick: solid cells grow by half of that. */
-const WALL_HALF = 0.5;
+export const WALL_HALF = 0.5;
 
 export type Theme = 'tavern' | 'alley' | 'inn' | 'crypt' | 'cathedral';
 /** Drives the relief palette and the surroundings drawn by the client. */
@@ -259,7 +261,38 @@ export function parseLayout(def: LayoutDef): Layout {
   if (floorCount > 0) layout.center = { x: sx / floorCount, z: sz / floorCount };
   if (layout.playerSpawns.length === 0) layout.playerSpawns.push(layout.center);
   if (layout.enemySpawns.length === 0) layout.enemySpawns.push(layout.center);
+  const anchors = tavernAnchorsFrom(layout);
+  if (anchors) {
+    for (const p of tavernPieces(anchors)) {
+      if (p.r > 0) layout.props.push({ kind: p.model ?? p.id, x: p.x, z: p.z, r: p.r, rot: p.rot });
+    }
+  }
   return layout;
+}
+
+/** Walkable rectangle and the four hosts, for the tavern dressing. Null outside the hub. */
+export function tavernAnchorsFrom(layout: Layout): TavernAnchors | null {
+  if (layout.def.id !== 'taverna') return null;
+  const at = (id: string) => layout.npcs.find((n) => n.id === id);
+  const carl = at('carl');
+  const eleonora = at('eleonora');
+  const saraya = at('saraya');
+  const iej = at('iej');
+  if (!carl || !eleonora || !saraya || !iej || !layout.table) return null;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  for (let cz = 0; cz < layout.h; cz++) {
+    for (let cx = 0; cx < layout.w; cx++) {
+      if (layout.solid[cz * layout.w + cx]) continue;
+      x0 = Math.min(x0, cx * CELL);
+      x1 = Math.max(x1, (cx + 1) * CELL);
+      z0 = Math.min(z0, cz * CELL);
+      z1 = Math.max(z1, (cz + 1) * CELL);
+    }
+  }
+  return { x0, x1, z0, z1, carl, eleonora, saraya, iej, table: layout.table };
 }
 
 /** Raises or lowers a Blood Gate: while sealed its cells block movement, sight and pathing like a wall. */
