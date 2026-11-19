@@ -1,7 +1,8 @@
 /**
  * Visual clips for the Mixamo rigs. Combat timings stay in the shared hero data;
- * this only chooses which frames to show. Loop is idle, walk, run and the one
- * guard clip. Attacks, dodges and hit reactions play once.
+ * this only chooses which frames to show. Idle, walk and run loop. A guard loops
+ * when the clip is a held cycle, and holds its parry pose when the parry is the
+ * end of a one-shot. Attacks, dodges and hit reactions play once.
  *
  * A few Mixamo exports kept a hash instead of a name. Those are called out below.
  */
@@ -75,9 +76,13 @@ const R_RAISE = '_01a1f109_7fcb_7149_9c09_8905e1622964';
 // Dalìth's dance walk. The file left the clip unnamed: arms rise in turn and the hips travel.
 const D_DANCE = '_01a1f12a_2272_746c_a3d1_2ac1ece8f4c0';
 
+// Mixamo hand space, measured on the rig: +Y runs wrist to fingertips, the palm
+// faces +Z, and the fist closes around about (0, 0.07, 0.01). Grips are placed
+// on that point. Anything further along +Y sits past the knuckles, outside the hand.
 const DAGGERS: HeldProp[] = [
-  { model: 'satyr_dagger', bone: 'mixamorig:RightHand', scale: 0.42, rotation: [Math.PI, 0, 0], position: [0, 0.22, 0] },
-  { model: 'satyr_dagger', bone: 'mixamorig:LeftHand', scale: 0.42, rotation: [Math.PI, 0, 0], position: [0, 0.22, 0] },
+  // Pommel is mesh +Y and the blade is mesh -Y, so a half turn sends the point out of the fist.
+  { model: 'satyr_dagger', bone: 'mixamorig:RightHand', scale: 0.34, rotation: [Math.PI, 0, 0], position: [0, 0.145, 0.012] },
+  { model: 'satyr_dagger', bone: 'mixamorig:LeftHand', scale: 0.34, rotation: [Math.PI, 0, 0], position: [0, 0.145, 0.012] },
 ];
 
 const RIGS: Record<string, HeroRig> = {
@@ -92,7 +97,9 @@ const RIGS: Record<string, HeroRig> = {
     // Passo d'Ombra is a short step. The hash clip is the ocarina pose for Melodia dell'Inganno.
     ability: once('Roll_Dodge_4', 0.5),
     ult: once('_01a1f14e_f840_7778_aff4_c9d5e8935472', 1.15),
-    block: loop('Sword_Parry_Backward_2'),
+    // Sword_Parry_Backward_2 is the file's sword parry. The blades only come up in the
+    // last third, so the guard starts there and holds that pose while block is held.
+    block: { clip: 'Sword_Parry_Backward_2', loop: false, from: 0.66, to: 1, span: 0.22 },
     dodge: once('Roll_Dodge_1', 0.4),
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
@@ -127,7 +134,7 @@ const RIGS: Record<string, HeroRig> = {
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
     props: [
-      { model: 'stocco', bone: 'mixamorig:RightHand', scale: 0.48, rotation: [Math.PI / 2, 0, 0], position: [0, 0.04, 0.32] },
+      { model: 'stocco', bone: 'mixamorig:RightHand', scale: 0.42, rotation: [Math.PI, 0, 0], position: [0, 0.36, 0.012] },
     ],
   },
   alexios: {
@@ -161,7 +168,9 @@ const RIGS: Record<string, HeroRig> = {
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
     props: [
-      { model: 'hungaria_bow', bone: 'mixamorig:LeftHand', scale: 0.42, rotation: [0, 0, Math.PI / 2], position: [0, 0.02, 0] },
+      // Upright in the draw: the bow's length follows the hand axis that is vertical while aiming.
+      // The mesh origin sits in the gap between string and stave. Shift onto the stave.
+      { model: 'hungaria_bow', bone: 'mixamorig:LeftHand', scale: 0.44, rotation: [Math.PI / 2, 0, 0], position: [0.053, 0.07, 0.02] },
     ],
   },
   fabyorn: {
@@ -178,8 +187,11 @@ const RIGS: Record<string, HeroRig> = {
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
     props: [
-      { model: 'battle_axe', bone: 'mixamorig:RightHand', scale: 0.42, rotation: [Math.PI / 2, 0, 0], position: [0, 0.08, 0] },
-      { model: 'oak_shield', bone: 'mixamorig:LeftHand', scale: 0.38, rotation: [0, Math.PI / 2, 0], position: [0, 0.06, 0.02] },
+      // The haft does not run through the mesh origin: it sits low and back, the head high and forward.
+      // This turn lays the haft through the fist and the head out past the knuckles.
+      { model: 'battle_axe', bone: 'mixamorig:RightHand', scale: 0.34, rotation: [-2.042, -2.723, -2.932], position: [-0.021, 0.32, -0.007] },
+      // The wrapped grip is on the back, offset from the disc centre. The boss faces out of the palm.
+      { model: 'oak_shield', bone: 'mixamorig:LeftHand', scale: 0.3, rotation: [0, 0, 0], position: [0.1, 0.07, 0.078] },
     ],
   },
   gabryel: {
@@ -196,7 +208,7 @@ const RIGS: Record<string, HeroRig> = {
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
     props: [
-      { model: 'light_staff', bone: 'mixamorig:RightHand', scale: 0.95, rotation: [Math.PI, 0, 0], position: [0, 0.42, 0] },
+      { model: 'light_staff', bone: 'mixamorig:RightHand', scale: 0.82, rotation: [Math.PI, 0, 0], position: [0, 0.16, 0.05] },
     ],
   },
   anthon: {
@@ -214,7 +226,7 @@ const RIGS: Record<string, HeroRig> = {
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
     props: [
-      { model: 'chaos_staff', bone: 'mixamorig:RightHand', scale: 0.95, rotation: [Math.PI, 0, 0], position: [0, 0.42, 0] },
+      { model: 'chaos_staff', bone: 'mixamorig:RightHand', scale: 0.82, rotation: [Math.PI, 0, 0], position: [0, 0.16, 0.05] },
     ],
   },
   dalith: {
