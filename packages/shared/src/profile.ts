@@ -166,6 +166,8 @@ export function applyBlueprintBuild(profile: Profile, hero: HeroId): ShopResult 
   }
   const route = HERO_BY_ID[hero]?.specialE.branches.find((branch) => branch.branch === 'A');
   const wind = Object.keys(route?.windRoutes ?? {})[0] ?? 'SCIROCCO';
+  const gems = profile.gems;
+  const trees = JSON.parse(JSON.stringify(profile.trees)) as Profile['trees'];
   const steps: [ShopSlot, string][] = [
     ['p', ''],
     ['p', ''],
@@ -182,7 +184,11 @@ export function applyBlueprintBuild(profile: Profile, hero: HeroId): ShopResult 
   ];
   for (const [slot, choice] of steps) {
     const res = buyNode(profile, hero, slot, choice);
-    if (!res.ok) return res;
+    if (!res.ok) {
+      profile.gems = gems;
+      profile.trees = trees;
+      return res;
+    }
   }
   return { ok: true };
 }

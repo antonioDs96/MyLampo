@@ -443,9 +443,22 @@ export class Menus {
     if (!view) return [h('p', { class: 'note', text: 'Questo eroe non ha un albero.' })];
     const buy = (slot: ShopSlot, row: TreeRow) => {
       const can = canBuyNode(hero, tree, slot, row.choice, this.profile.gems);
+      const label = can.ok
+        ? row.pick === 'branch'
+          ? `Scegli questo ramo · ${row.cost} Gemme`
+          : row.pick === 'wind'
+            ? `Scegli questo vento · ${row.cost} Gemme`
+            : `Sblocca · ${row.cost} Gemme`
+        : can.why === 'gems'
+          ? `Servono ${row.cost} Gemme`
+          : can.why === 'path'
+            ? 'Ramo già scelto'
+            : can.why === 'wind'
+              ? 'Vento già scelto'
+              : 'Non ancora';
       return h('button', {
         class: `btn small ${can.ok ? 'primary' : 'disabled'}`,
-        text: can.ok ? `Sblocca · ${row.cost} Gemme` : `Servono ${row.cost} Gemme`,
+        text: label,
         onclick: () => {
           if (!can.ok) {
             this.actions.sound('deny');
@@ -481,14 +494,15 @@ export class Menus {
           lines(slot, branch.rows),
         ),
       );
+      const key = slot === 'e' ? 'E' : 'R';
       return h(
         'section',
         { class: 'tree-slot' },
-        h('h4', { text: `${slot === 'e' ? 'Speciale [E]' : 'Ultimate [R]'} · ${active.name}` }),
-        h('p', { class: 'path-blurb', text: active.summary }),
+        h('h4', { text: `${slot === 'e' ? 'Speciale' : 'Ultimate'} [${key}] · ${tip.name}` }),
+        h('p', { class: 'path-blurb', text: tip.desc }),
         h('p', {
           class: 'tree-now',
-          text: `In combattimento ora: ${tip.damage ? `${tip.damage} danni` : tip.healPct ? `cura ${tip.healPct}%` : 'nessun danno diretto'} · ricarica ${tip.cooldown} s · area ${tip.aoeCells} celle`,
+          text: `Tasto ${key}: ${tip.damage ? `${tip.damage} danni` : tip.healPct ? `cura ${tip.healPct}%` : 'nessun danno diretto'} · ricarica ${tip.cooldown} s · area ${tip.aoeCells} celle. I gradi sotto si aggiungono a questo lancio.`,
         }),
         lines(slot, active.shared),
         h('div', { class: 'paths' }, ...branches),
@@ -500,7 +514,7 @@ export class Menus {
     const passive = view.passive;
     return [
       h('h3', { class: 'section', text: `Albero delle Abilità di ${def.name}` }),
-      h('p', { class: 'note', text: 'Due gradi comuni, poi un ramo e un vento. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese. Partite nuove ricevono 1315 Gemme dell’Eclissi (budget del Blueprint).' }),
+      h('p', { class: 'note', text: 'Il nome accanto a [E] e [R] è l’abilità che premi in partita. Due gradi comuni, poi scegli un ramo e un vento: quei gradi si aggiungono a quel lancio. Il respec rimborsa tutte le Gemme.' }),
       h('section', { class: 'tree-slot' }, h('h4', { text: passive.name }), lines('p', passive.rows), lines('k', [passive.keystone])),
       ...ABILITY_SLOTS.map(slotBlock),
       h('button', {

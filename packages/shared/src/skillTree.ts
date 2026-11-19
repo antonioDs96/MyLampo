@@ -91,14 +91,17 @@ export function canBuyNode(hero: HeroId, tree: HeroTree, slot: ShopSlot, choice:
   const next = node.tier + 1;
   const ability = slot === 'e' ? spec.specialE : spec.ultimateR;
   if (next <= 2) return priced(nodeCost(slot, next), gems);
-  const branch = (choice || node.branch) as PathId;
-  if (!PATH_IDS.includes(branch)) return { ok: false, why: 'path' };
-  if (node.branch && node.branch !== branch) return { ok: false, why: 'path' };
+  // Tier 3 is the branch choice. Later tiers keep that branch: a wind name must not replace it.
+  const pickedBranch = PATH_IDS.includes(choice as PathId) ? (choice as PathId) : '';
+  const branch: PathId | '' = next === 3 ? pickedBranch : node.branch;
+  if (!branch) return { ok: false, why: 'path' };
+  if (pickedBranch && pickedBranch !== branch) return { ok: false, why: 'path' };
   if (next <= 4) return priced(nodeCost(slot, next), gems);
   const route = ability.branches.find((entry) => entry.branch === branch);
   const wind = next === 5 ? choice : node.wind;
-  if (!route || !route.windRoutes[wind]) return { ok: false, why: 'wind' };
-  if (node.wind && node.wind !== wind) return { ok: false, why: 'wind' };
+  if (!route || !wind || !route.windRoutes[wind]) return { ok: false, why: 'wind' };
+  if (node.wind && wind !== node.wind) return { ok: false, why: 'wind' };
+  if (next > 5 && choice !== node.wind) return { ok: false, why: 'wind' };
   return priced(nodeCost(slot, next), gems);
 }
 
@@ -464,6 +467,8 @@ export interface TreeRow {
   next: boolean;
   /** Sent as `path` when this row is the one Iej can sell. */
   choice: string;
+  /** Tier 3 picks the branch. Tier 5 picks the wind. Later rows just climb. */
+  pick: '' | 'branch' | 'wind';
 }
 
 export interface TreeBranchView {
@@ -501,6 +506,7 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
         got: tree.passive >= tier.tier,
         next: tree.passive + 1 === tier.tier,
         choice: '',
+        pick: '',
       })),
       keystone: {
         title: passive.uniqueKeystone.name,
@@ -509,6 +515,7 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
         got: tree.keystone,
         next: !tree.keystone && tree.passive + tree.e.tier + tree.r.tier >= 3,
         choice: '',
+        pick: '',
       },
     },
     e: activeView('e', spec.specialE, tree.e),
@@ -519,13 +526,13 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
 function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNode): ActiveView {
   const shared: TreeRow[] = [ability.tier1, ability.tier2].map((step, index) => {
     const tier = index + 1;
-    return { title: step.title, effect: step.effect, cost: nodeCost(slot, tier), got: node.tier >= tier, next: node.tier + 1 === tier, choice: '' };
+    return { title: step.title, effect: step.effect, cost: nodeCost(slot, tier), got: node.tier >= tier, next: node.tier + 1 === tier, choice: '', pick: '' };
   });
   const branches = ability.branches.map((branch) => {
     const mine = node.branch === branch.branch;
     const rows: TreeRow[] = [
-      row(slot, branch.branch, 3, branch.tier3.title, branch.tier3.effect, mine && node.tier >= 3, node.tier === 2),
-      row(slot, branch.branch, 4, branch.tier4.title, branch.tier4.effect, mine && node.tier >= 4, mine && node.tier === 3),
+      row(slot, branch.branch, 3, branch.tier3.title, branch.tier3.effect, mine && node.tier >= 3, node.tier === 2, 'branch'),
+      row(slot, branch.branch, 4, branch.tier4.title, branch.tier4.effect, mine && node.tier >= 4, mine && node.tier === 3, ''),
     ];
     for (const [wind, leaves] of Object.entries(branch.windRoutes)) {
       for (const leaf of leaves) {
@@ -539,6 +546,7 @@ function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNod
             leaf.effect,
             onWind && node.tier >= leaf.tier,
             (node.tier === 4 && mine && leaf.tier === 5) || (onWind && node.tier + 1 === leaf.tier),
+            leaf.tier === 5 ? 'wind' : '',
           ),
         );
       }
@@ -548,6 +556,15 @@ function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNod
   return { slot, name: ability.name, summary: ability.baseSummary, shared, branches };
 }
 
-function row(slot: AbilitySlot, choice: string, tier: number, title: string, effect: string, got: boolean, next: boolean): TreeRow {
-  return { title, effect, cost: nodeCost(slot, tier), got, next, choice };
+function row(
+  slot: AbilitySlot,
+  choice: string,
+  tier: number,
+  title: string,
+  effect: string,
+  got: boolean,
+  next: boolean,
+  pick: TreeRow['pick'],
+): TreeRow {
+  return { title, effect, cost: nodeCost(slot, tier), got, next, choice, pick };
 }
