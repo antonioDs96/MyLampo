@@ -1332,6 +1332,23 @@ export class Game {
   }
 
   /**
+   * True when a body standing at this point can show any part of itself on screen.
+   * The margin covers a tall boss whose feet are just past the edge.
+   */
+  private inView(x: number, z: number, height: number): boolean {
+    const m = this.viewProj.m;
+    const feet = this.groundY(x, z);
+    for (const y of [feet, feet + height]) {
+      const w = x * m[3]! + y * m[7]! + z * m[11]! + m[15]!;
+      if (w <= 0.05) continue;
+      const cx = (x * m[0]! + y * m[4]! + z * m[8]! + m[12]!) / w;
+      const cy = (x * m[1]! + y * m[5]! + z * m[9]! + m[13]!) / w;
+      if (cx > -1.35 && cx < 1.35 && cy > -1.35 && cy < 1.35) return true;
+    }
+    return false;
+  }
+
+  /**
    * Draws a marker for a world point: `onScreen` when it is in view, otherwise an arrow
    * pinned to the edge of the screen pointing toward it.
    */
@@ -1726,7 +1743,7 @@ export class Game {
         }
         ev.seen = true;
         ev.snap = shown;
-        this.placeEnemy(ev, shown, dt, frozen);
+        this.placeEnemy(ev, shown, dt, frozen, this.inView(shown.x, shown.z, ev.view.height));
         const hidden = enemyHas(shown.st, ES.Burrow);
         // A sleeping garrison boss has no bar: it shows when the fight starts.
         if (def.bar && shown.state !== EState.Dead && (shown.state !== EState.Idle || shown.hp < shown.maxHp)) boss = shown;
@@ -2117,7 +2134,11 @@ export class Game {
     hv.yaw = yaw;
   }
 
-  private placeEnemy(ev: EnemyView, e: EnemySnap, dt: number, frozen: boolean): void {
+  /**
+   * `onScreen` false keeps the foe in the fight (position, warnings, sounds) but skips its
+   * skeleton: the whole garrison stands on the map, and only the few in view cost a pose.
+   */
+  private placeEnemy(ev: EnemyView, e: EnemySnap, dt: number, frozen: boolean, onScreen: boolean): void {
     const view = ev.view;
     const vfx = this.vfx;
     const def = ENEMIES[e.type];
@@ -2128,8 +2149,9 @@ export class Game {
     view.root.position.set(e.x, ev.y - (1 - ev.surfaced) * 2.8, e.z);
     view.root.rotation.y = e.yaw;
     view.trackMotion(dt);
+    view.root.setEnabled(onScreen);
     const iced = enemyHas(e.st, ES.Frozen);
-    poseEnemy(view, e, def, dt, frozen || iced);
+    if (onScreen) poseEnemy(view, e, def, dt, frozen || iced);
 
     let r = 0;
     let g = 0;

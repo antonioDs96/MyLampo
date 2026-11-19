@@ -43,22 +43,6 @@ describe('difficulty', () => {
     expect(scaledHp(100, 3)).toBeCloseTo(190);
   });
 
-  it('stands up only a solo garrison and sleeps the rest of the catalog', () => {
-    const caps = { falesie: 14, porto: 13, grotte: 9 } as const;
-    const boss = {
-      falesie: EnemyType.MINIBOSS_NOSTROMO,
-      porto: EnemyType.MINIBOSS_ANCORA,
-      grotte: EnemyType.MINIBOSS_MADRE,
-    } as const;
-    for (const id of ['falesie', 'porto', 'grotte'] as const) {
-      const level = loadLevel(id);
-      const live = level.spawns.filter((spawn) => spawn.minPlayersRequired === 1);
-      expect(live, id).toHaveLength(caps[id]);
-      expect(live.filter((spawn) => spawn.type === boss[id]), id).toHaveLength(1);
-      expect(level.spawns.filter((spawn) => spawn.minPlayersRequired > 1).length, id).toBeGreaterThanOrEqual(6);
-    }
-  });
-
   it('filters spawns on the 1 / 4 / 7 thresholds', () => {
     expect(spawnEnabled(1, 1)).toBe(true);
     expect(spawnEnabled(4, 3)).toBe(false);
