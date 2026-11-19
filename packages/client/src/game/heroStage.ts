@@ -12,6 +12,7 @@ import {
 import { HEROES, type HeroId, type Loadout } from '@malampu/shared';
 import type { Assets } from './assets';
 import { CharacterView } from './character';
+import { heroRig, menuBeatHold, menuBeatTime, selectClip, selectMenuReel } from './heroRigs';
 import { dressHero, lookKey } from './looks';
 
 /** The stage floats far above every map, so nothing of the world is ever in its frame. */
@@ -39,6 +40,9 @@ export class HeroStage {
   private clip = 'Idle';
   private time = 0;
   private clock = 0;
+  /** Index into the selection reel, and seconds already spent on that beat. */
+  private reel = 0;
+  private reelTime = 0;
   /** Horizontal camera shift: 0 centres the hero, positive values push them to the left. */
   private offset = 0;
   private offsetGoal = 0;
@@ -153,6 +157,8 @@ export class HeroStage {
     const first = !this.view;
     this.view = view;
     this.time = 0;
+    this.reel = 0;
+    this.reelTime = 0;
     this.fitGoal = Math.max(1, view.height / FRAMED_HEIGHT);
     if (first) this.fit = this.fitGoal;
     this.lightOnly(view);
@@ -171,7 +177,11 @@ export class HeroStage {
     for (const m of meshes) m._resyncLightSources();
   }
 
-  update(dt: number): void {
+  /**
+   * `reel` is the character select screen: walk, then each attack, looping.
+   * The hero sheet leaves it off and holds the idle pose.
+   */
+  update(dt: number, reel = false): void {
     this.clock += dt;
     this.time += dt;
     this.offset += (this.offsetGoal - this.offset) * (1 - Math.exp(-dt * 8));
@@ -181,7 +191,7 @@ export class HeroStage {
       // Attachments are parented after the constructor returns: keep the light list complete.
       if (this.light.includedOnlyMeshes.length !== view.root.getChildMeshes().length + 1) this.lightOnly(view);
       view.root.rotation.y = Math.PI + Math.sin(this.clock * 0.45) * 0.3;
-      view.play(this.clip, this.time, true);
+      if (!reel || !this.playReel(view, dt)) view.play(this.clip, this.time, true);
       view.update(dt);
     }
     // A narrow window shows less of the stage sideways: pull back so the hero still fits.
@@ -190,5 +200,24 @@ export class HeroStage {
     this.camera.position.set(this.offset * this.fit, STAGE_Y + 1.5 * this.fit, -7.2 * pull);
     // Aim low: the hero stands in the upper part of the frame and leaves the bottom to the name plate.
     this.camera.setTarget(new Vector3(this.offset * this.fit, STAGE_Y + 0.84 * this.fit, 0));
+  }
+
+  /** One beat of the selection reel. Returns false when this hero has no rig. */
+  private playReel(view: CharacterView, dt: number): boolean {
+    const rig = heroRig(view.look.rig);
+    if (!rig) return false;
+    const steps = selectMenuReel(rig);
+    const step = steps[this.reel % steps.length]!;
+    const sel = selectClip(rig, step.kind, step.index);
+    view.play('Idle', menuBeatTime(step.kind, this.reelTime, sel.span), step.kind === 'walk', {
+      kind: step.kind,
+      index: step.index,
+    });
+    this.reelTime += dt;
+    if (this.reelTime >= menuBeatHold(step.kind)) {
+      this.reelTime = 0;
+      this.reel = (this.reel + 1) % steps.length;
+    }
+    return true;
   }
 }

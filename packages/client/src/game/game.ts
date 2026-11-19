@@ -1447,7 +1447,8 @@ export class Game {
       const pose = this.select.visible && look.pose ? COSMETIC_BY_ID[look.pose]?.clip : undefined;
       const wide = this.canvas.clientWidth > 900;
       this.stage.show(hero, look, pose ?? 'Idle', this.sheet.isOpen && wide ? 1.55 : 0);
-      this.stage.update(dt);
+      // Selection cycles the walk and the attacks. The sheet keeps the idle pose.
+      this.stage.update(dt, this.select.visible && !this.sheet.isOpen);
     }
     if (stageOn !== this.stageOn) {
       this.stageOn = stageOn;

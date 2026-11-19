@@ -245,6 +245,40 @@ export function heroRig(id: string | undefined): HeroRig | undefined {
   return id ? RIGS[id] : undefined;
 }
 
+/** How long the selection pedestal walks before the first attack. */
+export const MENU_WALK_HOLD = 2.8;
+/** Each attack plays through once, slower than combat, so the move reads. */
+export const MENU_ATTACK_PLAY = 1.7;
+/** Last frame of an attack, held before the next clip. */
+export const MENU_ATTACK_TAIL = 0.35;
+
+export interface MenuBeat {
+  kind: PoseKind;
+  index: number;
+}
+
+/** Walk, then every attack, then back to the walk. The pedestal loops this. */
+export function selectMenuReel(rig: HeroRig): MenuBeat[] {
+  return [
+    { kind: 'walk', index: 0 },
+    ...rig.lights.map((_, index) => ({ kind: 'light' as const, index })),
+    { kind: 'heavy', index: 0 },
+    { kind: 'ability', index: 0 },
+    { kind: 'ult', index: 0 },
+  ];
+}
+
+export function menuBeatHold(kind: PoseKind): number {
+  return kind === 'walk' ? MENU_WALK_HOLD : MENU_ATTACK_PLAY + MENU_ATTACK_TAIL;
+}
+
+/** Clock passed to the clip. Walk loops in real time. An attack fills its window, then holds. */
+export function menuBeatTime(kind: PoseKind, elapsed: number, span: number): number {
+  if (kind === 'walk') return elapsed;
+  const u = Math.min(1, Math.max(0, elapsed / MENU_ATTACK_PLAY));
+  return u * span;
+}
+
 export function selectClip(rig: HeroRig, kind: PoseKind, index = 0): ClipSel {
   switch (kind) {
     case 'walk':
