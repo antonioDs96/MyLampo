@@ -138,10 +138,11 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
     idle: 'Idle',
     run: 'Running_A',
   },
-  // Wild mage: deep purple robes, wand and floating violet orb.
+  // Wild mage: deep purple robes and the chaos staff.
   anthon: {
     model: 'Mage',
     figure: 'anthon',
+    rig: 'anthon',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[225, 345]], hue: 286, sat: 1.2, val: 0.72 },
@@ -154,6 +155,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   dalith: {
     model: 'Rogue',
     figure: 'dalith',
+    rig: 'dalith',
     scale: 0.98,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 348, sat: 0.62, val: 0.52 },

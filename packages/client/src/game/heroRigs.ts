@@ -72,6 +72,8 @@ const V_LUNGE = '_01a1f39e_1b42_7301_b1c5_ecf29bc77830';
 const A_KNUCKLE = '_01a1f3d4_2285_7269_862b_c951a9500653';
 // Rycard holds one arm high with the cape. The file left the clip unnamed.
 const R_RAISE = '_01a1f109_7fcb_7149_9c09_8905e1622964';
+// Dalìth's dance walk. The file left the clip unnamed: arms rise in turn and the hips travel.
+const D_DANCE = '_01a1f12a_2272_746c_a3d1_2ac1ece8f4c0';
 
 const DAGGERS: HeldProp[] = [
   { model: 'satyr_dagger', bone: 'mixamorig:RightHand', scale: 0.42, rotation: [Math.PI, 0, 0], position: [0, 0.22, 0] },
@@ -196,6 +198,46 @@ const RIGS: Record<string, HeroRig> = {
     props: [
       { model: 'light_staff', bone: 'mixamorig:RightHand', scale: 0.95, rotation: [Math.PI, 0, 0], position: [0, 0.42, 0] },
     ],
+  },
+  anthon: {
+    idle: loop('Walking'),
+    walk: loop('Walking'),
+    run: loop('Running'),
+    lights: [once('mage_soell_cast', 0.7), once('mage_soell_cast', 0.7), once('mage_soell_cast', 0.75)],
+    // The charged strike is cast 4, not the clip named Charged_Spell_Cast_1.
+    heavy: once('mage_soell_cast_4', 0.85),
+    charge: windup('mage_soell_cast_4', 0.4),
+    ability: once('mage_soell_cast_2', 0.9),
+    ult: once('mage_soell_cast_2', 0.95),
+    block: loop('mage_soell_cast_3'),
+    dodge: once('mage_soell_cast_6', 0.45),
+    hit: once('Hit_Reaction_to_Waist', 0.45),
+    death: once('Dead', 0),
+    props: [
+      { model: 'chaos_staff', bone: 'mixamorig:RightHand', scale: 0.95, rotation: [Math.PI, 0, 0], position: [0, 0.42, 0] },
+    ],
+  },
+  dalith: {
+    idle: loop('Walking'),
+    walk: loop(D_DANCE),
+    run: loop('Running'),
+    lights: [
+      once('Boxing_Guard_Right_Straight_Kick', 0.7),
+      once('High_Kick', 0.75),
+      once('Boxing_Guard_Step_Knee_Strike', 0.8),
+      once('Sweeping_Kick', 0.8),
+    ],
+    heavy: once('Sweep_Kick', 0.9),
+    charge: windup('Sweep_Kick', 0.35),
+    ability: once('Lunge_Spin_Kick', 0.85),
+    ult: once('jazz_danc', 1.0),
+    // No clip is only a boxing guard. This one holds both hands up; the Boxing_Guard clips are strikes.
+    block: loop('Two_Handed_Parry'),
+    // The backflip stays unused. The two dodges cannot take turns, so only the quick step plays.
+    dodge: once('Quick_Step_and_Spin_Dodge', 0.45),
+    hit: once('Hit_Reaction_to_Waist', 0.45),
+    death: once('Dead', 0),
+    props: [],
   },
 };
 

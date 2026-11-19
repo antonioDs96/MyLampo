@@ -37,6 +37,7 @@ describe('3D assets', () => {
     }
     for (const f of [
       'albereth-rig.glb', 'jusef-rig.glb', 'vyncent-rig.glb', 'alexios-rig.glb', 'rycard-rig.glb', 'fabyorn-rig.glb', 'gabryel-rig.glb',
+      'anthon-rig.glb', 'dalith-rig.glb',
       'satyr_dagger.glb', 'ocarina.glb', 'stocco.glb', 'hungaria_bow.glb', 'light_staff.glb', 'chaos_staff.glb', 'battle_axe.glb', 'oak_shield.glb',
     ]) {
       expect(existsSync(join(assets, 'heroes', f)), f).toBe(true);

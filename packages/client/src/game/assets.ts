@@ -51,10 +51,10 @@ export const HERO_FIGURES = [
   'albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith',
 ];
 
-/** Skinned heroes, loaded from `{name}-rig.glb`. Anthon and Dalìth have no rig yet. */
-export const HERO_RIGS = ['albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel'];
+/** Skinned heroes, loaded from `{name}-rig.glb`. */
+export const HERO_RIGS = ['albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith'];
 
-/** Props parented onto a skinned hero. `chaos_staff` waits for Anthon's rig. */
+/** Props parented onto a skinned hero. */
 export const HERO_PROPS = [
   'satyr_dagger', 'ocarina', 'stocco', 'hungaria_bow', 'light_staff', 'chaos_staff', 'battle_axe', 'oak_shield',
 ];
