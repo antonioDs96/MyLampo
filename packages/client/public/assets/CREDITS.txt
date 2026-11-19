@@ -3,5 +3,5 @@ License: Creative Commons Zero (CC0) — http://creativecommons.org/publicdomain
 Sources: https://github.com/KayKit-Game-Assets
 
 Hero figures in assets/heroes: painted meshes generated with Meshy for this game. They are not part of the KayKit packs and are not CC0.
-Albereth's gameplay rig (albereth-rig.glb) is that mesh skinned to a Mixamo skeleton. satyr_dagger.glb and ocarina.glb are separate Meshy props parented to his hands.
+Skinned gameplay rigs (albereth, jusef, vyncent, alexios, rycard, fabyorn, gabryel, anthon, dalith) are those meshes on a Mixamo skeleton. Held props: satyr_dagger.glb, ocarina.glb, stocco.glb, hungaria_bow.glb, light_staff.glb, chaos_staff.glb, battle_axe.glb, oak_shield.glb.
 Harpoon: generated for this game with Meshy (https://www.meshy.ai).

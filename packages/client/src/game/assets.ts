@@ -52,10 +52,12 @@ export const HERO_FIGURES = [
 ];
 
 /** Skinned heroes, loaded from `{name}-rig.glb`. */
-export const HERO_RIGS = ['albereth'];
+export const HERO_RIGS = ['albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith'];
 
 /** Props parented onto a skinned hero. */
-export const HERO_PROPS = ['satyr_dagger', 'ocarina'];
+export const HERO_PROPS = [
+  'satyr_dagger', 'ocarina', 'stocco', 'hungaria_bow', 'light_staff', 'chaos_staff', 'battle_axe', 'oak_shield',
+];
 
 export const WEAPON_MODELS = [
   'sword_1handed', 'sword_2handed', 'axe_2handed', 'dagger', 'arrow', 'staff', 'wand', 'harpoon',
