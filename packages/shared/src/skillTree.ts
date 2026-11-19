@@ -351,7 +351,7 @@ export interface AbilitySheet {
 
 /** Single source of truth for the numbers the World casts and the Hero Sheet prints. */
 export const ABILITY_SHEET: Record<string, AbilitySheet> = {
-  ocarina: { dmg: 0, radius: 8, range: 0, effect: 'Confonde i nemici per 5 s' },
+  ocarina: { dmg: 22, radius: 8, range: 0, effect: 'Melodia: 22 danni sonici e confusione per 5 s' },
   canto: { dmg: 0, heal: 0.36, radius: 12, range: 0, effect: 'Cura nel tempo (4 s) e toglie i rallentamenti' },
   balzo: { dmg: 22, radius: 3.6, range: 7, effect: 'Balzo sul bersaglio e schianto' },
   provocazione: { dmg: 0, radius: 10, range: 0, effect: 'Attira i nemici; −45% danni subiti per 5 s' },
@@ -359,7 +359,8 @@ export const ABILITY_SHEET: Record<string, AbilitySheet> = {
   gelo: { dmg: 18, radius: 8.5, range: 0, effect: 'Cono di gelo: congela per 3 s' },
   bolla: { dmg: 0, radius: 7.2, range: 0, effect: 'Bolla: −50% danni e immunità al Silenzio per 9 s' },
   ondata: { dmg: 30, radius: 7, range: 0, effect: 'Magia selvaggia: uno di cinque effetti a caso' },
-  danza: { dmg: 0, radius: 7.5, range: 0, effect: 'Confonde e marchia; +18% rapidità per 4 s' },
+  veli: { dmg: 16, radius: 2.8, range: 0, effect: 'Calcio a 360°: 16 danni, spinta e devia i colpi leggeri' },
+  danza: { dmg: 20, radius: 7, range: 0, effect: 'Onda di seta, confonde e marchia; +18% rapidità per 4 s' },
   ombra: { dmg: 0, radius: 3, range: 0, effect: 'Invisibile per 7 s; il primo colpo raddoppia' },
   ballata: { dmg: 0, heal: 0.25, radius: 14, range: 0, effect: 'Rialza i caduti, cura, +30% danni e +15% rapidità per 10 s' },
   licantropo: { dmg: 0, heal: 0.15, radius: 4, range: 0, effect: 'Forma di lupo per 12 s: +50% danni, non barcolla' },
@@ -368,7 +369,6 @@ export const ABILITY_SHEET: Record<string, AbilitySheet> = {
   furia: { dmg: 0, radius: 4, range: 0, effect: 'Furia per 10 s: +35% danni, +30% rapidità' },
   chiavistello: { dmg: 45, heal: 0.48, radius: 13, range: 0, effect: 'Cura tutta la Compagnia e spezza il Silenzio' },
   collasso: { dmg: 50, tick: 8, radius: 8, range: 9, effect: 'Buco nero che attira per 4 s e poi collassa' },
-  spirale: { dmg: 32, radius: 8, range: 0, effect: 'Spirale: confonde, marchia e accelera gli alleati' },
 };
 
 export function abilitySheet(id: string): AbilitySheet {

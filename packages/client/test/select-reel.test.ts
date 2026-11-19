@@ -32,6 +32,13 @@ describe('character select reel', () => {
     }
   });
 
+  it('plays the ocarina on Albereth’s ultimate, and the kick and the jazz dance on Dalìth', () => {
+    expect(selectClip(heroRig('albereth')!, 'ability').clip).toBe('Roll_Dodge_4');
+    expect(selectClip(heroRig('albereth')!, 'ult').clip).toBe('_01a1f14e_f840_7778_aff4_c9d5e8935472');
+    expect(selectClip(heroRig('dalith')!, 'ability').clip).toBe('Lunge_Spin_Kick');
+    expect(selectClip(heroRig('dalith')!, 'ult').clip).toBe('jazz_danc');
+  });
+
   it('gives the walk a few seconds and plays each attack through once', () => {
     expect(menuBeatHold('walk')).toBe(MENU_WALK_HOLD);
     expect(menuBeatHold('light')).toBe(MENU_ATTACK_PLAY + MENU_ATTACK_TAIL);

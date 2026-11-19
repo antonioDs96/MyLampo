@@ -213,13 +213,13 @@ describe('skill tree', () => {
     expect(profile.trees.jusef!.e.tier).toBe(6);
   });
 
-  it('names the ability bound to the key, not the catalog title', () => {
+  it('names the ability bound to each key', () => {
     const bare = emptyTree();
-    expect(abilityTooltip('albereth', 'e', bare).name).toBe("Ocarina d'Osso");
-    expect(abilityTooltip('albereth', 'r', bare).name).toBe("Passo d'Ombra");
+    expect(abilityTooltip('albereth', 'e', bare).name).toBe("Passo d'Ombra");
+    expect(abilityTooltip('albereth', 'r', bare).name).toBe("Melodia dell'Inganno");
     expect(abilityTooltip('jusef', 'e', bare).name).toBe('Canto di Ristoro');
-    expect(abilityTooltip('dalith', 'e', bare).name).toBe('Danza della Memoria');
-    expect(abilityTooltip('dalith', 'r', bare).name).toBe('Spirale Indomita');
+    expect(abilityTooltip('dalith', 'e', bare).name).toBe('Rotazione dei Veli');
+    expect(abilityTooltip('dalith', 'r', bare).name).toBe('Danza della Memoria');
   });
 
   it('applies the blueprint without stopping on the wind', () => {

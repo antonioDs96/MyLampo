@@ -1245,7 +1245,7 @@ export class Game {
     const pz = p ? p.z : ev.z;
     const c = p ? this.colorOf(ev.id, p.hero) : WHITE;
     const ult = p ? HEROES[p.hero].ult.id === ev.what : false;
-    this.audio.play(ult ? 'ult' : 'ability', ev.id === this.myId ? 1 : 0.5);
+    this.audio.play(ev.what === 'ocarina' ? 'ocarina' : ult ? 'ult' : 'ability', ev.id === this.myId ? 1 : 0.5);
     if (ult) {
       this.hud.callout(`${p ? HEROES[p.hero].short : ''} · ${p ? HEROES[p.hero].ult.name : ''}`, 'ult');
       vfx.pillar(px, pz, 1.2, c, 0.7, 10);
@@ -1346,6 +1346,12 @@ export class Game {
         break;
       case 'collasso':
         vfx.implode(ev.x, ev.z, ev.r, VIOLET, 0.5);
+        break;
+      case 'veli':
+        vfx.shockwave(ev.x, ev.z, ev.r, c, 0.4);
+        vfx.burst(ev.x, 0.9, ev.z, 22, [0.85, 0.15, 0.32], { speed: 8, life: 0.45, stretch: 0.05, flat: 0.7 });
+        this.audio.play('swing', 0.7);
+        this.shakeNear(ev.x, ev.z, 0.25);
         break;
       case 'danza':
         vfx.shockwave(ev.x, ev.z, ev.r, c, 0.7);
