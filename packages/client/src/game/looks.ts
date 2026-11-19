@@ -247,7 +247,7 @@ export const ENEMY_LOOKS: Record<EnemyTypeId, Look> = {
     tint: [0.3, 0.34, 0.42],
     tintAll: true,
     show: ['Skeleton_Warrior_Cloak'],
-    attach: [axe(1.2)],
+    attach: [{ slot: 'handslot.r', model: 'harpoon' }],
     emissive: [0.03, 0.06, 0.1],
     idle: '2H_Melee_Idle',
     run: 'Running_B',

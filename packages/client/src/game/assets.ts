@@ -58,7 +58,7 @@ export const HERO_RIGS = ['albereth'];
 export const HERO_PROPS = ['satyr_dagger', 'ocarina'];
 
 export const WEAPON_MODELS = [
-  'sword_1handed', 'sword_2handed', 'axe_2handed', 'dagger', 'arrow', 'staff', 'wand',
+  'sword_1handed', 'sword_2handed', 'axe_2handed', 'dagger', 'arrow', 'staff', 'wand', 'harpoon',
   'Skeleton_Blade', 'Skeleton_Axe', 'Skeleton_Staff', 'Skeleton_Arrow', 'Skeleton_Shield_Large_A',
 ];
 

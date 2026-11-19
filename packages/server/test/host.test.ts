@@ -368,11 +368,13 @@ describe('the tavern services', () => {
     const party = company(['jusef'], 5, archive);
     party.host.onMessage('bot1', { t: 'profile', id: uuid(5) });
     const base = party.host.world.players.get('bot1')!.cdMul;
-    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'potenza' });
-    expect(party.profiles.get('bot1')!.gems).toBe(500 - nodeCost('e', 1));
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: '' });
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: '' });
+    expect(party.profiles.get('bot1')!.gems).toBe(500 - nodeCost('e', 1) - nodeCost('e', 2));
     expect(party.host.world.players.get('bot1')!.cdMul).toBeLessThan(base);
-    expect(archive.load(uuid(5))!.trees.jusef!.e).toEqual({ path: 'potenza', tier: 1 });
-    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'dominio' });
+    expect(archive.load(uuid(5))!.trees.jusef!.e).toEqual({ tier: 2, branch: '', wind: '' });
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'A' });
+    party.host.onMessage('bot1', { t: 'tree', op: 'buy', slot: 'e', path: 'B' });
     expect(party.errors).toHaveLength(1);
     party.host.onMessage('bot1', { t: 'tree', op: 'respec', slot: '' });
     expect(party.profiles.get('bot1')!.gems).toBe(500);

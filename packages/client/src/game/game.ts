@@ -73,6 +73,7 @@ import { Radar } from '../ui/radar';
 import { LocalConnection, RemoteConnection, serverEndpoint, type Connection } from '../net/connection';
 import { profileId, SoloProfileArchive } from '../net/profile';
 import { shotAlertLength } from './attackClip';
+import { enemyAlertY } from './decals';
 import { discMarks, lineSpans, ringSpans, sectorMarks } from './terrainAlert';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
@@ -2263,15 +2264,15 @@ export class Game {
     this.paintSector(e.ax, e.az, atk.reach * k, e.yaw, atk.arc, c, 0.45);
   }
 
-  /** Floor height of a terrace, just above the slab so the mark is not buried in it. */
+  /** Floor height of a terrace. Tells sit above hero decals so they stay readable. */
   private alertY(elev: number): number {
-    return FLOOR_Y + elev * STEP_HEIGHT + 0.04;
+    return enemyAlertY(FLOOR_Y + elev * STEP_HEIGHT);
   }
 
   /** Floor under a point, or NaN on a wall, so a draped alert can leave a hole there. */
   private alertHeight(x: number, z: number): number {
     const layout = this.layout;
-    if (!layout) return this.groundY(x, z) + 0.04;
+    if (!layout) return enemyAlertY(this.groundY(x, z));
     const elev = getCellElevation(layout, x, z);
     return elev === ELEV_WALL ? Number.NaN : this.alertY(elev);
   }
@@ -2280,13 +2281,13 @@ export class Game {
   private paintDisc(x: number, z: number, r: number, c: RGB, a: number): void {
     const layout = this.layout;
     if (!layout || r <= 0.05) {
-      this.vfx.disc(x, z, r, c, a);
+      this.vfx.alertDisc(x, z, r, c, a, enemyAlertY(this.groundY(x, z)));
       return;
     }
     const fill = discMarks(layout, x, z, r);
     if (fill.marks.length === 0 || fill.uniform) {
-      const y = fill.marks.length === 0 ? this.groundY(x, z) + 0.04 : this.alertY(fill.elev);
-      this.vfx.disc(x, z, r, c, a, y);
+      const y = fill.marks.length === 0 ? enemyAlertY(this.groundY(x, z)) : this.alertY(fill.elev);
+      this.vfx.alertDisc(x, z, r, c, a, y);
       return;
     }
     this.vfx.drapeDisc(x, z, r, c, a, (px, pz) => this.alertHeight(px, pz));
@@ -2296,12 +2297,12 @@ export class Game {
   private paintRing(x: number, z: number, r: number, c: RGB, a: number, _width = 0.45): void {
     const layout = this.layout;
     if (!layout || r <= 0.05) {
-      this.vfx.ring(x, z, r, c, a);
+      this.vfx.alertRing(x, z, r, c, a, enemyAlertY(this.groundY(x, z)));
       return;
     }
     const ring = ringSpans(layout, x, z, r);
     if (ring.uniform) {
-      this.vfx.ring(x, z, r, c, a, this.alertY(ring.elev));
+      this.vfx.alertRing(x, z, r, c, a, this.alertY(ring.elev));
       return;
     }
     this.vfx.drapeRing(x, z, r, c, a, (px, pz) => this.alertHeight(px, pz));
@@ -2315,13 +2316,13 @@ export class Game {
     }
     const layout = this.layout;
     if (!layout || r <= 0.05) {
-      this.vfx.sector(x, z, r, yaw, arc, c, a);
+      this.vfx.alertSector(x, z, r, yaw, arc, c, a, enemyAlertY(this.groundY(x, z)));
       return;
     }
     const fill = sectorMarks(layout, x, z, r, yaw, arc);
     if (fill.marks.length === 0 || fill.uniform) {
-      const y = fill.marks.length === 0 ? this.groundY(x, z) + 0.04 : this.alertY(fill.elev);
-      this.vfx.sector(x, z, r, yaw, arc, c, a, y);
+      const y = fill.marks.length === 0 ? enemyAlertY(this.groundY(x, z)) : this.alertY(fill.elev);
+      this.vfx.alertSector(x, z, r, yaw, arc, c, a, y);
       return;
     }
     this.vfx.drapeSector(x, z, r, yaw, arc, c, a, (px, pz) => this.alertHeight(px, pz));
@@ -2331,13 +2332,13 @@ export class Game {
   private paintLine(x0: number, z0: number, x1: number, z1: number, width: number, c: RGB, a: number): void {
     const layout = this.layout;
     if (!layout) {
-      const y = this.groundY(x0, z0) + 0.08;
+      const y = enemyAlertY(this.groundY(x0, z0));
       this.vfx.beamAt(x0, y, z0, x1, y, z1, width, c, a);
       return;
     }
     const line = lineSpans(layout, x0, z0, x1, z1);
     if (line.spans.length <= 1 && line.uniform) {
-      const y = line.spans.length === 0 ? this.groundY(x0, z0) + 0.08 : this.alertY(line.elev);
+      const y = line.spans.length === 0 ? enemyAlertY(this.groundY(x0, z0)) : this.alertY(line.elev);
       this.vfx.beamAt(x0, y, z0, x1, y, z1, width, c, a);
       return;
     }

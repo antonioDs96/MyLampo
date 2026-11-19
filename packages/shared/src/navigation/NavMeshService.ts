@@ -15,6 +15,12 @@ export const CELL_SIZE = 4;
 export const ELEVATION_STEP = 4;
 export const CAPSULE_RADIUS = 0.5;
 export const SEPARATION_RADIUS = 1;
+/**
+ * Share of the remaining gap closed in one 60 Hz step.
+ * Two heroes who overlap reach SEPARATION_RADIUS inside 0.2 s, and a dash
+ * keeps its travel: the nudge never cancels the movement.
+ */
+export const SOFT_SEPARATION_YIELD = 0.35;
 export const MIN_CORRIDOR_WIDTH = 3;
 export const GHOST_WALL_RADIUS = 6;
 export const GHOST_WALL_ALPHA = 0.2;
@@ -452,6 +458,34 @@ export function separationOffset(ax: number, az: number, bx: number, bz: number,
   if (dist >= radius || dist < 1e-6) return { x: 0, z: 0 };
   const scale = (radius - dist) / dist;
   return { x: dx * scale, z: dz * scale };
+}
+
+/**
+ * One elastic step that slides `x,z` away from an ally until the centres are
+ * `radius` apart. The ally is expected to take their own step. A pair that
+ * starts on the same point still separates, along +X.
+ */
+export function yieldFromAlly(
+  x: number,
+  z: number,
+  allyX: number,
+  allyZ: number,
+  radius = SEPARATION_RADIUS,
+  gain = SOFT_SEPARATION_YIELD,
+): Vector2D {
+  let dx = x - allyX;
+  let dz = z - allyZ;
+  let dist = Math.hypot(dx, dz);
+  if (dist >= radius) return { x, z };
+  if (dist < 1e-4) {
+    dx = 1;
+    dz = 0;
+    dist = 0;
+  }
+  const push = (radius - dist) * gain;
+  const nx = dist === 0 ? 1 : dx / dist;
+  const nz = dist === 0 ? 0 : dz / dist;
+  return { x: x + nx * push, z: z + nz * push };
 }
 
 export interface HazardBody {

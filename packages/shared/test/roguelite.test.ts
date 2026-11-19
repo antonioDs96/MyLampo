@@ -173,47 +173,46 @@ describe('fixed hero hardware', () => {
 });
 
 describe('skill tree', () => {
-  it('[E] grows linearly and [R] exponentially', () => {
-    expect(nodeCost('e', 2) - nodeCost('e', 1)).toBe(nodeCost('e', 3) - nodeCost('e', 2));
-    expect(nodeCost('r', 2) / nodeCost('r', 1)).toBeGreaterThanOrEqual(5);
-    expect(nodeCost('r', 3) / nodeCost('r', 2)).toBeGreaterThanOrEqual(5);
+  it('uses the handoff gem tables', () => {
+    expect(nodeCost('e', 1)).toBe(30);
+    expect(nodeCost('e', 7)).toBe(180);
+    expect(nodeCost('r', 1)).toBe(80);
+    expect(nodeCost('r', 7)).toBe(950);
+    expect(nodeCost('r', 7)).toBeGreaterThan(nodeCost('r', 1));
   });
 
-  it('paths are exclusive and a respec refunds everything', () => {
+  it('locks the branch at tier 3 and a respec refunds everything', () => {
     const profile = emptyProfile();
-    profile.gems = 1000;
-    expect(buyNode(profile, 'jusef', 'e', 'potenza').ok).toBe(true);
-    expect(buyNode(profile, 'jusef', 'e', 'dominio').ok).toBe(false);
-    expect(buyNode(profile, 'jusef', 'e', 'potenza').ok).toBe(true);
-    expect(buyNode(profile, 'jusef', 'r', 'supporto').ok).toBe(true);
-    const spent = treeSpent(profile.trees.jusef!);
-    expect(profile.gems).toBe(1000 - spent);
+    profile.gems = 5000;
+    expect(buyNode(profile, 'jusef', 'e', '').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', '').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', 'A').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', 'B').ok).toBe(false);
+    expect(buyNode(profile, 'jusef', 'r', '').ok).toBe(true);
+    const spent = treeSpent('jusef', profile.trees.jusef!);
+    expect(profile.gems).toBe(5000 - spent);
     expect(respecTree(profile, 'jusef')).toBe(spent);
-    expect(profile.gems).toBe(1000);
+    expect(profile.gems).toBe(5000);
     expect(profile.trees.jusef).toEqual(emptyTree());
   });
 
   it('cannot buy without Gems', () => {
     const profile = emptyProfile();
-    expect(buyNode(profile, 'jusef', 'r', 'potenza').ok).toBe(false);
+    expect(buyNode(profile, 'jusef', 'r', '').ok).toBe(false);
     expect(profile.trees.jusef).toBeUndefined();
   });
 
-  it('the three paths change an ability in different ways', () => {
-    const power = abilityMods({ path: 'potenza', tier: 3 });
-    const space = abilityMods({ path: 'dominio', tier: 3 });
-    const support = abilityMods({ path: 'supporto', tier: 3 });
-    expect(power.power).toBeGreaterThan(1);
-    expect(power.haste).toBeGreaterThan(1);
-    expect(space.area).toBeGreaterThan(1);
-    expect(space.puddle).toBeGreaterThan(0);
-    expect(support.power).toBeLessThan(1);
-    expect(support.bleed + support.silence).toBeGreaterThan(0);
-    expect(support.reflect).toBeGreaterThan(0);
+  it('folds catalog statuses into the combat modifiers', () => {
+    const haste = abilityMods('jusef', 'e', { tier: 2, branch: '', wind: '' });
+    const bleed = abilityMods('jusef', 'e', { tier: 5, branch: 'A', wind: 'SCIROCCO' });
+    const shield = abilityMods('jusef', 'e', { tier: 3, branch: 'C', wind: '' });
+    expect(haste.haste).toBeGreaterThan(1);
+    expect(bleed.bleed).toBeGreaterThan(0);
+    expect(shield.reflect).toBeGreaterThan(0);
   });
 
   it('equipped nodes shorten the cooldown in the world and show in the tooltip', () => {
-    const tree = { e: { path: 'potenza' as const, tier: 3 }, r: { path: '' as const, tier: 0 } };
+    const tree = { passive: 0, keystone: false, e: { tier: 2, branch: '' as const, wind: '' }, r: { tier: 0, branch: '' as const, wind: '' } };
     const world = makeWorld();
     const plain = world.addPlayer('a', 'jusef', 0);
     const tuned = world.addPlayer('b', 'jusef', 1, { tree });
@@ -638,8 +637,8 @@ describe('profile, cosmetics and bounties', () => {
     expect(p.title).toBe('');
     expect(p.checkpoint).toEqual({ badiscar: 3, ujian: 2 });
     expect(p.cleared).toEqual(['kaza']);
-    expect(p.trees.jusef!.e.tier).toBeLessThanOrEqual(3);
-    expect(p.trees.jusef!.r).toEqual({ path: '', tier: 0 });
+    expect(p.trees.jusef!.e).toEqual({ tier: 4, branch: 'A', wind: '' });
+    expect(p.trees.jusef!.r).toEqual({ tier: 1, branch: '', wind: '' });
     expect(p.bounty).toBe('');
   });
 

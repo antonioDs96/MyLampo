@@ -14,20 +14,16 @@ import {
   HEROES,
   LOCKED_REGIONS,
   NPCS,
-  PATH_IDS,
-  PATH_INFO,
   PUBLIC_ROOM_ID,
   REGION,
-  TREE_TIERS,
   abilityTooltip,
   canBuyNode,
   emptyProfile,
   loadoutOf,
-  nodeCost,
-  nodeText,
   npcLine,
   treeOf,
   treeSpent,
+  treeView,
   type AbilitySlot,
   type CityId,
   type ClientMsg,
@@ -37,7 +33,8 @@ import {
   type HeroId,
   type LobbyState,
   type NpcId,
-  type PathId,
+  type ShopSlot,
+  type TreeRow,
   type Profile,
   type Purse,
   type RunReport,
@@ -440,64 +437,70 @@ export class Menus {
     if (!hero) return [h('p', { class: 'note', text: 'Scegli prima un eroe.' })];
     const def = HEROES[hero];
     const tree = treeOf(this.profile, hero);
-    const spent = treeSpent(tree);
-    const slotBlock = (slot: AbilitySlot): HTMLElement => {
-      const node = tree[slot];
-      const tip = abilityTooltip(hero, slot, tree);
-      const paths = PATH_IDS.map((path: PathId) => {
-        const mine = node.path === path;
-        const lockedOut = !!node.path && !mine;
-        const tier = mine ? node.tier : 0;
-        const can = canBuyNode(tree, slot, path, this.profile.gems);
-        const nextCost = tier < TREE_TIERS ? nodeCost(slot, tier + 1) : 0;
-        return h(
-          'div',
-          { class: `path ${mine ? 'is-mine' : ''} ${lockedOut ? 'is-out' : ''}` },
-          h('h5', { text: PATH_INFO[path].name }),
-          h('p', { class: 'path-blurb', text: PATH_INFO[path].blurb }),
-          h(
-            'ol',
-            {},
-            ...Array.from({ length: TREE_TIERS }, (_, i) =>
-              h('li', { class: i < tier ? 'got' : i === tier && !lockedOut ? 'next' : '' }, h('b', { text: `${nodeCost(slot, i + 1)} ` }), nodeText(slot, path, i + 1)),
-            ),
-          ),
-          h('button', {
-            class: `btn small ${can.ok ? 'primary' : 'disabled'}`,
-            text: lockedOut
-              ? 'Altro sentiero attivo'
-              : tier >= TREE_TIERS
-                ? 'Completo'
-                : can.ok
-                  ? `Sblocca grado ${tier + 1} · ${nextCost} Gemme`
-                  : `Servono ${nextCost} Gemme`,
-            onclick: () => {
-              if (!can.ok) {
-                this.actions.sound('deny');
-                return;
-              }
-              this.act({ t: 'tree', op: 'buy', slot, path });
-            },
-          }),
-        );
+    const spent = treeSpent(hero, tree);
+    const view = treeView(hero, tree);
+    if (!view) return [h('p', { class: 'note', text: 'Questo eroe non ha un albero.' })];
+    const buy = (slot: ShopSlot, row: TreeRow) => {
+      const can = canBuyNode(hero, tree, slot, row.choice, this.profile.gems);
+      return h('button', {
+        class: `btn small ${can.ok ? 'primary' : 'disabled'}`,
+        text: can.ok ? `Sblocca · ${row.cost} Gemme` : `Servono ${row.cost} Gemme`,
+        onclick: () => {
+          if (!can.ok) {
+            this.actions.sound('deny');
+            return;
+          }
+          this.act({ t: 'tree', op: 'buy', slot, path: row.choice });
+        },
       });
+    };
+    const lines = (slot: ShopSlot, rows: TreeRow[]) =>
+      h(
+        'ol',
+        {},
+        ...rows.map((row) =>
+          h(
+            'li',
+            { class: row.got ? 'got' : row.next ? 'next' : '' },
+            h('b', { text: `${row.cost} ` }),
+            `${row.title}. ${row.effect}`,
+            row.next ? buy(slot, row) : null,
+          ),
+        ),
+      );
+    const slotBlock = (slot: AbilitySlot): HTMLElement => {
+      const tip = abilityTooltip(hero, slot, tree);
+      const active = view[slot];
+      const branches = active.branches.map((branch) =>
+        h(
+          'div',
+          { class: `path ${tree[slot].branch === branch.id ? 'is-mine' : ''}` },
+          h('h5', { text: branch.name }),
+          h('p', { class: 'path-blurb', text: branch.focus }),
+          lines(slot, branch.rows),
+        ),
+      );
       return h(
         'section',
         { class: 'tree-slot' },
-        h('h4', { text: `${slot === 'e' ? 'Speciale [E]' : 'Ultimate [R]'} · ${tip.name}` }),
+        h('h4', { text: `${slot === 'e' ? 'Speciale [E]' : 'Ultimate [R]'} · ${active.name}` }),
+        h('p', { class: 'path-blurb', text: active.summary }),
         h('p', {
           class: 'tree-now',
-          text: `Ora: ${tip.damage ? `${tip.damage} danni` : tip.healPct ? `cura ${tip.healPct}%` : 'nessun danno diretto'} · ricarica ${tip.cooldown} s · area ${tip.aoeCells} celle · ${slot === 'e' ? 'costo dei gradi lineare' : 'costo dei gradi esponenziale'}`,
+          text: `In combattimento ora: ${tip.damage ? `${tip.damage} danni` : tip.healPct ? `cura ${tip.healPct}%` : 'nessun danno diretto'} · ricarica ${tip.cooldown} s · area ${tip.aoeCells} celle`,
         }),
-        h('div', { class: 'paths' }, ...paths),
-        node.tier > 0
+        lines(slot, active.shared),
+        h('div', { class: 'paths' }, ...branches),
+        tree[slot].tier > 0
           ? h('button', { class: 'btn small ghost', text: 'Rimborsa questa abilità (100%)', onclick: () => this.act({ t: 'tree', op: 'respec', slot }) })
           : null,
       );
     };
+    const passive = view.passive;
     return [
       h('h3', { class: 'section', text: `Albero delle Abilità di ${def.name}` }),
-      h('p', { class: 'note', text: 'Tre sentieri esclusivi per abilità. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese.' }),
+      h('p', { class: 'note', text: 'Due gradi comuni, poi un ramo e un vento. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese.' }),
+      h('section', { class: 'tree-slot' }, h('h4', { text: passive.name }), lines('p', passive.rows), lines('k', [passive.keystone])),
       ...ABILITY_SLOTS.map(slotBlock),
       h('button', {
         class: `btn ${spent > 0 ? '' : 'disabled'}`,

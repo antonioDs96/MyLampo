@@ -393,8 +393,8 @@ export class World {
     const p = this.players.get(id);
     if (!p) return;
     const mods = {
-      e: tree ? abilityMods(tree.e) : NO_MODS,
-      r: tree ? abilityMods(tree.r) : NO_MODS,
+      e: tree ? abilityMods(p.hero, 'e', tree.e) : NO_MODS,
+      r: tree ? abilityMods(p.hero, 'r', tree.r) : NO_MODS,
     };
     this.mods.set(id, mods);
     const accel = cooldownAccel(p.hero);
