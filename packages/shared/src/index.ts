@@ -8,6 +8,7 @@ export * from './economy';
 export * from './enemies';
 export * from './enemyMind';
 export * from './layout';
+export * from './tavern';
 export * from './chunks';
 export * from './campaign';
 export * from './cosmetics';

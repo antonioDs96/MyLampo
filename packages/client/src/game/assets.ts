@@ -12,6 +12,7 @@ import {
   type Scene,
   VertexData,
 } from '@babylonjs/core';
+import { TAVERN_MODELS } from '@malampu/shared';
 
 export interface CharTemplate {
   name: string;
@@ -31,6 +32,16 @@ export interface StaticTemplate {
   /** Geometry with node transforms baked in. */
   data: VertexData;
   texture: BaseTexture | null;
+}
+
+/** One tavern prop, kept with its own albedo. Bounds are in engine space, metres. */
+export interface TavernTemplate {
+  data: VertexData;
+  texture: BaseTexture | null;
+  /** Base colour carries transparency (glass, the open side of a corner). */
+  alpha: boolean;
+  min: [number, number, number];
+  max: [number, number, number];
 }
 
 export interface Recolor {
@@ -131,13 +142,15 @@ export class Assets {
   readonly rigs = new Map<string, CharTemplate>();
   readonly weapons = new Map<string, StaticTemplate>();
   readonly env = new Map<string, VertexData>();
+  readonly tavern = new Map<string, TavernTemplate>();
   envTexture: BaseTexture | null = null;
   private readonly recolored = new Map<string, Promise<BaseTexture | null>>();
 
   constructor(private readonly scene: Scene) {}
 
   async load(onProgress: (done: number, total: number) => void): Promise<void> {
-    const total = CHAR_MODELS.length + HERO_FIGURES.length + HERO_RIGS.length + HERO_PROPS.length + WEAPON_MODELS.length + ENV_MODELS.length;
+    const total =
+      CHAR_MODELS.length + HERO_FIGURES.length + HERO_RIGS.length + HERO_PROPS.length + WEAPON_MODELS.length + ENV_MODELS.length + TAVERN_MODELS.length;
     let done = 0;
     const tick = () => onProgress(++done, total);
     const jobs: (() => Promise<void>)[] = [
@@ -147,6 +160,7 @@ export class Assets {
       ...HERO_PROPS.map((n) => () => this.loadWeapon(n, `/assets/heroes/${n}.glb`).then(tick)),
       ...WEAPON_MODELS.map((n) => () => this.loadWeapon(n).then(tick)),
       ...ENV_MODELS.map((n) => () => this.loadEnv(n).then(tick)),
+      ...TAVERN_MODELS.map((n) => () => this.loadTavern(n).then(tick)),
     ];
     // A few at a time keeps the loading bar moving without choking the main thread.
     const workers = Array.from({ length: 6 }, async () => {
@@ -227,6 +241,35 @@ export class Assets {
     const container = await LoadAssetContainerAsync(file, this.scene, LOAD_OPTIONS);
     // Attachments hang under a character's own root, so they stay in glTF space.
     this.weapons.set(name, { data: this.bake(container, true), texture: albedoOf(container) });
+  }
+
+  private async loadTavern(name: string): Promise<void> {
+    const container = await LoadAssetContainerAsync(`/assets/tavern/${name}.glb`, this.scene, LOAD_OPTIONS);
+    const texture = albedoOf(container);
+    const alpha = container.materials.some((m) => (m as PBRMaterial).transparencyMode !== 0);
+    if (texture) {
+      const i = container.textures.indexOf(texture);
+      if (i >= 0) container.textures.splice(i, 1);
+      for (const m of container.materials) {
+        const p = m as PBRMaterial;
+        if (p.albedoTexture === texture) p.albedoTexture = null;
+      }
+      if (alpha) texture.hasAlpha = true;
+    }
+    const data = this.bake(container, false);
+    container.dispose();
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    const pos = data.positions;
+    if (pos) {
+      for (let i = 0; i < pos.length; i += 3) {
+        for (let k = 0; k < 3; k++) {
+          min[k] = Math.min(min[k], pos[i + k]!);
+          max[k] = Math.max(max[k], pos[i + k]!);
+        }
+      }
+    }
+    this.tavern.set(name, { data, texture, alpha, min, max });
   }
 
   private async loadEnv(name: string): Promise<void> {

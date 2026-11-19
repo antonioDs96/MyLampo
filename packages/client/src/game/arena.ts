@@ -17,10 +17,11 @@ import {
   Vector3,
   VertexData,
 } from '@babylonjs/core';
-import { CELL, cellElevation, CITIES, CITY_IDS, ELEV_WALL, isSolidCell, STEP_HEIGHT, type Layout, type Theme } from '@malampu/shared';
+import { CELL, cellElevation, CITIES, CITY_IDS, ELEV_WALL, isSolidCell, STEP_HEIGHT, tavernAnchorsFrom, tavernPieces, type Layout, type Theme } from '@malampu/shared';
 import type { Assets } from './assets';
 import { EnvironmentManager, type ReliefBiome } from './environment';
 import { seaBedY } from './sea';
+import { TavernView } from './tavernView';
 
 export const FLOOR_Y = 0.05;
 const WALL_H = 4;
@@ -245,6 +246,10 @@ export class Arena {
     cutPlane: Plane | null = null,
   ) {
     const theme = (this.theme = THEMES[layout.def.theme]);
+    if (layout.def.id === 'taverna') {
+      this.buildTavern(assets, cutPlane);
+      return;
+    }
     const { w, h } = layout;
     const env = new Batch(assets);
     const mass = new Batch(assets);
@@ -597,7 +602,57 @@ export class Arena {
     if (theme.outdoor) this.addEclipse();
   }
 
-  private addCouncilMap(x: number, z: number): void {
+  /**
+   * Meshy shell for the hub: tiled floor, modular walls, and the dressing from `tavernPieces`.
+   * The '#' ring still does the colliding; furniture circles come from the same piece list.
+   */
+  private buildTavern(assets: Assets, cutPlane: Plane | null): void {
+    const theme = this.theme;
+    const { layout, scene } = this;
+    const anchors = tavernAnchorsFrom(layout);
+    if (anchors) {
+      const pieces = tavernPieces(anchors);
+      const view = new TavernView(scene, assets, anchors, pieces, cutPlane);
+      this.owned.push(view);
+      for (const f of view.flames) this.flames.push(f);
+      for (const light of view.lights) {
+        this.lights.push(light);
+        this.owned.push(light);
+      }
+      const map = pieces.find((p) => p.id === 'map-table');
+      if (map) this.addCouncilMap(map.x, map.z - 0.72, 0.86, 0.7);
+    }
+
+    const { w, h } = layout;
+    const ground = MeshBuilder.CreateGround('ground', { width: w * CELL + 80, height: h * CELL + 80 }, scene);
+    ground.position.set((w * CELL) / 2, -0.2, (h * CELL) / 2);
+    const groundMat = new StandardMaterial('ground', scene);
+    groundMat.diffuseColor = new Color3(0.07, 0.05, 0.04);
+    groundMat.specularColor = Color3.Black();
+    groundMat.emissiveColor = groundMat.diffuseColor.scale(0.4);
+    ground.material = groundMat;
+    ground.isPickable = false;
+    this.owned.push(groundMat, ground);
+
+    scene.clearColor = new Color4(theme.clear[0], theme.clear[1], theme.clear[2], 1);
+    scene.fogMode = 2;
+    scene.fogColor = new Color3(...theme.fog);
+    scene.fogDensity = theme.fogDensity;
+    scene.ambientColor = new Color3(0.22, 0.18, 0.16);
+
+    const hemi = new HemisphericLight('hemi', new Vector3(0.15, 1, 0.05), scene);
+    hemi.diffuse = new Color3(...theme.hemi);
+    hemi.groundColor = new Color3(...theme.hemiGround);
+    hemi.intensity = 0.85;
+    hemi.specular = Color3.Black();
+    const sun = new DirectionalLight('sun', new Vector3(-0.35, -1, 0.4).normalize(), scene);
+    sun.diffuse = new Color3(...theme.sun);
+    sun.intensity = 0.7;
+    sun.specular = Color3.Black();
+    this.owned.push(hemi, sun);
+  }
+
+  private addCouncilMap(x: number, z: number, y = 1.03, span = 2.9): void {
     const size = 512;
     const tex = new DynamicTexture('councilMap', { width: size, height: size }, this.scene, true);
     const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
@@ -652,8 +707,8 @@ export class Arena {
     mat.diffuseTexture = tex;
     mat.specularColor = Color3.Black();
     mat.emissiveColor = new Color3(0.25, 0.2, 0.12);
-    const quad = MeshBuilder.CreateGround('councilMap', { width: 2.9, height: 2.9 }, this.scene);
-    quad.position.set(x, 1.03, z);
+    const quad = MeshBuilder.CreateGround('councilMap', { width: span, height: span }, this.scene);
+    quad.position.set(x, y, z);
     quad.material = mat;
     quad.isPickable = false;
     this.owned.push(tex, mat, quad);
