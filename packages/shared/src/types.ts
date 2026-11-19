@@ -96,6 +96,12 @@ export const PS = {
   Leech: 16,
   /** Reflecting shield granted by a Support skill node. */
   Reflect: 17,
+  /** Temporary hit points from a catalog SHIELD. Power is the remaining barrier. */
+  Barrier: 18,
+  /** Catalog SUPER_ARMOR: ordinary hits do not stagger. */
+  SuperArmor: 19,
+  /** Catalog REGEN of stamina. Power is stamina per second. */
+  Stamina: 20,
 } as const;
 
 /** Enemy statuses. */
@@ -113,6 +119,8 @@ export const ES = {
   Burrow: 8,
   /** Boss shrugging off crowd control. */
   Ward: 9,
+  /** Catalog VULNERABLE. Power is the extra damage fraction, capped at 0.15. */
+  Vulnerable: 10,
 } as const;
 
 /** Enemy AI states. */

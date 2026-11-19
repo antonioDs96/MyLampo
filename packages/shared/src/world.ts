@@ -75,10 +75,14 @@ import {
   REFLECT_FRACTION,
   REFLECT_GUARD,
   REFLECT_RANGE,
+  CATALOG_CAPS,
   abilityMods,
   abilitySheet,
+  catalogEffects,
+  combineHeroEffects,
   type AbilityMods,
   type AbilitySlot,
+  type HeroCatalogEffects,
   type HeroTree,
 } from './skillTree';
 import { cooldownAccel, naturalArmor } from './stats';
@@ -295,6 +299,7 @@ export class World {
   portalBy = '';
 
   private readonly mods = new Map<string, Record<AbilitySlot, AbilityMods>>();
+  private readonly trees = new Map<string, HeroTree>();
   /** Damage each foe recently took from each hero: the aggro table. */
   private readonly threat = new Map<number, Map<string, number>>();
   private readonly furyIdle = new Map<string, number>();
@@ -397,6 +402,8 @@ export class World {
       r: tree ? abilityMods(p.hero, 'r', tree.r) : NO_MODS,
     };
     this.mods.set(id, mods);
+    if (tree) this.trees.set(id, tree);
+    else this.trees.delete(id);
     const accel = cooldownAccel(p.hero);
     p.cdMul = 1 / (accel * mods.e.haste);
     p.ultMul = accel * mods.r.haste;
@@ -408,6 +415,7 @@ export class World {
     this.seen.delete(id);
     this.reacted.delete(id);
     this.mods.delete(id);
+    this.trees.delete(id);
     this.furyIdle.delete(id);
     this.drops = this.drops.filter((d) => d.owner !== id);
   }
@@ -748,6 +756,8 @@ export class World {
       mul *= highGroundMul(this.layout, p.x, p.z, e.x, e.z);
     }
     if (!opts.raw) {
+      const vulnerable = getStatus(e.st, ES.Vulnerable);
+      if (vulnerable) mul *= 1 + Math.min(CATALOG_CAPS.vulnerable, vulnerable.p);
       if (hasStatus(e.st, ES.Marked)) mul *= TUNING.markedDamageMul;
       if (hasStatus(e.st, ES.Frozen)) mul *= TUNING.frozenDamageMul;
       if (hasStatus(e.st, ES.Confused)) mul *= TUNING.confusedDamageMul;
@@ -1140,7 +1150,7 @@ export class World {
   }
 
   /** What the equipped Skill Tree node adds once the Special or the Ultimate has landed. */
-  private aftermath(p: PlayerState, m: AbilityMods, x: number, z: number, r: number): void {
+  private aftermath(p: PlayerState, slot: AbilitySlot, m: AbilityMods, x: number, z: number, r: number): void {
     if (m.puddle > 0) this.addZone('ember', x, z, Math.max(3, r * 0.55), m.puddle, p.id, PUDDLE_DPS);
     if (m.bleed > 0 || m.silence > 0) {
       for (const e of this.enemiesNear(x, z, Math.max(3, r))) {
@@ -1152,6 +1162,71 @@ export class World {
       for (const a of this.alliesNear(p.x, p.z, REFLECT_RANGE)) addStatus(a.st, PS.Reflect, T(m.reflect), 0);
       this.events.push({ e: 'fx', what: 'reflect', x: p.x, z: p.z, r: REFLECT_RANGE });
     }
+    this.applyCatalog(p, slot, x, z, r);
+  }
+
+  /** The statuses bought on this ability, capped, landing on whoever the catalog names. */
+  private applyCatalog(p: PlayerState, slot: AbilitySlot, x: number, z: number, radius: number): void {
+    const tree = this.trees.get(p.id);
+    if (!tree) return;
+    const fx = catalogEffects(p.hero, slot, tree[slot]);
+    const reach = Math.max(3, radius);
+    const foe = fx.enemy;
+    if (foe.bleedDps || foe.slow || foe.vulnerable || foe.stunSec || foe.rootSec || foe.pushM || foe.pullM) {
+      for (const e of this.enemiesNear(x, z, reach)) {
+        if (foe.bleedDps > 0) addStatus(e.st, ES.Bleed, foe.bleedSec, foe.bleedDps);
+        if (foe.slow > 0) addStatus(e.st, ES.Slow, foe.slowSec, foe.slow);
+        if (foe.vulnerable > 0) addStatus(e.st, ES.Vulnerable, foe.vulnerableSec, foe.vulnerable);
+        if (foe.stunSec > 0) this.freeze(e, foe.stunSec);
+        if (foe.rootSec > 0 && this.control(e)) addStatus(e.st, ES.Slow, foe.rootSec, 1);
+        if (foe.pushM > 0) this.displace(e, x, z, foe.pushM, false);
+        if (foe.pullM > 0) this.displace(e, x, z, foe.pullM, true);
+      }
+    }
+    const party = this.alliesNear(p.x, p.z, Math.max(reach, 8));
+    for (const ally of party) {
+      this.grantCatalog(ally, ally.id === p.id ? combineHeroEffects(fx.party, fx.self) : fx.party);
+    }
+    if (!party.some((ally) => ally.id === p.id)) this.grantCatalog(p, fx.self);
+  }
+
+  private grantCatalog(p: PlayerState, fx: HeroCatalogEffects): void {
+    const maxHp = p.maxHp || HEROES[p.hero].hp;
+    if (fx.shieldHp > 0) addStatus(p.st, PS.Barrier, T(fx.shieldSec), Math.min(fx.shieldHp, Math.floor(maxHp * CATALOG_CAPS.shieldHp)));
+    if (fx.haste > 0) addStatus(p.st, PS.Haste, T(fx.hasteSec), fx.haste);
+    if (fx.empower > 0) addStatus(p.st, PS.DmgUp, T(fx.empowerSec), fx.empower);
+    if (fx.regenHp > 0) addStatus(p.st, PS.Regen, T(fx.regenSec), fx.regenHp);
+    if (fx.stamina > 0) addStatus(p.st, PS.Stamina, T(fx.staminaSec), fx.stamina);
+    if (fx.armorSec > 0) addStatus(p.st, PS.SuperArmor, T(fx.armorSec), 0);
+    if (fx.stealthSec > 0) addStatus(p.st, PS.Stealth, T(fx.stealthSec), 0);
+    if (fx.slow > 0 && p.hero !== 'dalith') addStatus(p.st, PS.Slow, T(fx.slowSec), fx.slow);
+  }
+
+  private displace(e: EnemyState, fromX: number, fromZ: number, meters: number, pull: boolean): void {
+    const def = ENEMIES[e.type];
+    if (def.boss || e.state === EState.Broken || meters <= 0) return;
+    const dx = e.x - fromX;
+    const dz = e.z - fromZ;
+    const d = Math.hypot(dx, dz) || 1;
+    const sign = pull ? -1 : 1;
+    const nx = (dx / d) * sign;
+    const nz = (dz / d) * sign;
+    const feet = standElevation(this.layout, e.x, e.z);
+    const out = { x: e.x + nx * meters, z: e.z + nz * meters };
+    collide(this.layout, out.x, out.z, def.radius, out, feet);
+    e.x = out.x;
+    e.z = out.z;
+  }
+
+  /** Spends a catalog barrier before hit points. Returns the damage that remains. */
+  private soak(p: PlayerState, amount: number): number {
+    const barrier = getStatus(p.st, PS.Barrier);
+    if (!barrier || barrier.p <= 0 || amount <= 0) return amount;
+    const used = Math.min(barrier.p, amount);
+    barrier.p -= used;
+    if (barrier.p <= 0) removeStatus(p.st, PS.Barrier);
+    this.events.push({ e: 'fx', what: 'reflect', x: p.x, z: p.z, r: 1.2 });
+    return amount - used;
   }
 
   private castAbility(p: PlayerState): void {
@@ -1259,7 +1334,7 @@ export class World {
         break;
       }
     }
-    this.aftermath(p, m, cx, cz, R);
+    this.aftermath(p, 'e', m, cx, cz, R);
   }
 
   private castUlt(p: PlayerState): void {
@@ -1357,7 +1432,7 @@ export class World {
         break;
       }
     }
-    this.aftermath(p, m, cx, cz, R);
+    this.aftermath(p, 'r', m, cx, cz, R);
   }
 
   addZone(kind: string, x: number, z: number, r: number, dur: number, owner: string, power: number): Zone {
@@ -1680,7 +1755,8 @@ export class World {
       if (src && this.hittable(src)) this.damageEnemy(src, Math.max(1, dmg * REFLECT_FRACTION), 6, p, { raw: true });
       dmg *= 1 - REFLECT_GUARD;
     }
-    const amount = Math.max(1, Math.round(dmg));
+    const amount = this.soak(p, Math.max(1, Math.round(dmg)));
+    if (amount <= 0) return;
     p.hp -= amount;
     if (this.safe) p.hp = Math.max(1, p.hp);
     p.stamDelay = T(TUNING.staminaDelay);
@@ -1720,7 +1796,8 @@ export class World {
     let dmg = amount;
     if (hasStatus(p.st, PS.Bubble)) dmg *= 0.5;
     if (this.synergy.includes('ward')) dmg *= 0.9;
-    const whole = Math.max(1, Math.round(dmg));
+    const whole = this.soak(p, Math.max(1, Math.round(dmg)));
+    if (whole <= 0) return;
     p.hp -= whole;
     if (this.safe) p.hp = Math.max(1, p.hp);
     const st = this.stats.get(p.id);

@@ -2002,8 +2002,12 @@ export class Game {
       } else if (s.k === PS.Frenzy) {
         glowR += 0.1;
         glowG += 0.05;
-      } else if (s.k === PS.Reflect) {
-        vfx.ring(x, z, 1.15, ICE, 0.6 + Math.sin(vfx.clock * 6) * 0.2);
+      } else if (s.k === PS.Reflect || s.k === PS.Barrier) {
+        vfx.ring(x, z, s.k === PS.Barrier ? 1.35 : 1.15, ICE, 0.6 + Math.sin(vfx.clock * 6) * 0.2);
+      } else if (s.k === PS.SuperArmor) {
+        glowR += 0.15;
+        glowG += 0.15;
+        glowB += 0.2;
       }
     }
     if (p.act === Act.Charge) {
@@ -2192,6 +2196,7 @@ export class Game {
     }
     if (enemyHas(e.st, ES.Silenced)) vfx.sprite(e.x, view.height + 0.3, e.z, 0.26, VIOLET, 0.85);
     if (enemyHas(e.st, ES.Ward)) vfx.ring(e.x, e.z, def.radius + 0.6, WHITE, 0.4 + Math.sin(vfx.clock * 10) * 0.2);
+    if (enemyHas(e.st, ES.Vulnerable)) vfx.ring(e.x, e.z, def.radius + 0.85, GOLD, 0.7);
     if (e.state === EState.Dead) {
       view.setFade(Math.max(0, Math.min(1, (2.5 - e.t) / 0.7)));
     } else if (e.state === EState.Spawn) {
