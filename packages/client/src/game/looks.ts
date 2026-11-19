@@ -19,8 +19,8 @@ export interface Look {
    */
   figure?: string;
   /**
-   * Skinned mesh in assets/heroes, used in play. The selection stage keeps `figure`.
-   * The value is the file name without `-rig.glb`.
+   * Skinned mesh in assets/heroes, used on the pedestal and in play.
+   * The value is the file name without `-rig.glb`. `figure` remains the fallback.
    */
   rig?: string;
   scale: number;
@@ -43,8 +43,7 @@ export interface Look {
 }
 
 export const HERO_LOOKS: Record<HeroId, Look> = {
-  // Satyr: tattered tan tunic, ram horns. The portrait keeps the still mesh.
-  // In play the rig wears the dagger props and swaps them for the ocarina.
+  // Satyr: tattered tan tunic, ram horns. The rig wears a dagger in each hand.
   albereth: {
     model: 'Rogue_Hooded',
     figure: 'albereth',
@@ -61,6 +60,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   jusef: {
     model: 'Knight',
     figure: 'jusef',
+    rig: 'jusef',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[318, 12]], hue: 142, sat: 0.7, val: 0.78 },
@@ -73,6 +73,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   vyncent: {
     model: 'Barbarian',
     figure: 'vyncent',
+    rig: 'vyncent',
     scale: 1.1,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 30, sat: 0.12, val: 1.35 },
@@ -85,6 +86,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   alexios: {
     model: 'Knight',
     figure: 'alexios',
+    rig: 'alexios',
     scale: 1.48,
     // The painted mesh already is stone. White leaves that texture alone; the recolor below is only the rigged fallback.
     tint: [1, 1, 1],
@@ -100,6 +102,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   rycard: {
     model: 'Rogue',
     figure: 'rycard',
+    rig: 'rycard',
     scale: 1.02,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 138, sat: 0.55, val: 0.7 },
@@ -112,6 +115,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   fabyorn: {
     model: 'Barbarian',
     figure: 'fabyorn',
+    rig: 'fabyorn',
     scale: 1.16,
     tint: [1, 1, 1],
     recolor: { from: [[185, 240]], hue: 28, sat: 0.55, val: 0.68 },
@@ -124,6 +128,7 @@ export const HERO_LOOKS: Record<HeroId, Look> = {
   gabryel: {
     model: 'Mage',
     figure: 'gabryel',
+    rig: 'gabryel',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[225, 345]], hue: 38, sat: 0.28, val: 0.95 },

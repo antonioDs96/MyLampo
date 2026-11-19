@@ -146,8 +146,8 @@ export class HeroStage {
     if (key === this.key && this.view) return;
     this.key = key;
     this.view?.dispose();
-    // The pedestal keeps the still portrait. Gameplay uses the skinned rig when the hero has one.
-    const view = new CharacterView(this.scene, this.assets, dressHero(hero, loadout), `stage:${key}`, null, true);
+    // A hero with a rig stands on the pedestal in that rig's idle. The others keep the still mesh.
+    const view = new CharacterView(this.scene, this.assets, dressHero(hero, loadout), `stage:${key}`, null);
     view.root.position.set(0, STAGE_Y, 0);
     view.root.rotation.y = Math.PI;
     const first = !this.view;

@@ -24,6 +24,7 @@ import {
 } from '@malampu/shared';
 import type { Assets, CharTemplate, FigureTemplate } from './assets';
 import { attackClipTime } from './attackClip';
+import { clipSeconds, heroRig, kindFromClip, selectClip, type PoseKind } from './heroRigs';
 import { CLIP_FALLBACK, type Look, type RGB } from './looks';
 
 const BODY_PART = /_(ArmLeft|ArmRight|Body|Head|Head_Hooded|LegLeft|LegRight|Eyes|Jaw|Skull)$/;
@@ -34,41 +35,13 @@ const c3 = (c: RGB): Color3 => new Color3(c[0], c[1], c[2]);
 
 type FigureKind = 'idle' | 'move' | 'swing' | 'spin' | 'block' | 'hit' | 'down' | 'dodge' | 'cast';
 
-/** Meshy named this bring-the-ocarina-up clip with a hash, not "ocarina". */
-const ALBERETH_OCARINA = '_01a1f14e_f840_7778_aff4_c9d5e8935472';
+/** Weight step per sampled frame. At 60fps this fills in about 0.18s. */
+const BLEND_STEP = 0.09;
 
-type Gear = 'daggers' | 'ocarina';
-
-/**
- * Albereth's rig has walk, run, one punch combo, one roll, a death and the ocarina.
- * KayKit clip names stay in the combat data. This only chooses which frames to show.
- */
-const ALBERETH_CLIPS = new Set([
-  'Running', 'Walking', 'Dead', 'Punch_Combo_2', 'Punch_Combo_5',
-  'Roll_Dodge', 'Roll_Dodge_1', 'Roll_Dodge_2', 'Roll_Dodge_4', ALBERETH_OCARINA,
-]);
-
-function mapAlbereth(clip: string, time: number, loop: boolean): { clip: string; time: number; loop: boolean; gear: Gear } {
-  if (ALBERETH_CLIPS.has(clip)) return { clip, time, loop, gear: clip === ALBERETH_OCARINA ? 'ocarina' : 'daggers' };
-  const c = clip.toLowerCase();
-  if (c === 'use_item') {
-    // Hands meet the mouth around 1.7s and lift past the eyes after 2.1s. Stay on the mouth.
-    const u = Math.min(1, Math.max(0, time) / 1.1);
-    return { clip: ALBERETH_OCARINA, time: 1.45 + u * 0.5, loop: false, gear: 'ocarina' };
-  }
-  if (c.includes('death') || c.startsWith('lie')) return { clip: 'Dead', time, loop: false, gear: 'daggers' };
-  if (c.includes('dodge')) {
-    const u = Math.min(1, Math.max(0, time / 0.4));
-    return { clip: 'Roll_Dodge_1', time: 0.35 + u * 0.85, loop: false, gear: 'daggers' };
-  }
-  if (c.includes('attack') || c.includes('chop') || c.includes('slice') || c.includes('stab') || c.includes('throw') || c.includes('kick') || c.includes('spin')) {
-    // Punch_Combo_5 stays in place. The first swings land near 1.35s and 2.05s.
-    return { clip: 'Punch_Combo_5', time: 1.12 + Math.min(1.4, Math.max(0, time)) * 0.85, loop: false, gear: 'daggers' };
-  }
-  if (c.includes('run')) return { clip: 'Running', time, loop, gear: 'daggers' };
-  if (c.includes('walk') || c.includes('strafe')) return { clip: 'Walking', time, loop, gear: 'daggers' };
-  // No idle, block or hit clip: the walk opens on a stand.
-  return { clip: 'Walking', time: 0, loop: false, gear: 'daggers' };
+export interface PoseCue {
+  kind: PoseKind;
+  /** Light-chain index. Other kinds ignore it. */
+  index?: number;
 }
 
 /** Groups KayKit clip names into the motions a rigid mesh can actually perform. */
@@ -100,9 +73,6 @@ export class CharacterView {
   private hipNode: TransformNode | null = null;
   private hipX = 0;
   private hipZ = 0;
-  private readonly daggers: Mesh[] = [];
-  private ocarinaMesh: Mesh | null = null;
-  private gear: Gear = 'daggers';
   private readonly nodes = new Map<string, TransformNode>();
   private readonly groups = new Map<string, AnimationGroup>();
   private readonly mats: StandardMaterial[] = [];
@@ -131,8 +101,6 @@ export class CharacterView {
     readonly look: Look,
     name: string,
     shadowSource: Mesh | null,
-    /** Selection pedestal: keep the still mesh even when the hero has a rig. */
-    portrait = false,
   ) {
     this.root = new TransformNode(`char:${name}`, scene);
     this.root.rotationQuaternion = null;
@@ -141,7 +109,7 @@ export class CharacterView {
     this.baseAlpha = look.alpha ?? 1;
     this.root.scaling.setAll(look.scale);
 
-    const rig = !portrait && look.rig ? assets.rigs.get(look.rig) : undefined;
+    const rig = look.rig ? assets.rigs.get(look.rig) : undefined;
     const figure = look.figure ? assets.figures.get(look.figure) : undefined;
     if (rig) {
       this.tmpl = rig;
@@ -251,7 +219,7 @@ export class CharacterView {
 
   /**
    * Skinned hero. Feet sit on the root, height matches the framed heroes, and the
-   * texture is unlit like the portraits. Daggers hang on the hands until the ocarina clip.
+   * texture is unlit like the portraits. Props hang on the hand bones.
    */
   private buildSkinned(tmpl: CharTemplate, name: string): void {
     const fit = new TransformNode(`fit:${name}`, this.scene);
@@ -314,26 +282,10 @@ export class CharacterView {
       this.hipX = hip.position.x;
       this.hipZ = hip.position.z;
     }
-    // The dagger file points tip-down. A half turn sends the tip along the hand, toward the fingers.
-    const right = this.nodes.get('mixamorig:RightHand');
-    const left = this.nodes.get('mixamorig:LeftHand');
-    if (right) {
-      const dagger = this.heldProp('satyr_dagger', right, 0.38, [Math.PI, 0, 0], [0, 0.07, 0]);
-      if (dagger) this.daggers.push(dagger);
-    }
-    if (left) {
-      const dagger = this.heldProp('satyr_dagger', left, 0.38, [Math.PI, 0, 0], [0, 0.07, 0]);
-      if (dagger) this.daggers.push(dagger);
-    }
-    if (right) {
-      // The file lies flat in XY, mouthpiece toward +X. Tip it onto its side, then aim the mouthpiece along the fingers.
-      this.ocarinaMesh = this.heldProp('ocarina', right, 0.065, [0, 0, 0], [0, 0.1, 0.03]);
-      if (this.ocarinaMesh) {
-        const layFlat = Quaternion.RotationAxis(new Vector3(1, 0, 0), Math.PI / 2);
-        const aim = Quaternion.RotationAxis(new Vector3(0, 0, 1), Math.PI / 2);
-        this.ocarinaMesh.rotationQuaternion = aim.multiply(layFlat);
-        this.ocarinaMesh.setEnabled(false);
-      }
+    const spec = heroRig(this.look.rig);
+    for (const prop of spec?.props ?? []) {
+      const bone = this.nodes.get(prop.bone);
+      if (bone) this.heldProp(prop.model, bone, prop.scale, prop.rotation, prop.position);
     }
   }
 
@@ -369,14 +321,6 @@ export class CharacterView {
     this.mats.push(mat);
     this.owned.push(mat, mesh);
     return mesh;
-  }
-
-  private showGear(next: Gear): void {
-    if (next === this.gear) return;
-    this.gear = next;
-    const ocarina = next === 'ocarina';
-    for (const dagger of this.daggers) dagger.setEnabled(!ocarina);
-    this.ocarinaMesh?.setEnabled(ocarina);
   }
 
   /** KayKit rig: separate parts, a shared palette, and clips parented onto the bones. */
@@ -674,14 +618,25 @@ export class CharacterView {
   }
 
   /** Shows the pose of `clip` at `time` seconds. The pose is a pure function of the arguments. */
-  play(clip: string, time: number, loop: boolean): void {
-    if (this.skinned && this.look.rig === 'albereth') {
-      const mapped = mapAlbereth(clip, time, loop);
-      this.showGear(mapped.gear);
-      clip = mapped.clip;
-      time = mapped.time;
-      loop = mapped.loop;
-    } else if (this.pose) {
+  play(clip: string, time: number, loop: boolean, cue?: PoseCue): void {
+    if (this.skinned) {
+      const spec = heroRig(this.look.rig);
+      if (spec) {
+        const sel = selectClip(spec, cue?.kind ?? kindFromClip(clip), cue?.index ?? 0);
+        const g = this.group(sel.clip) ?? this.group(spec.idle.clip);
+        if (!g) return;
+        this.blendTo(g);
+        const dur = Math.max(0.001, (g.to - g.from) / FPS);
+        g.goToFrame(g.from + clipSeconds(sel, time, dur) * FPS);
+        // Mixamo bakes travel into the hips. Keep the bob and the fall, drop the skating.
+        if (this.hipNode) {
+          this.hipNode.position.x = this.hipX;
+          this.hipNode.position.z = this.hipZ;
+        }
+        return;
+      }
+    }
+    if (this.pose) {
       this.applyFigurePose(clip, time);
       return;
     }
@@ -698,11 +653,20 @@ export class CharacterView {
     if (loop) f = len > 0 ? ((f % len) + len) % len : 0;
     else f = Math.min(Math.max(f, 0), len);
     g.goToFrame(g.from + f);
-    // Mixamo bakes travel into the hips. Keep the bob and the fall, drop the skating.
-    if (this.hipNode) {
-      this.hipNode.position.x = this.hipX;
-      this.hipNode.position.z = this.hipZ;
-    }
+  }
+
+  /**
+   * Leaves the previous clip's bones where they are and lets the new clip ease in.
+   * `start` rebuilds the runtime, so the blend factor begins at zero on every change.
+   */
+  private blendTo(g: AnimationGroup): void {
+    if (g === this.cur) return;
+    this.cur?.stop();
+    g.enableBlending = true;
+    g.blendingSpeed = BLEND_STEP;
+    g.start(false, 1, g.from, g.to);
+    g.pause();
+    this.cur = g;
   }
 
   // ---------------------------------------------------------------- appearance
@@ -845,7 +809,7 @@ function locomotion(view: CharacterView, look: Look, dt: number, baseSpeed: numb
   const v = view.speed;
   if (v < 0.6) {
     view.locoPhase += dt;
-    view.play(look.idle, view.locoPhase, true);
+    view.play(look.idle, view.locoPhase, true, { kind: 'idle' });
     return;
   }
   let clip = v < baseSpeed * 0.55 ? 'Walking_A' : look.run;
@@ -859,7 +823,8 @@ function locomotion(view: CharacterView, look: Look, dt: number, baseSpeed: numb
     else if (rel < -0.75) clip = 'Running_Strafe_Left';
   }
   view.locoPhase += dt * Math.min(1.8, Math.max(0.5, rate));
-  view.play(clip, view.locoPhase, true);
+  const kind: PoseKind = v < baseSpeed * 0.55 ? 'walk' : 'run';
+  view.play(clip, view.locoPhase, true, { kind });
 }
 
 export interface PlayerPoseOpts {
@@ -879,26 +844,29 @@ export function posePlayer(view: CharacterView, p: PlayerState, dt: number, opts
       locomotion(view, look, dt, hero.speed, p.yaw, opts.locked);
       break;
     case Act.Attack: {
-      const def = hero.light[p.combo % hero.light.length]!;
-      view.play(def.anim, def.animStart + t * def.animSpeed, false);
+      const index = p.combo % hero.light.length;
+      const def = hero.light[index]!;
+      view.play(def.anim, def.animStart + t * def.animSpeed, false, { kind: 'light', index });
       break;
     }
     case Act.Charge: {
       const def = hero.heavy;
       const u = Math.min(1, t / TUNING.maxCharge);
-      view.play(def.anim, def.animStart + u * Math.max(0.05, def.hits[0]! * def.animSpeed * 0.45), false);
+      // Rigs scrub the draw with the charge meter. KayKit keeps the short windup window.
+      const time = view.look.rig ? u : def.animStart + u * Math.max(0.05, def.hits[0]! * def.animSpeed * 0.45);
+      view.play(def.anim, time, false, { kind: 'charge' });
       break;
     }
     case Act.Heavy: {
       const def = hero.heavy;
-      view.play(def.anim, def.animStart + t * def.animSpeed, false);
+      view.play(def.anim, def.animStart + t * def.animSpeed, false, { kind: 'heavy' });
       break;
     }
     case Act.Dodge: {
       if (hero.dodge.kind === 'pirouette' && !p.blink) {
         const turns = hero.dodge.turns ?? 2;
         const u = Math.min(1, t / hero.dodge.dur);
-        view.play(hero.dodge.spin ?? 'Unarmed_Melee_Attack_Kick', hero.dodge.pose ?? 0.5, false);
+        view.play(hero.dodge.spin ?? 'Unarmed_Melee_Attack_Kick', hero.dodge.pose ?? 0.5, false, { kind: 'dodge' });
         // The pose stays on one leg; the body itself turns, and finishes facing the way she travelled.
         view.root.rotation.y += u * Math.PI * 2 * turns;
         break;
@@ -906,27 +874,28 @@ export function posePlayer(view: CharacterView, p: PlayerState, dt: number, opts
       const rel = angleDiff(yawOf(p.dx, p.dz), p.yaw);
       const clip =
         Math.abs(rel) < 0.8 ? 'Dodge_Forward' : Math.abs(rel) > 2.35 ? 'Dodge_Backward' : rel > 0 ? 'Dodge_Right' : 'Dodge_Left';
-      view.play(clip, t * (0.4 / hero.dodge.dur), false);
+      view.play(clip, t * (0.4 / hero.dodge.dur), false, { kind: 'dodge' });
       break;
     }
     case Act.Block:
-      if (view.speed > 1) view.play('Blocking', t, true);
+      if (view.look.rig) view.play('Block', t, true, { kind: 'block' });
+      else if (view.speed > 1) view.play('Blocking', t, true);
       else view.play('Block', Math.min(t * 2, 0.35), false);
       break;
     case Act.Hit:
-      view.play(p.charge > 0 ? 'Hit_B' : 'Hit_A', t * (p.charge > 0 ? 0.9 : 1.5), false);
+      view.play(p.charge > 0 ? 'Hit_B' : 'Hit_A', t * (p.charge > 0 ? 0.9 : 1.5), false, { kind: 'hit' });
       break;
     case Act.Ability:
-      view.play(hero.ability.anim, t * hero.ability.animSpeed, false);
+      view.play(hero.ability.anim, t * hero.ability.animSpeed, false, { kind: 'ability' });
       break;
     case Act.Ult:
-      view.play(hero.ult.anim, t * hero.ult.animSpeed, false);
+      view.play(hero.ult.anim, t * hero.ult.animSpeed, false, { kind: 'ult' });
       break;
     case Act.Execute:
-      view.play('1H_Melee_Attack_Chop', t * (0.52 / TUNING.executeAt), false);
+      view.play('1H_Melee_Attack_Chop', t * (0.52 / TUNING.executeAt), false, { kind: 'heavy' });
       break;
     case Act.Downed:
-      view.play('Death_A', t, false);
+      view.play('Death_A', t, false, { kind: 'death' });
       break;
     case Act.Revive:
     case Act.Channel:
