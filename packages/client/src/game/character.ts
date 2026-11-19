@@ -22,7 +22,7 @@ import {
   type EnemySnap,
   type PlayerState,
 } from '@malampu/shared';
-import type { Assets, CharTemplate } from './assets';
+import type { Assets, CharTemplate, FigureTemplate } from './assets';
 import { attackClipTime } from './attackClip';
 import { CLIP_FALLBACK, type Look, type RGB } from './looks';
 
@@ -32,13 +32,77 @@ const FPS = 60;
 
 const c3 = (c: RGB): Color3 => new Color3(c[0], c[1], c[2]);
 
+type FigureKind = 'idle' | 'move' | 'swing' | 'spin' | 'block' | 'hit' | 'down' | 'dodge' | 'cast';
+
+/** Meshy named this bring-the-ocarina-up clip with a hash, not "ocarina". */
+const ALBERETH_OCARINA = '_01a1f14e_f840_7778_aff4_c9d5e8935472';
+
+type Gear = 'daggers' | 'ocarina';
+
+/**
+ * Albereth's rig has walk, run, one punch combo, one roll, a death and the ocarina.
+ * KayKit clip names stay in the combat data. This only chooses which frames to show.
+ */
+const ALBERETH_CLIPS = new Set([
+  'Running', 'Walking', 'Dead', 'Punch_Combo_2', 'Punch_Combo_5',
+  'Roll_Dodge', 'Roll_Dodge_1', 'Roll_Dodge_2', 'Roll_Dodge_4', ALBERETH_OCARINA,
+]);
+
+function mapAlbereth(clip: string, time: number, loop: boolean): { clip: string; time: number; loop: boolean; gear: Gear } {
+  if (ALBERETH_CLIPS.has(clip)) return { clip, time, loop, gear: clip === ALBERETH_OCARINA ? 'ocarina' : 'daggers' };
+  const c = clip.toLowerCase();
+  if (c === 'use_item') {
+    // Hands meet the mouth around 1.7s and lift past the eyes after 2.1s. Stay on the mouth.
+    const u = Math.min(1, Math.max(0, time) / 1.1);
+    return { clip: ALBERETH_OCARINA, time: 1.45 + u * 0.5, loop: false, gear: 'ocarina' };
+  }
+  if (c.includes('death') || c.startsWith('lie')) return { clip: 'Dead', time, loop: false, gear: 'daggers' };
+  if (c.includes('dodge')) {
+    const u = Math.min(1, Math.max(0, time / 0.4));
+    return { clip: 'Roll_Dodge_1', time: 0.35 + u * 0.85, loop: false, gear: 'daggers' };
+  }
+  if (c.includes('attack') || c.includes('chop') || c.includes('slice') || c.includes('stab') || c.includes('throw') || c.includes('kick') || c.includes('spin')) {
+    // Punch_Combo_5 stays in place. The first swings land near 1.35s and 2.05s.
+    return { clip: 'Punch_Combo_5', time: 1.12 + Math.min(1.4, Math.max(0, time)) * 0.85, loop: false, gear: 'daggers' };
+  }
+  if (c.includes('run')) return { clip: 'Running', time, loop, gear: 'daggers' };
+  if (c.includes('walk') || c.includes('strafe')) return { clip: 'Walking', time, loop, gear: 'daggers' };
+  // No idle, block or hit clip: the walk opens on a stand.
+  return { clip: 'Walking', time: 0, loop: false, gear: 'daggers' };
+}
+
+/** Groups KayKit clip names into the motions a rigid mesh can actually perform. */
+function figureKind(clip: string): FigureKind {
+  const c = clip.toLowerCase();
+  if (c.includes('death') || c.startsWith('lie')) return 'down';
+  if (c.includes('hit')) return 'hit';
+  if (c.includes('block')) return 'block';
+  if (c.includes('dodge')) return 'dodge';
+  if (c.includes('spin')) return 'spin';
+  if (c.includes('attack') || c.includes('chop') || c.includes('slice') || c.includes('stab') || c.includes('kick')) return 'swing';
+  if (c.includes('run') || c.includes('walk') || c.includes('strafe')) return 'move';
+  if (c.includes('spell') || c.includes('use_item') || c.includes('interact') || c.includes('cheer') || c.includes('cast')) return 'cast';
+  return 'idle';
+}
+
 export class CharacterView {
   readonly root: TransformNode;
   readonly height: number;
   /** Extra emissive requested by gameplay (telegraphs, statuses). */
   readonly glow = new Color3(0, 0, 0);
-  private readonly tmpl: CharTemplate;
-  private readonly model: TransformNode;
+  private readonly tmpl: CharTemplate | null;
+  /** Whole-body pose for a painted mesh that has no skeleton. */
+  private readonly pose: TransformNode | null;
+  /** Skinned hero. Clips are remapped and the hip is pinned so root motion stays on the gameplay root. */
+  private readonly skinned: boolean;
+  /** Painted mesh: the texture is the final colour, so lighting must not shade it again. */
+  private readonly painted: boolean;
+  private hipNode: TransformNode | null = null;
+  private hipX = 0;
+  private hipZ = 0;
+  private readonly daggers: Mesh[] = [];
+  private ocarinaMesh: Mesh | null = null;
+  private gear: Gear = 'daggers';
   private readonly nodes = new Map<string, TransformNode>();
   private readonly groups = new Map<string, AnimationGroup>();
   private readonly mats: StandardMaterial[] = [];
@@ -67,32 +131,270 @@ export class CharacterView {
     readonly look: Look,
     name: string,
     shadowSource: Mesh | null,
+    /** Selection pedestal: keep the still mesh even when the hero has a rig. */
+    portrait = false,
   ) {
-    const tmpl = assets.chars.get(look.model);
-    if (!tmpl) throw new Error(`missing character model ${look.model}`);
-    this.tmpl = tmpl;
     this.root = new TransformNode(`char:${name}`, scene);
     this.root.rotationQuaternion = null;
     this.height = 2.35 * look.scale;
     this.baseEmissive = c3(look.emissive ?? [0, 0, 0]);
     this.baseAlpha = look.alpha ?? 1;
+    this.root.scaling.setAll(look.scale);
 
+    const rig = !portrait && look.rig ? assets.rigs.get(look.rig) : undefined;
+    const figure = look.figure ? assets.figures.get(look.figure) : undefined;
+    if (rig) {
+      this.tmpl = rig;
+      this.painted = true;
+      this.pose = null;
+      this.skinned = true;
+      this.buildSkinned(rig, name);
+    } else if (figure) {
+      this.tmpl = null;
+      this.painted = true;
+      this.pose = this.buildFigure(figure, name);
+      this.skinned = false;
+    } else {
+      const tmpl = assets.chars.get(look.model);
+      if (!tmpl) throw new Error(`missing character model ${look.model}`);
+      this.tmpl = tmpl;
+      this.painted = false;
+      this.pose = null;
+      this.skinned = false;
+      this.buildRigged(tmpl, name);
+    }
+
+    if (shadowSource) {
+      const shadow = shadowSource.createInstance(`shadow:${name}`);
+      shadow.parent = this.root;
+      shadow.position.y = 0.04;
+      shadow.scaling.setAll(1.5);
+      shadow.isPickable = false;
+      this.owned.push(shadow);
+    }
+    this.applyMaterialState();
+  }
+
+  /**
+   * Painted hero. The mesh is one piece, already textured, and faces +Z.
+   * It is fitted so the feet sit on the root and the head lands on the framed height.
+   * Weapons, horns and cloth are in the texture, so the rigged parts and dyes stay off.
+   */
+  private buildFigure(figure: FigureTemplate, name: string): TransformNode {
+    const pose = new TransformNode(`pose:${name}`, this.scene);
+    pose.rotationQuaternion = null;
+    const fit = new TransformNode(`fit:${name}`, this.scene);
+    fit.parent = pose;
+
+    const entries = figure.container.instantiateModelsToScene((n) => `${n}:${name}`, false, {
+      doNotInstantiate: true,
+      predicate: (e) => !(e instanceof AnimationGroup),
+    });
+    const model = entries.rootNodes[0] as TransformNode;
+    model.parent = fit;
+    for (const s of entries.skeletons) this.owned.push(s);
+
+    const mat = new StandardMaterial(`figure:${name}`, this.scene);
+    // The emissive texture is added, then multiplied by the diffuse colour.
+    // Lighting stays off so the dungeon lights do not shade the painted albedo a second time.
+    mat.emissiveTexture = figure.texture;
+    mat.linkEmissiveWithDiffuse = true;
+    mat.diffuseColor = c3(this.look.tint);
+    mat.emissiveColor = Color3.Black();
+    mat.ambientColor = Color3.Black();
+    mat.disableLighting = true;
+    mat.specularColor = Color3.Black();
+    mat.backFaceCulling = false;
+    if (this.baseAlpha < 1) mat.needDepthPrePass = true;
+    this.mats.push(mat);
+    this.owned.push(mat);
+
+    const meshes = model.getChildMeshes(false);
+    if (model instanceof Mesh && model.getTotalVertices() > 0) meshes.push(model);
+    model.computeWorldMatrix(true);
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (const m of meshes) {
+      // The container's material is shared. Swap it, and leave the original for the next clone.
+      m.material = mat;
+      m.alwaysSelectAsActiveMesh = true;
+      m.isPickable = false;
+      m.computeWorldMatrix(true);
+      const bb = m.getBoundingInfo().boundingBox;
+      minX = Math.min(minX, bb.minimumWorld.x);
+      minY = Math.min(minY, bb.minimumWorld.y);
+      minZ = Math.min(minZ, bb.minimumWorld.z);
+      maxX = Math.max(maxX, bb.maximumWorld.x);
+      maxY = Math.max(maxY, bb.maximumWorld.y);
+      maxZ = Math.max(maxZ, bb.maximumWorld.z);
+    }
+    // Measured before the pose joins the scaled root, so look.scale still makes a hero taller.
+    const span = Math.max(0.001, maxY - minY);
+    const s = 2.35 / span;
+    fit.scaling.setAll(s);
+    fit.position.set(-((minX + maxX) / 2) * s, -minY * s, -((minZ + maxZ) / 2) * s);
+    pose.parent = this.root;
+
+    // Spell glints ask for a hand. The mesh has no bone, so a point in front of the chest stands in.
+    for (const [slot, x] of [['handslot.r', 0.42], ['handslot.l', -0.42]] as const) {
+      const hand = new TransformNode(slot, this.scene);
+      hand.parent = pose;
+      hand.position.set(x, 1.15, 0.35);
+      this.nodes.set(slot, hand);
+    }
+    return pose;
+  }
+
+  /**
+   * Skinned hero. Feet sit on the root, height matches the framed heroes, and the
+   * texture is unlit like the portraits. Daggers hang on the hands until the ocarina clip.
+   */
+  private buildSkinned(tmpl: CharTemplate, name: string): void {
+    const fit = new TransformNode(`fit:${name}`, this.scene);
+    fit.rotationQuaternion = null;
+    const entries = tmpl.container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
+    const model = entries.rootNodes[0] as TransformNode;
+    model.parent = fit;
+    for (const s of entries.skeletons) this.owned.push(s);
+    for (const n of model.getChildTransformNodes(false)) this.nodes.set(n.name, n);
+    for (const g of entries.animationGroups) {
+      g.stop();
+      g.enableBlending = false;
+      this.groups.set(g.name, g);
+    }
+
+    const mat = new StandardMaterial(`rig:${name}`, this.scene);
+    mat.emissiveTexture = tmpl.texture;
+    mat.linkEmissiveWithDiffuse = true;
+    mat.diffuseColor = c3(this.look.tint);
+    mat.emissiveColor = Color3.Black();
+    mat.ambientColor = Color3.Black();
+    mat.disableLighting = true;
+    mat.specularColor = Color3.Black();
+    mat.backFaceCulling = false;
+    if (this.baseAlpha < 1) mat.needDepthPrePass = true;
+    this.mats.push(mat);
+    this.owned.push(mat);
+
+    const meshes = model.getChildMeshes(false);
+    if (model instanceof Mesh && model.getTotalVertices() > 0) meshes.push(model);
+    model.computeWorldMatrix(true);
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (const m of meshes) {
+      m.material = mat;
+      m.alwaysSelectAsActiveMesh = true;
+      m.isPickable = false;
+      m.computeWorldMatrix(true);
+      const bb = m.getBoundingInfo().boundingBox;
+      minX = Math.min(minX, bb.minimumWorld.x);
+      minY = Math.min(minY, bb.minimumWorld.y);
+      minZ = Math.min(minZ, bb.minimumWorld.z);
+      maxX = Math.max(maxX, bb.maximumWorld.x);
+      maxY = Math.max(maxY, bb.maximumWorld.y);
+      maxZ = Math.max(maxZ, bb.maximumWorld.z);
+    }
+    const span = Math.max(0.001, maxY - minY);
+    const s = 2.35 / span;
+    fit.scaling.setAll(s);
+    fit.position.set(-((minX + maxX) / 2) * s, -minY * s, -((minZ + maxZ) / 2) * s);
+    fit.parent = this.root;
+
+    const hip = this.nodes.get('mixamorig:Hips');
+    if (hip) {
+      this.hipNode = hip;
+      this.hipX = hip.position.x;
+      this.hipZ = hip.position.z;
+    }
+    // The dagger file points tip-down. A half turn sends the tip along the hand, toward the fingers.
+    const right = this.nodes.get('mixamorig:RightHand');
+    const left = this.nodes.get('mixamorig:LeftHand');
+    if (right) {
+      const dagger = this.heldProp('satyr_dagger', right, 0.38, [Math.PI, 0, 0], [0, 0.07, 0]);
+      if (dagger) this.daggers.push(dagger);
+    }
+    if (left) {
+      const dagger = this.heldProp('satyr_dagger', left, 0.38, [Math.PI, 0, 0], [0, 0.07, 0]);
+      if (dagger) this.daggers.push(dagger);
+    }
+    if (right) {
+      // The file lies flat in XY, mouthpiece toward +X. Tip it onto its side, then aim the mouthpiece along the fingers.
+      this.ocarinaMesh = this.heldProp('ocarina', right, 0.065, [0, 0, 0], [0, 0.1, 0.03]);
+      if (this.ocarinaMesh) {
+        const layFlat = Quaternion.RotationAxis(new Vector3(1, 0, 0), Math.PI / 2);
+        const aim = Quaternion.RotationAxis(new Vector3(0, 0, 1), Math.PI / 2);
+        this.ocarinaMesh.rotationQuaternion = aim.multiply(layFlat);
+        this.ocarinaMesh.setEnabled(false);
+      }
+    }
+  }
+
+  /** Painted prop, unlit, parented to a bone. */
+  private heldProp(
+    model: string,
+    parent: TransformNode,
+    scale: number,
+    rotation: [number, number, number],
+    position: [number, number, number],
+  ): Mesh | null {
+    const tmpl = this.assets.weapons.get(model);
+    if (!tmpl?.texture) return null;
+    const mesh = new Mesh(`${model}:${this.root.name}`, this.scene);
+    tmpl.data.applyToMesh(mesh);
+    const mat = new StandardMaterial(`${model}:${this.root.name}`, this.scene);
+    mat.emissiveTexture = tmpl.texture;
+    mat.linkEmissiveWithDiffuse = true;
+    mat.diffuseColor = Color3.White();
+    mat.emissiveColor = Color3.Black();
+    mat.ambientColor = Color3.Black();
+    mat.disableLighting = true;
+    mat.specularColor = Color3.Black();
+    mat.backFaceCulling = false;
+    mesh.material = mat;
+    mesh.parent = parent;
+    mesh.rotationQuaternion = null;
+    mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+    mesh.position.set(position[0], position[1], position[2]);
+    mesh.scaling.setAll(scale);
+    mesh.isPickable = false;
+    mesh.alwaysSelectAsActiveMesh = true;
+    this.mats.push(mat);
+    this.owned.push(mat, mesh);
+    return mesh;
+  }
+
+  private showGear(next: Gear): void {
+    if (next === this.gear) return;
+    this.gear = next;
+    const ocarina = next === 'ocarina';
+    for (const dagger of this.daggers) dagger.setEnabled(!ocarina);
+    this.ocarinaMesh?.setEnabled(ocarina);
+  }
+
+  /** KayKit rig: separate parts, a shared palette, and clips parented onto the bones. */
+  private buildRigged(tmpl: CharTemplate, name: string): void {
     const entries = tmpl.container.instantiateModelsToScene((n) => n, false, {
       doNotInstantiate: true,
       predicate: (e) => !(e instanceof AnimationGroup),
     });
-    this.model = entries.rootNodes[0] as TransformNode;
-    this.model.parent = this.root;
-    this.root.scaling.setAll(look.scale);
+    const model = entries.rootNodes[0] as TransformNode;
+    model.parent = this.root;
     for (const s of entries.skeletons) this.owned.push(s);
+    for (const n of model.getChildTransformNodes(false)) this.nodes.set(n.name, n);
 
-    for (const n of this.model.getChildTransformNodes(false)) this.nodes.set(n.name, n);
-
-    const body = this.material('body', look.tint);
-    const head = look.tintAll ? body : this.material('head', [1, 1, 1]);
+    const body = this.material('body', this.look.tint, tmpl.texture);
+    const head = this.look.tintAll ? body : this.material('head', [1, 1, 1], tmpl.texture);
     let eyes: StandardMaterial | null = null;
-    const show = new Set(look.show);
-    for (const m of this.model.getChildMeshes(false)) {
+    const show = new Set(this.look.show);
+    for (const m of model.getChildMeshes(false)) {
       const part = m.name.replace(/_primitive\d+$/, '');
       if (!BODY_PART.test(part) && !show.has(part)) {
         m.setEnabled(false);
@@ -101,9 +403,9 @@ export class CharacterView {
       const original = m.material;
       if (original?.name === 'Glow') {
         if (!eyes) {
-          eyes = new StandardMaterial(`eyes:${name}`, scene);
+          eyes = new StandardMaterial(`eyes:${name}`, this.scene);
           eyes.disableLighting = true;
-          eyes.emissiveColor = c3(look.eyes ?? [1, 1, 0.2]);
+          eyes.emissiveColor = c3(this.look.eyes ?? [1, 1, 0.2]);
           this.owned.push(eyes);
         }
         m.material = eyes;
@@ -114,30 +416,20 @@ export class CharacterView {
       m.isPickable = false;
     }
 
-    for (const a of look.attach ?? []) this.attach(a.slot, a.model, a.scale ?? 1);
-    for (const extra of look.extras ?? []) this.addExtra(extra);
+    for (const a of this.look.attach ?? []) this.attach(a.slot, a.model, a.scale ?? 1);
+    for (const extra of this.look.extras ?? []) this.addExtra(extra);
 
-    if (shadowSource) {
-      const shadow = shadowSource.createInstance(`shadow:${name}`);
-      shadow.parent = this.root;
-      shadow.position.y = 0.04;
-      shadow.scaling.setAll(1.5);
-      shadow.isPickable = false;
-      this.owned.push(shadow);
-    }
-
-    if (look.recolor) {
-      void assets.recolor(look.model, look.recolor).then((tex) => {
+    if (this.look.recolor) {
+      void this.assets.recolor(this.look.model, this.look.recolor).then((tex) => {
         if (!tex || this.disposed) return;
-        for (const m of this.mats) m.diffuseTexture = tex;
+        for (const m of this.mats) if (!m.emissiveTexture) m.diffuseTexture = tex;
       });
     }
-    this.applyMaterialState();
   }
 
-  private material(kind: string, tint: RGB): StandardMaterial {
+  private material(kind: string, tint: RGB, texture: StandardMaterial['diffuseTexture']): StandardMaterial {
     const m = new StandardMaterial(`${kind}:${this.root.name}`, this.scene);
-    m.diffuseTexture = this.tmpl.texture;
+    m.diffuseTexture = texture;
     m.diffuseColor = c3(tint);
     m.specularColor = Color3.Black();
     m.backFaceCulling = false;
@@ -366,6 +658,7 @@ export class CharacterView {
   private group(name: string): AnimationGroup | null {
     const cached = this.groups.get(name);
     if (cached) return cached;
+    if (!this.tmpl) return null;
     const src =
       this.tmpl.groups.get(name) ?? this.tmpl.groups.get(CLIP_FALLBACK[name] ?? '') ?? this.tmpl.groups.get('Idle');
     if (!src) return null;
@@ -382,6 +675,16 @@ export class CharacterView {
 
   /** Shows the pose of `clip` at `time` seconds. The pose is a pure function of the arguments. */
   play(clip: string, time: number, loop: boolean): void {
+    if (this.skinned && this.look.rig === 'albereth') {
+      const mapped = mapAlbereth(clip, time, loop);
+      this.showGear(mapped.gear);
+      clip = mapped.clip;
+      time = mapped.time;
+      loop = mapped.loop;
+    } else if (this.pose) {
+      this.applyFigurePose(clip, time);
+      return;
+    }
     const g = this.group(clip);
     if (!g) return;
     if (g !== this.cur) {
@@ -395,6 +698,11 @@ export class CharacterView {
     if (loop) f = len > 0 ? ((f % len) + len) % len : 0;
     else f = Math.min(Math.max(f, 0), len);
     g.goToFrame(g.from + f);
+    // Mixamo bakes travel into the hips. Keep the bob and the fall, drop the skating.
+    if (this.hipNode) {
+      this.hipNode.position.x = this.hipX;
+      this.hipNode.position.z = this.hipZ;
+    }
   }
 
   // ---------------------------------------------------------------- appearance
@@ -410,14 +718,82 @@ export class CharacterView {
 
   private applyMaterialState(): void {
     const f = this.flash;
+    const er = this.baseEmissive.r + this.glow.r + this.flashColor.r * f;
+    const eg = this.baseEmissive.g + this.glow.g + this.flashColor.g * f;
+    const eb = this.baseEmissive.b + this.glow.b + this.flashColor.b * f;
+    const tint = this.look.tint;
     for (const m of this.mats) {
-      m.emissiveColor.set(
-        this.baseEmissive.r + this.glow.r + this.flashColor.r * f,
-        this.baseEmissive.g + this.glow.g + this.flashColor.g * f,
-        this.baseEmissive.b + this.glow.b + this.flashColor.b * f,
-      );
+      m.emissiveColor.set(er, eg, eb);
+      if (this.painted) m.diffuseColor.set(tint[0], tint[1], tint[2]);
       m.alpha = this.baseAlpha * this.fade;
     }
+  }
+
+  /**
+   * The mesh cannot bend, so the whole body leans, bobs and lunges.
+   * `time` is the same clock the rigged clips use, so hits still line up with the motion.
+   */
+  private applyFigurePose(clip: string, time: number): void {
+    const n = this.pose;
+    if (!n) return;
+    const kind = figureKind(clip);
+    let y = 0;
+    let z = 0;
+    let rx = 0;
+    let ry = 0;
+    let rz = 0;
+    switch (kind) {
+      case 'idle':
+        y = Math.sin(time * 2.1) * 0.035;
+        rx = Math.sin(time * 1.2) * 0.025;
+        break;
+      case 'move':
+        y = Math.abs(Math.sin(time * Math.PI * 2)) * 0.09;
+        rx = 0.14;
+        rz = Math.sin(time * Math.PI * 2) * 0.07;
+        break;
+      case 'swing': {
+        const u = Math.min(1, Math.max(0, time) / 0.55);
+        const swing = Math.sin(u * Math.PI);
+        z = swing * 0.32;
+        rx = -0.2 + swing * 0.7;
+        ry = swing * 0.4;
+        break;
+      }
+      case 'spin':
+        ry = time * 8;
+        y = Math.abs(Math.sin(time * 6)) * 0.06;
+        break;
+      case 'block':
+        y = -0.1;
+        rx = 0.22;
+        z = -0.08;
+        break;
+      case 'hit': {
+        const u = Math.min(1, Math.max(0, time) * 3);
+        rx = -0.4 * u;
+        z = -0.16 * u;
+        break;
+      }
+      case 'down': {
+        const u = Math.min(1, Math.max(0, time) / 0.7);
+        rx = u * 1.35;
+        y = u * 0.15;
+        break;
+      }
+      case 'dodge':
+        rx = 0.5;
+        y = Math.abs(Math.sin(Math.min(1, Math.max(0, time)) * Math.PI)) * 0.16;
+        z = 0.2;
+        break;
+      case 'cast':
+        y = Math.sin(time * 3) * 0.05;
+        rx = -0.16;
+        ry = Math.sin(time * 2.2) * 0.2;
+        break;
+    }
+    n.position.set(0, y, z);
+    n.rotation.set(rx, ry, rz);
   }
 
   update(dt: number): void {

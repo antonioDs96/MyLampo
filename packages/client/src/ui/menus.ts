@@ -298,7 +298,7 @@ export class Menus {
           this.busyText ? h('div', { class: 'note', text: this.busyText }) : null,
           this.titleError ? h('div', { class: 'note error', text: this.titleError }) : null,
         ),
-        h('p', { class: 'foot', text: 'Roguelite d’azione cooperativo · da 1 a 9 giocatori · tastiera e mouse, gamepad o touch · modelli KayKit (CC0)' }),
+        h('p', { class: 'foot', text: 'Roguelite d’azione cooperativo · da 1 a 9 giocatori · tastiera e mouse, gamepad o touch · mondo KayKit (CC0), eroi Meshy' }),
       ),
     );
     if (!this.name) name.focus();
