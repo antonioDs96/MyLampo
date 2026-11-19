@@ -1,7 +1,8 @@
 /**
  * Visual clips for the Mixamo rigs. Combat timings stay in the shared hero data;
- * this only chooses which frames to show. Loop is idle, walk, run and the one
- * guard clip. Attacks, dodges and hit reactions play once.
+ * this only chooses which frames to show. Idle, walk and run loop. A guard loops
+ * when the clip is a held cycle, and holds its parry pose when the parry is the
+ * end of a one-shot. Attacks, dodges and hit reactions play once.
  *
  * A few Mixamo exports kept a hash instead of a name. Those are called out below.
  */
@@ -96,7 +97,9 @@ const RIGS: Record<string, HeroRig> = {
     // Same spiral as the charged strike. The hash clip is the old ocarina pose, not a strike.
     ability: once('Axe_Spin_Attack', 0.9),
     ult: once('Punch_Combo_2', 0.9),
-    block: loop('Sword_Parry_Backward_2'),
+    // Sword_Parry_Backward_2 is the file's sword parry. The blades only come up in the
+    // last third, so the guard starts there and holds that pose while block is held.
+    block: { clip: 'Sword_Parry_Backward_2', loop: false, from: 0.66, to: 1, span: 0.22 },
     dodge: once('Roll_Dodge_1', 0.4),
     hit: once('Hit_Reaction_to_Waist', 0.45),
     death: once('Dead', 0),
