@@ -51,6 +51,12 @@ export const HERO_FIGURES = [
   'albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith',
 ];
 
+/** Skinned heroes, loaded from `{name}-rig.glb`. */
+export const HERO_RIGS = ['albereth'];
+
+/** Props parented onto a skinned hero. */
+export const HERO_PROPS = ['satyr_dagger', 'ocarina'];
+
 export const WEAPON_MODELS = [
   'sword_1handed', 'sword_2handed', 'axe_2handed', 'dagger', 'arrow', 'staff', 'wand',
   'Skeleton_Blade', 'Skeleton_Axe', 'Skeleton_Staff', 'Skeleton_Arrow', 'Skeleton_Shield_Large_A',
@@ -120,6 +126,7 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
 export class Assets {
   readonly chars = new Map<string, CharTemplate>();
   readonly figures = new Map<string, FigureTemplate>();
+  readonly rigs = new Map<string, CharTemplate>();
   readonly weapons = new Map<string, StaticTemplate>();
   readonly env = new Map<string, VertexData>();
   envTexture: BaseTexture | null = null;
@@ -128,12 +135,14 @@ export class Assets {
   constructor(private readonly scene: Scene) {}
 
   async load(onProgress: (done: number, total: number) => void): Promise<void> {
-    const total = CHAR_MODELS.length + HERO_FIGURES.length + WEAPON_MODELS.length + ENV_MODELS.length;
+    const total = CHAR_MODELS.length + HERO_FIGURES.length + HERO_RIGS.length + HERO_PROPS.length + WEAPON_MODELS.length + ENV_MODELS.length;
     let done = 0;
     const tick = () => onProgress(++done, total);
     const jobs: (() => Promise<void>)[] = [
       ...CHAR_MODELS.map((n) => () => this.loadChar(n).then(tick)),
       ...HERO_FIGURES.map((n) => () => this.loadFigure(n).then(tick)),
+      ...HERO_RIGS.map((n) => () => this.loadRig(n).then(tick)),
+      ...HERO_PROPS.map((n) => () => this.loadWeapon(n, `/assets/heroes/${n}.glb`).then(tick)),
       ...WEAPON_MODELS.map((n) => () => this.loadWeapon(n).then(tick)),
       ...ENV_MODELS.map((n) => () => this.loadEnv(n).then(tick)),
     ];
@@ -200,8 +209,20 @@ export class Assets {
     return parts.length === 1 ? parts[0]! : parts[0]!.merge(parts.slice(1), true);
   }
 
-  private async loadWeapon(name: string): Promise<void> {
-    const container = await LoadAssetContainerAsync(`/assets/weapons/${name}.glb`, this.scene, LOAD_OPTIONS);
+  private async loadRig(name: string): Promise<void> {
+    const container = await LoadAssetContainerAsync(`/assets/heroes/${name}-rig.glb`, this.scene, LOAD_OPTIONS);
+    const groups = new Map<string, AnimationGroup>();
+    for (const g of container.animationGroups) {
+      g.stop();
+      groups.set(g.name, g);
+    }
+    const texture = albedoOf(container);
+    if (!texture) throw new Error(`hero rig ${name} has no albedo`);
+    this.rigs.set(name, { name, container, texture, groups });
+  }
+
+  private async loadWeapon(name: string, file = `/assets/weapons/${name}.glb`): Promise<void> {
+    const container = await LoadAssetContainerAsync(file, this.scene, LOAD_OPTIONS);
     // Attachments hang under a character's own root, so they stay in glTF space.
     this.weapons.set(name, { data: this.bake(container, true), texture: albedoOf(container) });
   }

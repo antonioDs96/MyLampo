@@ -35,6 +35,9 @@ describe('3D assets', () => {
     for (const id of HERO_IDS) {
       expect(existsSync(join(assets, 'heroes', `${id}.glb`)), id).toBe(true);
     }
+    for (const f of ['albereth-rig.glb', 'satyr_dagger.glb', 'ocarina.glb']) {
+      expect(existsSync(join(assets, 'heroes', f)), f).toBe(true);
+    }
   });
 
   it('hero clips exist and attack timings fit inside them', () => {

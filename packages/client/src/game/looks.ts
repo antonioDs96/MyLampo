@@ -15,9 +15,14 @@ export interface Look {
   model: string;
   /**
    * Painted hero mesh in assets/heroes, with no skeleton.
-   * When it is loaded, it replaces the rigged model. Enemies never set this.
+   * Used on the selection stage, and in play when `rig` is absent.
    */
   figure?: string;
+  /**
+   * Skinned mesh in assets/heroes, used in play. The selection stage keeps `figure`.
+   * The value is the file name without `-rig.glb`.
+   */
+  rig?: string;
   scale: number;
   /** Multiplies the colour of clothes and armour. */
   tint: RGB;
@@ -38,10 +43,12 @@ export interface Look {
 }
 
 export const HERO_LOOKS: Record<HeroId, Look> = {
-  // Satyr: tattered tan tunic, ram horns, twin knives (ocarina stays in the portrait / HUD).
+  // Satyr: tattered tan tunic, ram horns. The portrait keeps the still mesh.
+  // In play the rig wears the dagger props and swaps them for the ocarina.
   albereth: {
     model: 'Rogue_Hooded',
     figure: 'albereth',
+    rig: 'albereth',
     scale: 1,
     tint: [1, 1, 1],
     recolor: { from: [[125, 200]], hue: 34, sat: 0.5, val: 0.78 },
