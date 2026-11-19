@@ -244,7 +244,7 @@ describe('extraction portal and push-your-luck', () => {
     expect(party.profiles.get('bot1')!.checkpoint.kaza).toBe(2);
     expect(party.profiles.get('bot2')!.checkpoint.kaza).toBe(2);
     expect(party.lobby.report).toMatchObject({ kind: 'extract' });
-    expect(party.lobby.report!.banked.bot1!.gems).toBe(party.profiles.get('bot1')!.gems);
+    expect(party.lobby.report!.banked.bot1!.gems).toBe(42);
     expect(party.lobby.table.checkpoint.kaza).toBe(2);
     // The next run starts from the next Environment, without Fervor.
     party.host.onMessage('bot1', { t: 'run', city: 'kaza' });
@@ -304,6 +304,9 @@ describe('extraction portal and push-your-luck', () => {
 
   it('walking out mid-run is taxed like a fall', () => {
     const archive = new MemoryProfileArchive();
+    const blank = emptyProfile();
+    blank.starter = true;
+    archive.save(uuid(4), blank);
     const party = company(['jusef', 'alexios'], 5, archive);
     party.host.onMessage('bot2', { t: 'profile', id: uuid(4) });
     party.host.onMessage('bot1', { t: 'run', city: 'badiscar' });

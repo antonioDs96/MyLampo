@@ -11,12 +11,13 @@ import {
   type AABBZoneDef,
   type ElevationLevel,
   type EnemySpawnDef,
+  type GateSpawnDef,
   type LevelId,
   type MaterialType as Mat,
   type POIDef,
   type Vector2D,
 } from './LevelDataTypes';
-import { BADISCAR_CAVE, BADISCAR_FALESIE, BADISCAR_MASSEUS_ARENA, BADISCAR_PORTO } from '../handoff/dioramasCatalog';
+import { BADISCAR_CAVE, BADISCAR_FALESIE, BADISCAR_MASSEUS_ARENA, BADISCAR_PORTO, DIORAMAS_CATALOG } from '../handoff/dioramasCatalog';
 import { levelFromDiorama } from './fromHandoff';
 
 export interface BuiltLevel {
@@ -31,6 +32,11 @@ export interface BuiltLevel {
   sockets: Vector2D[];
   sporeHazard: boolean;
   wallMaterial: MaterialType;
+  /** Blood Gates sealed when the map starts. */
+  gates: GateSpawnDef[];
+  /** Boss arenas: where the boss stands, and the doors its summons come through. */
+  bossCell?: Vector2D;
+  doors?: Vector2D[];
 }
 
 export interface LevelAudit {
@@ -79,11 +85,27 @@ function masseus(): BuiltLevel {
   return levelFromDiorama(BADISCAR_MASSEUS_ARENA);
 }
 
+function catalog(dioramaId: string): () => BuiltLevel {
+  return () => {
+    const spec = DIORAMAS_CATALOG.find((entry) => entry.id === dioramaId);
+    if (!spec) throw new Error(`Diorama ${dioramaId} is missing from the catalog`);
+    return levelFromDiorama(spec);
+  };
+}
+
 const BUILDERS: Record<LevelId, () => BuiltLevel> = {
   falesie,
   porto,
   grotte,
   masseus,
+  kaza_canali: catalog('kaza_canali'),
+  kaza_saline: catalog('kaza_saline'),
+  kaza_cittadella: catalog('kaza_cittadella'),
+  kaza_molo: catalog('kaza_boss_arena'),
+  ujian_ponte: catalog('ujian_ponte'),
+  ujian_terrazze: catalog('ujian_terrazze'),
+  ujian_tempio: catalog('ujian_tempio'),
+  ujian_soglia: catalog('ujian_boss_arena'),
 };
 
 export function loadLevel(id: LevelId): BuiltLevel {

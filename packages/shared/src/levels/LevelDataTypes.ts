@@ -53,7 +53,19 @@ export enum EnemyType {
   BOSS_MASSEUS = 'BOSS_MASSEUS',
 }
 
-export type LevelId = 'falesie' | 'porto' | 'grotte' | 'masseus';
+export type LevelId =
+  | 'falesie'
+  | 'porto'
+  | 'grotte'
+  | 'masseus'
+  | 'kaza_canali'
+  | 'kaza_saline'
+  | 'kaza_cittadella'
+  | 'kaza_molo'
+  | 'ujian_ponte'
+  | 'ujian_terrazze'
+  | 'ujian_tempio'
+  | 'ujian_soglia';
 
 export interface Vector2D {
   x: number;
@@ -68,6 +80,17 @@ export interface EnemySpawnDef {
   facingAngleDeg: number;
   minPlayersRequired: 1 | 4 | 7;
   patrolWaypoints?: Vector2D[];
+  /** Diorama zone (Z1..Z7) whose garrison this unit belongs to. */
+  zone?: string;
+}
+
+/** A Blood Gate of a diorama: walkable cells it seals and the zone garrison that holds it. */
+export interface GateSpawnDef {
+  id: string;
+  zone: string;
+  cells: Vector2D[];
+  kills: number;
+  elites: number;
 }
 
 export interface POIDef {

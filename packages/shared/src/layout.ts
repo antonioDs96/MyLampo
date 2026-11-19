@@ -50,6 +50,21 @@ export interface PropDef {
   rot: number;
 }
 
+/**
+ * Blood Gate: a seal across an artery of the map. It stands from the start of the
+ * map and breaks once enough of the garrison holding it has fallen.
+ */
+export interface GateDef {
+  id: string;
+  /** Sealed cells: [cx, cz, terrace the floor returns to when the seal breaks]. */
+  cells: [number, number, number][];
+  /** Cells where the garrison holding the gate was placed. */
+  guards: [number, number][];
+  /** Guards that must fall, and how many of those must be elites. */
+  kills: number;
+  elites: number;
+}
+
 export interface LayoutDef {
   id: string;
   name: string;
@@ -74,6 +89,8 @@ export interface LayoutDef {
    * the way a wall does, and the client leaves them open so the water shows.
    */
   sealedVoid?: boolean;
+  /** Blood Gates. The parsed layout leaves them open: the World seals them when the map starts. */
+  gates?: GateDef[];
 }
 
 export interface Point {
@@ -243,6 +260,16 @@ export function parseLayout(def: LayoutDef): Layout {
   if (layout.playerSpawns.length === 0) layout.playerSpawns.push(layout.center);
   if (layout.enemySpawns.length === 0) layout.enemySpawns.push(layout.center);
   return layout;
+}
+
+/** Raises or lowers a Blood Gate: while sealed its cells block movement, sight and pathing like a wall. */
+export function setGateSealed(layout: Layout, gate: GateDef, sealed: boolean): void {
+  for (const [cx, cz, elev] of gate.cells) {
+    if (cx < 0 || cz < 0 || cx >= layout.w || cz >= layout.h) continue;
+    const i = cz * layout.w + cx;
+    layout.solid[i] = sealed ? 1 : 0;
+    layout.elev[i] = sealed ? ELEV_WALL : elev;
+  }
 }
 
 export function isSolidCell(layout: Layout, cx: number, cz: number): boolean {

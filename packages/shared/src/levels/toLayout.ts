@@ -4,6 +4,7 @@
  * layout flag; elevation +2 is a wall. Features keep the terrace they stand on.
  */
 import { NODE_NAMES, NODE_ORDER, type NodeSpan } from '../chunks';
+import type { GateDef } from '../layout';
 import { EnemyType, POIType, type LevelId } from './LevelDataTypes';
 import type { BuiltLevel } from './LevelLoader';
 
@@ -80,7 +81,15 @@ function foeGlyph(type: EnemyType, id: LevelId): string {
   }
 }
 
-function place(chars: string[][], level: BuiltLevel, x: number, z: number, glyph: string): void {
+/** Writes a glyph on the nearest free cell of the same terrace. Returns the cell used. */
+function place(
+  chars: string[][],
+  level: BuiltLevel,
+  x: number,
+  z: number,
+  glyph: string,
+  keepClear?: Set<string>,
+): [number, number] | null {
   const origin = level.grid.tile(x, z);
   const want = origin?.elevation ?? 0;
   for (let r = 0; r <= 3; r++) {
@@ -91,14 +100,16 @@ function place(chars: string[][], level: BuiltLevel, x: number, z: number, glyph
         const cz = z + dz;
         const tile = level.grid.tile(cx, cz);
         if (!tile || !tile.walkable || tile.elevation !== want) continue;
+        if (keepClear?.has(`${cx},${cz}`)) continue;
         const prev = chars[cz]![cx]!;
         if (!isTerrace(prev)) continue;
         chars[cz]![cx] = glyph;
-        if (resolved(chars)[cz]![cx] === want) return;
+        if (resolved(chars)[cz]![cx] === want) return [cx, cz];
         chars[cz]![cx] = prev;
       }
     }
   }
+  return null;
 }
 
 function bands(id: string, height: number): NodeSpan[] {
@@ -115,9 +126,10 @@ function bands(id: string, height: number): NodeSpan[] {
 export interface BakedDiorama {
   rows: string[];
   nodes: NodeSpan[];
+  gates: GateDef[];
 }
 
-/** The playable layout of one authored Badiscar diorama. */
+/** The playable layout of one authored diorama. */
 export function bakeDiorama(level: BuiltLevel, arena = false): BakedDiorama {
   const chars: string[][] = [];
   for (let z = 0; z < level.height; z++) {
@@ -130,29 +142,50 @@ export function bakeDiorama(level: BuiltLevel, arena = false): BakedDiorama {
     chars.push(row);
   }
 
+  const gateCells = new Set<string>();
+  for (const gate of level.gates) for (const cell of gate.cells) gateCells.add(`${cell.x},${cell.z}`);
+  const guards = new Map<string, [number, number][]>();
+
   if (arena) {
-    place(chars, level, 16, 16, 'B');
+    const boss = level.bossCell ?? { x: 16, z: 16 };
+    place(chars, level, boss.x, boss.z, 'B');
+    for (const door of level.doors ?? []) place(chars, level, door.x, door.z, 'E');
   } else {
     for (const spawn of level.spawns) {
-      const glyph = spawn.minPlayersRequired > 1 ? 's' : foeGlyph(spawn.type, level.id);
-      place(chars, level, spawn.gridX, spawn.gridZ, glyph);
+      const shadow = spawn.minPlayersRequired > 1;
+      const cell = place(chars, level, spawn.gridX, spawn.gridZ, shadow ? 's' : foeGlyph(spawn.type, level.id), gateCells);
+      if (!cell || shadow || !spawn.zone) continue;
+      const list = guards.get(spawn.zone) ?? [];
+      list.push(cell);
+      guards.set(spawn.zone, list);
     }
     for (const poi of level.pois) {
-      if (poi.type === POIType.SANTUARIO_CURA) place(chars, level, poi.gridX, poi.gridZ, 'S');
-      else if (poi.type === POIType.FORZIERE_SINERGIA) place(chars, level, poi.gridX, poi.gridZ, 'C');
-      else if (poi.type === POIType.PORTALE_TRANSIZIONE) place(chars, level, poi.gridX, poi.gridZ, 'X');
+      if (poi.type === POIType.SANTUARIO_CURA) place(chars, level, poi.gridX, poi.gridZ, 'S', gateCells);
+      else if (poi.type === POIType.FORZIERE_SINERGIA) place(chars, level, poi.gridX, poi.gridZ, 'C', gateCells);
+      else if (poi.type === POIType.PORTALE_TRANSIZIONE) place(chars, level, poi.gridX, poi.gridZ, 'X', gateCells);
     }
   }
 
   const spawn = level.pois.find((poi) => poi.type === POIType.SPAWN_PARTY);
   if (spawn) {
     for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) place(chars, level, spawn.gridX + dx, spawn.gridZ + dz, 'P');
+      for (let dx = -1; dx <= 1; dx++) place(chars, level, spawn.gridX + dx, spawn.gridZ + dz, 'P', gateCells);
     }
   }
+
+  const gates: GateDef[] = arena
+    ? []
+    : level.gates.map((gate) => ({
+        id: gate.id,
+        cells: gate.cells.map((cell): [number, number, number] => [cell.x, cell.z, level.grid.tile(cell.x, cell.z)?.elevation ?? 0]),
+        guards: guards.get(gate.zone) ?? [],
+        kills: gate.kills,
+        elites: gate.elites,
+      }));
 
   return {
     rows: chars.map((row) => row.join('')),
     nodes: arena ? [] : bands(level.id, level.height),
+    gates,
   };
 }

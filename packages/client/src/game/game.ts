@@ -4,6 +4,7 @@ import {
   angleDiff,
   BOUNTY_BY_ID,
   Btn,
+  CELL,
   channelTime,
   clonePlayer,
   COSMETIC_BY_ID,
@@ -78,6 +79,7 @@ import { discMarks, lineSpans, ringSpans, sectorMarks } from './terrainAlert';
 import { Arena, FLOOR_Y } from './arena';
 import type { Assets } from './assets';
 import { Audio } from './audio';
+import { BloodGatesView } from './bloodGates';
 import { IsoCamera } from './camera';
 import { CharacterView, makeShadowSource, poseEnemy, posePlayer } from './character';
 import { HeroStage } from './heroStage';
@@ -86,6 +88,7 @@ import { screenToWorld } from './stick';
 import { TouchControls } from './touch';
 import { dressHero, ENEMY_LOOKS, lookKey, NPC_LOOKS, type RGB } from './looks';
 import { Vfx } from './vfx';
+import { TacticalMap } from '../ui/tacticalMap';
 
 const BLUE: RGB = [0.25, 0.65, 1];
 const RED: RGB = [1, 0.16, 0.1];
@@ -215,6 +218,8 @@ export class Game {
   private readonly select: HeroSelect;
   private readonly sheet: HeroSheet;
   private readonly radar = new Radar();
+  private readonly map: TacticalMap;
+  private readonly gates = new BloodGatesView();
   private readonly vfx: Vfx;
   private readonly shadow;
   private readonly water: Mesh;
@@ -299,6 +304,7 @@ export class Game {
     this.water = this.makeWater();
     this.hud = new Hud(ui);
     this.hud.radarSlot.append(this.radar.canvas);
+    this.map = new TacticalMap(ui);
     this.sheet = new HeroSheet(ui);
     this.sheet.onClose = () => this.toggleSheet();
     this.select = new HeroSelect(ui, {
@@ -392,6 +398,9 @@ export class Game {
     this.flood = FLOOD_DRY;
     this.water.setEnabled(false);
     this.clearViews(true);
+    this.gates.dispose();
+    this.map.hide();
+    this.map.setLayout(null);
     this.arena?.dispose();
     this.arena = null;
     this.layout = null;
@@ -478,11 +487,20 @@ export class Game {
 
   private onKey(code: string): void {
     if (!this.info || !this.lobby) return;
-    if (code === 'KeyM') {
+    if (code === 'KeyN') {
       this.menus.toast(this.audio.toggleMute() ? 'Audio disattivato' : 'Audio attivo');
       return;
     }
+    if (code === 'KeyM') {
+      this.audio.play('ui');
+      this.map.toggle();
+      return;
+    }
     if (code === 'Escape') {
+      if (this.map.isOpen) {
+        this.map.hide();
+        return;
+      }
       if (this.sheet.isOpen) this.toggleSheet();
       else if (!this.menus.escape() && this.menus.panel === 'none') this.openHelp();
       return;
@@ -632,6 +650,7 @@ export class Game {
     this.layout = layout;
     this.arena?.dispose();
     this.arena = new Arena(this.scene, this.assets, layout, this.cam.cutPlane);
+    this.gates.rebuild(this.scene, layout);
     this.frames = [];
     this.hasOffset = false;
     this.me = null;
@@ -651,6 +670,8 @@ export class Game {
     this.clearViews(false);
     this.vfx.clear();
     this.radar.setLayout(layout, info.kind === 'hub');
+    this.map.setLayout(layout);
+    this.map.hide();
     this.hud.clearTexts();
     this.hud.setBoss(null);
     this.hud.setVote(null);
@@ -702,9 +723,26 @@ export class Game {
     this.alliesLite = s.p.map((p) => ({ id: p.id, x: p.x, z: p.z, downed: p.act === Act.Downed }));
     for (let i = 0; i < this.poisLite.length; i++) this.poisLite[i]!.ready = s.poi[i] === 1;
     this.flood = s.flood;
+    if (this.layout) {
+      const opened = this.gates.sync(s.gates, this.layout);
+      if (opened) this.celebrateGate(opened);
+    }
 
     this.reconcile(s);
     for (const ev of s.ev) this.onEvent(ev, frame);
+  }
+
+  private celebrateGate(gate: { cells: [number, number, number][] }): void {
+    const mid = gate.cells[Math.floor(gate.cells.length / 2)] ?? gate.cells[0];
+    if (!mid) return;
+    const x = mid[0] * CELL + CELL * 0.5;
+    const z = mid[1] * CELL + CELL * 0.5;
+    this.vfx.shockwave(x, z, 8, RED, 0.9);
+    this.vfx.pillar(x, z, 2.4, RED, 1.1, 14);
+    this.vfx.burst(x, 1.4, z, 48, RED, { speed: 8, life: 0.9, up: 4, gravity: 8, stretch: 0.04 });
+    this.audio.play('gbreak');
+    this.hud.banner('Sigillo di Sangue spezzato', 'La via è aperta', 2.8);
+    this.cam.addShake(0.55);
   }
 
   private get stepCtx(): StepCtx {
@@ -1063,6 +1101,12 @@ export class Game {
           this.cam.addShake(0.9);
         }
         break;
+      case 'gate': {
+        if (!this.layout) break;
+        const opened = this.gates.openGate(ev.id, this.layout);
+        if (opened) this.celebrateGate(opened);
+        break;
+      }
       case 'immune': {
         const e = frame.enemies.get(ev.id);
         if (!e) break;
@@ -1809,6 +1853,19 @@ export class Game {
       },
       dt,
     );
+
+    const gateSnap = latest?.s.gates;
+    this.map.draw({
+      x: meX,
+      z: meZ,
+      yaw: this.cam.yaw,
+      allies: radarAllies,
+      enemies: radarEnemies,
+      pois: layout.pois.map((p, i) => ({ x: p.x, z: p.z, kind: p.kind, state: latest?.s.poi[i] ?? 0, color: POI_COLOR[p.kind] })),
+      gates: (layout.def.gates ?? []).map((g, i) => ({ cells: g.cells, open: gateSnap?.[i]?.[0] === 1 })),
+      flood: this.flood,
+      seen: this.radar.fogMask(),
+    });
 
     // ---- ambience
     this.ambience(dt, meX, meZ);
@@ -2631,11 +2688,19 @@ export class Game {
               : poi.kind === 'shrine'
                 ? `Tieni premuto [${use}]: attiva il Santuario di Cura`
                 : `Tieni premuto [${use}]: apri il Terminale di Scelta`;
-        }         else if (npc) prompt = `[${use}] ${NPCS[npc].prompt}`;
+        } else if (npc) prompt = `[${use}] ${NPCS[npc].prompt}`;
         else if (inHub) prompt = this.touch.shown ? 'Il Tavolo della Mappa è al centro della sala' : 'Tavolo della Mappa al centro · [I] scheda · [C] cambia eroe · [B] bestiario';
+        else {
+          const near = this.gates.nearest(meX, meZ, this.layout!);
+          if (near && near.dist < CELL * 8) {
+            const p = near.progress;
+            const elite = p.needElites > 0 ? ` · élite ${p.elites}/${p.needElites}` : '';
+            prompt = `Sigillo di Sangue · ${p.kills}/${p.need}${elite}`;
+          }
+        }
       }
     }
-    hud.prompt(this.menus.open ? null : prompt);
+    hud.prompt(this.menus.open || this.map.isOpen ? null : prompt);
     hud.setDowned(downedText);
 
     const count = lobby ? lobby.players.length : 1;

@@ -78,7 +78,8 @@ const CONTROLS: [string, string, string][] = [
   ['Bestiario', 'B', '—'],
   ['Cambia eroe (solo in taverna)', 'C', '—'],
   ['Aiuto / pausa', 'H o Esc', 'Start'],
-  ['Audio sì/no', 'M', '—'],
+  ['Mappa tattica', 'M', '—'],
+  ['Audio sì/no', 'N', '—'],
 ];
 
 const RANK_NAMES: Record<EnemyDef['rank'], string> = {
@@ -499,9 +500,14 @@ export class Menus {
     const passive = view.passive;
     return [
       h('h3', { class: 'section', text: `Albero delle Abilità di ${def.name}` }),
-      h('p', { class: 'note', text: 'Due gradi comuni, poi un ramo e un vento. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese.' }),
+      h('p', { class: 'note', text: 'Due gradi comuni, poi un ramo e un vento. Il respec in taverna è illimitato e rimborsa tutte le Gemme spese. Partite nuove ricevono 1315 Gemme dell’Eclissi (budget del Blueprint).' }),
       h('section', { class: 'tree-slot' }, h('h4', { text: passive.name }), lines('p', passive.rows), lines('k', [passive.keystone])),
       ...ABILITY_SLOTS.map(slotBlock),
+      h('button', {
+        class: `btn ${spent === 0 ? 'primary' : 'disabled'}`,
+        text: spent === 0 ? 'Applica build del Blueprint' : 'Respec prima di applicare la build',
+        onclick: () => (spent === 0 ? this.act({ t: 'tree', op: 'blueprint', slot: '' }) : this.actions.sound('deny')),
+      }),
       h('button', {
         class: `btn ${spent > 0 ? '' : 'disabled'}`,
         text: spent > 0 ? `Respec completo · riavrai ${spent} Gemme` : 'Nessuna Gemma spesa su questo eroe',

@@ -97,6 +97,11 @@ export class Radar {
     return this.seen[cz * layout.w + cx] === 1;
   }
 
+  /** Fog mask for the tactical map (1 = revealed). */
+  fogMask(): Uint8Array {
+    return this.seen;
+  }
+
   draw(view: RadarView, dt: number): void {
     const layout = this.layout;
     if (!layout) return;

@@ -1344,6 +1344,27 @@ td {
   display: block;
 }
 
+.tactical-map {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(6, 4, 10, 0.55);
+}
+
+.tactical-map.hidden {
+  display: none;
+}
+
+.tactical-map canvas {
+  display: block;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(243, 231, 206, 0.35), 0 18px 48px rgba(0, 0, 0, 0.65);
+}
+
 .purse {
   display: flex;
   align-items: center;

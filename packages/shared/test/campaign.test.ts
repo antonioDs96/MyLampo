@@ -121,32 +121,43 @@ describe('campaign geography', () => {
 
   for (const id of CITY_IDS) {
     for (const env of CITIES[id].environments) {
-      it(`${env.id}: safe landing, shrine in a basin, chest on the heights, portal behind the Mini-Boss`, () => {
+      it(`${env.id}: safe landing, Blood Gates, portal behind the Mini-Boss`, () => {
         const layout = parseLayout(env.layout);
         const kinds = layout.pois.map((p) => p.kind);
         expect(kinds.filter((k) => k === 'portal').length).toBe(1);
         expect(kinds.filter((k) => k === 'shrine').length).toBeGreaterThanOrEqual(1);
         expect(kinds.filter((k) => k === 'chest').length).toBeGreaterThanOrEqual(1);
-        for (const p of layout.pois) {
-          if (id === 'badiscar') continue;
-          if (p.kind === 'shrine') expect(elevAt(layout, p.x, p.z)).toBe(-1);
-          if (p.kind === 'chest') expect(elevAt(layout, p.x, p.z)).toBe(2);
+        expect(layout.w).toBe(64);
+        expect(layout.h).toBe(64);
+        expect(env.layout.gates?.length ?? 0).toBeGreaterThanOrEqual(2);
+        for (const gate of env.layout.gates ?? []) {
+          expect(gate.cells.length).toBeGreaterThan(0);
+          expect(gate.guards.length).toBeGreaterThan(0);
+          expect(gate.kills).toBeGreaterThan(0);
         }
-        if (id === 'badiscar') {
-          expect(layout.w).toBe(64);
-          expect(layout.h).toBe(64);
-        }
-        // L'Approdo: elevation 0, and nothing hostile in it.
-        const approdo = env.nodes[0]!;
-        const end = (approdo.row + approdo.rows) * CELL;
+        // Landing: dry floor, and the garrison keeps clear of the party sockets.
+        const home = layout.playerSpawns[0]!;
         for (const s of layout.playerSpawns) expect(elevAt(layout, s.x, s.z)).toBe(0);
-        for (const f of layout.placed) expect(f.z).toBeGreaterThan(end);
-        for (const f of layout.shadows) expect(f.z).toBeGreaterThan(end);
-        // Exactly one Mini-Boss, standing in the last node.
-        const bosses = layout.placed.filter((f) => f.type === env.miniBoss);
-        expect(bosses.length).toBe(1);
-        const last = env.nodes[env.nodes.length - 1]!;
-        expect(bosses[0]!.z).toBeGreaterThan(last.row * CELL);
+        if (id === 'badiscar') {
+          const approdo = env.nodes[0]!;
+          const end = (approdo.row + approdo.rows) * CELL;
+          for (const f of layout.placed) expect(f.z).toBeGreaterThan(end);
+          for (const f of layout.shadows) expect(f.z).toBeGreaterThan(end);
+          const bosses = layout.placed.filter((f) => f.type === env.miniBoss);
+          expect(bosses.length).toBe(1);
+          const last = env.nodes[env.nodes.length - 1]!;
+          expect(bosses[0]!.z).toBeGreaterThan(last.row * CELL);
+        } else {
+          const clear = 6 * CELL;
+          for (const f of layout.placed) expect(Math.hypot(f.x - home.x, f.z - home.z)).toBeGreaterThan(clear);
+          for (const f of layout.shadows) expect(Math.hypot(f.x - home.x, f.z - home.z)).toBeGreaterThan(clear);
+          const bosses = layout.placed.filter((f) => f.type === env.miniBoss);
+          expect(bosses.length).toBe(1);
+          const portal = layout.pois.find((p) => p.kind === 'portal')!;
+          expect(Math.hypot(bosses[0]!.x - portal.x, bosses[0]!.z - portal.z)).toBeLessThan(
+            Math.hypot(home.x - portal.x, home.z - portal.z) * 0.7,
+          );
+        }
         // Shadow spawn points exist for companies larger than four.
         expect(layout.shadows.length).toBeGreaterThanOrEqual(6);
       });

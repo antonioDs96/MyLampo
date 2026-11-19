@@ -359,6 +359,8 @@ export type GameEvent =
   | { e: 'hook'; id: string; x: number; z: number }
   /** Toxic water rose (Leviatano). Level is the highest flooded elevation. */
   | { e: 'flood'; level: number }
+  /** A Blood Gate broke: its garrison fell. `id` is the gate's index in the layout. */
+  | { e: 'gate'; id: number }
   /** A boss shrugged off crowd control. */
   | { e: 'immune'; id: number }
   /** Player ping in the world and on the radar. */

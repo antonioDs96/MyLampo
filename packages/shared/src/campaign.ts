@@ -4,7 +4,7 @@
  * The beta is frozen on Regione 1, la Costa Est. Later regions open only by
  * defeating the Region Boss, and are listed here as locked destinations.
  */
-import { assemble, type NodeSpan } from './chunks';
+import { type NodeSpan } from './chunks';
 import { type LevelId } from './levels/LevelDataTypes';
 import { loadLevel } from './levels/LevelLoader';
 import { bakeDiorama } from './levels/toLayout';
@@ -57,39 +57,6 @@ export interface CityDef {
   boss: BossArenaDef;
 }
 
-interface EnvSpec {
-  id: string;
-  name: string;
-  blurb: string;
-  theme: Theme;
-  biome: Biome;
-  chunks: string[];
-  roster: { mobs: EnemyTypeId[]; elites: EnemyTypeId[]; boss: EnemyTypeId };
-}
-
-function environment(city: CityId, index: number, spec: EnvSpec): EnvironmentDef {
-  const built = assemble(spec.chunks);
-  const roster: Roster = spec.roster;
-  return {
-    id: spec.id,
-    city,
-    index,
-    name: spec.name,
-    blurb: spec.blurb,
-    miniBoss: spec.roster.boss,
-    nodes: built.nodes,
-    layout: {
-      id: spec.id,
-      name: spec.name,
-      theme: spec.theme,
-      biome: spec.biome,
-      rows: built.rows,
-      roster,
-      nodes: built.nodes,
-    },
-  };
-}
-
 function diorama(
   city: CityId,
   index: number,
@@ -122,6 +89,7 @@ function diorama(
       roster,
       nodes: baked.nodes,
       sealedVoid: true,
+      gates: baked.gates,
     },
   };
 }
@@ -136,6 +104,35 @@ function arena(
   rows: string[],
 ): BossArenaDef {
   return { id, name, blurb, boss, layout: { id, name, theme, biome, rows, roster: { mobs: [], elites: [], boss } } };
+}
+
+/** City Boss arenas authored as dioramas: the boss stands, the doors summon, the sea is sealed. */
+function dioramaArena(
+  id: string,
+  name: string,
+  blurb: string,
+  boss: EnemyTypeId,
+  theme: Theme,
+  biome: Biome,
+  level: LevelId,
+  adds: EnemyTypeId[] = [],
+): BossArenaDef {
+  const baked = bakeDiorama(loadLevel(level), true);
+  return {
+    id,
+    name,
+    blurb,
+    boss,
+    layout: {
+      id,
+      name,
+      theme,
+      biome,
+      rows: baked.rows,
+      roster: { mobs: adds, elites: [], boss },
+      sealedVoid: true,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------- Badiscar
@@ -187,29 +184,16 @@ const BADISCAR: CityDef = {
       },
     }),
   ],
-  boss: (() => {
-    const baked = bakeDiorama(loadLevel('masseus'), true);
-    return {
-      id: 'badiscar_boss',
-      name: 'Il Bastione di Masseus',
-      blurb: 'Arena quadrata sul mare, quattro colonne e il corsaro che le usa come freno. Dopo di lui si apre Kaza-Massel.',
-      boss: 'masseus' as const,
-      layout: {
-        id: 'badiscar_boss',
-        name: 'Il Bastione di Masseus',
-        theme: 'crypt' as const,
-        biome: 'coastal' as const,
-        rows: baked.rows,
-        roster: { mobs: [], elites: [], boss: 'masseus' },
-        sealedVoid: true,
-      },
-    };
-  })(),
+  boss: dioramaArena(
+    'badiscar_boss',
+    'Il Bastione di Masseus',
+    'Arena quadrata sul mare, quattro colonne e il corsaro che le usa come freno. Dopo di lui si apre Kaza-Massel.',
+    'masseus',
+    'crypt',
+    'coastal',
+    'masseus',
+  ),
 };
-
-// Ujian and Kaza-Massel stay on these chunk maps. A later pass replaces each
-// city through diorama(), the same matrix as Badiscar, and only then changes
-// topography and encounter design.
 
 // ---------------------------------------------------------------------------- Ujian
 
@@ -220,39 +204,39 @@ const UJIAN: CityDef = {
   blurb: "Calcare antico e magia sorvegliata. L'acqua è salita fino ai giardini e alla biblioteca.",
   color: '#a855f7',
   environments: [
-    environment('ujian', 0, {
-      id: 'ujian_moli',
-      name: 'I Moli dei Mercanti',
-      blurb: 'Le banchine dei Pesatori. Chi non paga il dazio lo paga comunque.',
+    diorama('ujian', 0, {
+      id: 'ujian_ponte',
+      name: 'Il Ponte delle Sirene',
+      blurb: 'Viadotto sospeso sull’abisso. Chi non paga il dazio lo paga comunque.',
       theme: 'alley',
       biome: 'urban',
-      chunks: ['cancello', 'piazza_fontana', 'bivio_torre', 'assedio_bastioni~', 'arena_tonda'],
+      level: 'ujian_ponte',
       roster: {
         mobs: ['corsaro_annegato', 'contrabbandiere_alchemico', 'predone_sahuagin', 'corsaro_annegato'],
         elites: ['sirena_abisso', 'nostromo_senzocchi'],
         boss: 'esattore_maree',
       },
     }),
-    environment('ujian', 1, {
-      id: 'ujian_giardini',
-      name: 'I Giardini Pensili Sommersi',
+    diorama('ujian', 1, {
+      id: 'ujian_terrazze',
+      name: 'Le Terrazze del Sale',
       blurb: 'Terrazze fiorite sotto un velo di spore. Respirate poco e non fermatevi.',
       theme: 'cathedral',
       biome: 'wild',
-      chunks: ['molo', 'vicolo_salita~', 'bivio_scala~', 'assedio_terrazze~', 'arena_canali'],
+      level: 'ujian_terrazze',
       roster: {
         mobs: ['sciame_polpi', 'granchio_pietra', 'contrabbandiere_alchemico', 'sciame_polpi'],
         elites: ['madre_spore', 'sirena_abisso'],
         boss: 'matriarca_spore',
       },
     }),
-    environment('ujian', 2, {
-      id: 'ujian_biblioteca',
-      name: 'La Biblioteca Allagata',
+    diorama('ujian', 2, {
+      id: 'ujian_tempio',
+      name: 'Il Tempio Sommerso',
       blurb: 'Scaffali sommersi e una voce che spegne le formule in gola.',
       theme: 'cathedral',
       biome: 'urban',
-      chunks: ['cancello~', 'canale~', 'bivio_tetti~', 'assedio_fossa', 'arena_palchi'],
+      level: 'ujian_tempio',
       roster: {
         mobs: ['corsaro_annegato', 'sciame_polpi', 'contrabbandiere_alchemico', 'granchio_pietra'],
         elites: ['sirena_abisso', 'madre_spore'],
@@ -260,28 +244,14 @@ const UJIAN: CityDef = {
       },
     }),
   ],
-  boss: arena(
+  boss: dioramaArena(
     'ujian_boss',
     "L'Aula dell'Arconte",
     "La sala del consiglio, sott'acqua da anni. L'Arconte presiede ancora.",
     'arconte_ujian',
     'cathedral',
     'urban',
-    [
-      '#######################',
-      '#########PPPPP#########',
-      '########.PPPP..########',
-      '####...............####',
-      '###..o...........o..###',
-      '#E...................E#',
-      '###......^^^^^......###',
-      '###..o...^^B^^...o..###',
-      '###......^^^^^......###',
-      '#E...................E#',
-      '###..o...........o..###',
-      '####...............####',
-      '#######################',
-    ],
+    'ujian_soglia',
   ),
 };
 
@@ -294,39 +264,39 @@ const KAZA: CityDef = {
   blurb: 'Nessuno comanda, tutti riscuotono. La magia selvaggia scorre nei canali di scolo.',
   color: '#f97316',
   environments: [
-    environment('kaza', 0, {
-      id: 'kaza_bassifondi',
-      name: 'I Bassifondi del Sindacato',
-      blurb: 'Vicoli che cambiano padrone ogni notte. Guardatevi le spalle, letteralmente.',
+    diorama('kaza', 0, {
+      id: 'kaza_canali',
+      name: 'I Canali della Dogana Vecchia',
+      blurb: 'Chiuse gemelle, loggia del contrabbando e il molo nord-est. Guardatevi le spalle.',
       theme: 'alley',
       biome: 'urban',
-      chunks: ['molo', 'vicolo_salita', 'bivio_tetti', 'assedio_bastioni', 'arena_tonda'],
+      level: 'kaza_canali',
       roster: {
         mobs: ['tagliagole_reietti', 'contrabbandiere_alchemico', 'tagliagole_reietti', 'corsaro_annegato'],
         elites: ['esecutore_kaza', 'nostromo_senzocchi'],
         boss: 'capo_sindacato',
       },
     }),
-    environment('kaza', 1, {
-      id: 'kaza_canali',
-      name: 'I Canali della Magia Selvaggia',
-      blurb: "L'etere cola nei canali e ciò che ci vive dentro non ha più un nome.",
+    diorama('kaza', 1, {
+      id: 'kaza_saline',
+      name: 'Le Saline Sommerse',
+      blurb: "Vasche di evaporazione e diga di sale. L'etere cola nei canali e ciò che ci vive non ha più un nome.",
       theme: 'crypt',
       biome: 'urban',
-      chunks: ['cancello', 'canale', 'bivio_scala', 'assedio_fossa~', 'arena_canali'],
+      level: 'kaza_saline',
       roster: {
         mobs: ['granchio_pietra', 'contrabbandiere_alchemico', 'sciame_polpi', 'tagliagole_reietti'],
         elites: ['madre_spore', 'esecutore_kaza'],
         boss: 'alchimista_folle',
       },
     }),
-    environment('kaza', 2, {
-      id: 'kaza_arena',
-      name: "L'Arena dei Reietti",
-      blurb: 'La fossa dove Kaza-Massel regola i conti. Il Campione non ha mai perso.',
+    diorama('kaza', 2, {
+      id: 'kaza_cittadella',
+      name: 'La Cittadella di Kaza',
+      blurb: 'Bastione d’assedio e sala d’armi. Il Campione non ha mai perso.',
       theme: 'inn',
       biome: 'urban',
-      chunks: ['molo~', 'ponte_rotto~', 'bivio_torre~', 'assedio_terrazze~', 'arena_palchi'],
+      level: 'kaza_cittadella',
       roster: {
         mobs: ['tagliagole_reietti', 'predone_sahuagin', 'corsaro_annegato', 'tagliagole_reietti'],
         elites: ['esecutore_kaza', 'sirena_abisso'],
@@ -334,28 +304,14 @@ const KAZA: CityDef = {
       },
     }),
   ],
-  boss: arena(
+  boss: dioramaArena(
     'kaza_boss',
-    'Il Trono di Rottami',
-    'Un regno fatto di relitti e di etere. Il Re dei Reietti vi aspetta in piedi.',
+    'Il Molo del Velo',
+    'Laguna di nebbie e due fari. Il Re dei Reietti vi aspetta in piedi.',
     're_reietti',
     'inn',
     'urban',
-    [
-      '#######################',
-      '#########PPPPP#########',
-      '########.PPPP..########',
-      '###.................###',
-      '##..__...........__..##',
-      '#E.._=...........=_..E#',
-      '##..__...........__..##',
-      '#..........B..........#',
-      '##..__...........__..##',
-      '#E.._=...........=_..E#',
-      '##..__...........__..##',
-      '###.................###',
-      '#######################',
-    ],
+    'kaza_molo',
   ),
 };
 

@@ -7,6 +7,7 @@ import { BOUNTY_BY_ID } from './bounties';
 import { CITY_BOSS_STAGE, CITY_IDS, type CityId } from './campaign';
 import { COSMETIC_BY_ID, emptyLoadout, sanitizeLoadout, type Loadout, type LoadoutSlot } from './cosmetics';
 import { HEROES } from './heroes';
+import { HERO_BY_ID } from './handoff/heroesTreeCatalog';
 import {
   canBuyNode,
   emptyNode,
@@ -17,6 +18,9 @@ import {
   type ShopSlot,
 } from './skillTree';
 import type { HeroId } from './types';
+
+/** Blueprint Gem budget: enough for the published hero builds (albereth totals 1315). */
+export const STARTER_GEMS = 1315;
 
 export interface Profile {
   /** Gemme dell'Eclissi in the bank. */
@@ -36,6 +40,8 @@ export interface Profile {
   /** Contract signed with Eleonora ('' = none). */
   bounty: string;
   bountiesPaid: number;
+  /** True once the one-time blueprint Gem grant has been applied. */
+  starter: boolean;
 }
 
 export function emptyProfile(): Profile {
@@ -51,7 +57,17 @@ export function emptyProfile(): Profile {
     regionCleared: false,
     bounty: '',
     bountiesPaid: 0,
+    starter: false,
   };
+}
+
+/** One-time blueprint Gem budget. Call when a profile is born or loaded from storage. */
+export function grantStarter(profile: Profile): Profile {
+  if (profile.starter) return profile;
+  const spent = HERO_IDS.some((hero) => treeSpent(hero, profile.trees[hero] ?? emptyTree()) > 0);
+  if (!spent && profile.gems === 0) profile.gems = STARTER_GEMS;
+  profile.starter = true;
+  return profile;
 }
 
 const HERO_IDS = Object.keys(HEROES) as HeroId[];
@@ -68,6 +84,7 @@ export function sanitizeProfile(raw: unknown): Profile {
   const r = raw as Record<string, unknown>;
   out.gems = count(r.gems);
   out.threads = count(r.threads);
+  out.starter = r.starter === true;
   if (Array.isArray(r.owned)) {
     for (const id of r.owned) {
       if (typeof id === 'string' && COSMETIC_BY_ID[id] && !out.owned.includes(id)) out.owned.push(id);
@@ -93,7 +110,7 @@ export function sanitizeProfile(raw: unknown): Profile {
   const bounty = String(r.bounty ?? '');
   if (BOUNTY_BY_ID[bounty]) out.bounty = bounty;
   out.bountiesPaid = count(r.bountiesPaid);
-  return out;
+  return grantStarter(out);
 }
 
 export function treeOf(profile: Profile, hero: HeroId): HeroTree {
@@ -134,6 +151,39 @@ export function buyNode(profile: Profile, hero: HeroId, slot: ShopSlot, choice: 
     if (node.tier === 5) node.wind = choice;
   }
   profile.trees[hero] = next;
+  return { ok: true };
+}
+
+/**
+ * Iej: one-click blueprint build. Buys the published path for this hero
+ * (Special A→first wind to tier 5, Ultimate A to tier 4, passive 2, keystone).
+ * The tree must be empty; refund first if anything is already spent.
+ */
+export function applyBlueprintBuild(profile: Profile, hero: HeroId): ShopResult {
+  if (!(hero in HEROES)) return { ok: false, why: 'Scegli prima un eroe.' };
+  if (treeSpent(hero, treeOf(profile, hero)) > 0) {
+    return { ok: false, why: 'Hai già speso Gemme su questo eroe: rimborsale prima.' };
+  }
+  const route = HERO_BY_ID[hero]?.specialE.branches.find((branch) => branch.branch === 'A');
+  const wind = Object.keys(route?.windRoutes ?? {})[0] ?? 'SCIROCCO';
+  const steps: [ShopSlot, string][] = [
+    ['p', ''],
+    ['p', ''],
+    ['e', ''],
+    ['e', ''],
+    ['e', 'A'],
+    ['e', 'A'],
+    ['e', wind],
+    ['r', ''],
+    ['r', ''],
+    ['r', 'A'],
+    ['r', 'A'],
+    ['k', ''],
+  ];
+  for (const [slot, choice] of steps) {
+    const res = buyNode(profile, hero, slot, choice);
+    if (!res.ok) return res;
+  }
   return { ok: true };
 }
 

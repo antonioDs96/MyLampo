@@ -39,6 +39,7 @@ import type { QuipFacts, QuipWriter } from './quips';
 import { HEROES, type AttackDef } from './heroes';
 import { fairShare, partyAttackSlots, shadowSpawnCount, zergDamage } from './partyScale';
 import {
+  CELL,
   buildFlow,
   canStep,
   collide,
@@ -48,8 +49,10 @@ import {
   meleeHeightBlocked,
   nearestAtElevation,
   nearestFloor,
+  setGateSealed,
   sightBlocked,
   standElevation,
+  type GateDef,
   type Layout,
   type Point,
 } from './layout';
@@ -178,6 +181,17 @@ export interface PoiState {
   state: number;
 }
 
+/** A Blood Gate and the toll its garrison still owes. */
+export interface GateState {
+  def: GateDef;
+  open: boolean;
+  kills: number;
+  elites: number;
+  /** Guards that must fall, capped by the garrison that actually stands in this run. */
+  need: number;
+  needElites: number;
+}
+
 /** Instanced loot: only `owner` sees it and only `owner` can pick it up. */
 export interface Drop {
   id: number;
@@ -282,6 +296,10 @@ export class World {
 
   /** Chests, shrines and the Extraction Portal of this map. */
   readonly pois: PoiState[] = [];
+  /** Blood Gates, in layout order. */
+  readonly gates: GateState[] = [];
+  /** The gate each guard holds. */
+  private readonly guardOf = new Map<number, number>();
   /** Instanced loot lying on the ground. */
   drops: Drop[] = [];
   /** What each hero picked up in this map. */
@@ -346,6 +364,7 @@ export class World {
     this.ctx = { layout: this.layout, enemies: this.lite, allies: this.allies, pois: this.poiLite };
     for (const d of this.layout.dummySpawns) this.spawnEnemy('manichino', d.x, d.z);
     const boss = this.layout.def.roster?.boss;
+    const posted = new Map<string, EnemyState>();
     for (const g of this.layout.placed) {
       const e = this.spawnEnemy(g.type as EnemyTypeId, g.x, g.z);
       e.state = EState.Idle;
@@ -354,7 +373,9 @@ export class World {
       e.cool = this.rng.range(0.4, 1.8);
       this.garrison.add(e.id);
       if (g.type === boss) this.bossId = e.id;
+      posted.set(`${Math.floor(g.x / CELL)},${Math.floor(g.z / CELL)}`, e);
     }
+    this.raiseGates(posted);
     for (const s of this.layout.shadows) this.shadows.push({ type: s.type as EnemyTypeId, x: s.x, z: s.z, done: false });
     for (const poi of this.layout.pois) {
       // The portal stays shut until the Mini-Boss falls.
@@ -915,7 +936,41 @@ export class World {
     if (def.burst) this.addZone('burst', e.x, e.z, 3, 0.9, '', def.burst);
     if (!this.safe && !def.dummy && !this.summoned.has(e.id)) this.dropLoot(e, def);
     this.summoned.delete(e.id);
+    const gate = this.guardOf.get(e.id);
+    if (gate !== undefined) this.guardFell(gate, def);
     if (e.id === this.bossId) this.bossFell(e, def);
+  }
+
+  /** Seals every Blood Gate the garrison holds. A gate nobody guards in this run stays open. */
+  private raiseGates(posted: Map<string, EnemyState>): void {
+    for (const [index, def] of (this.layout.def.gates ?? []).entries()) {
+      let guards = 0;
+      let elites = 0;
+      for (const [cx, cz] of def.guards) {
+        const e = posted.get(`${cx},${cz}`);
+        if (!e || this.guardOf.has(e.id)) continue;
+        this.guardOf.set(e.id, index);
+        guards++;
+        if (ENEMIES[e.type].elite) elites++;
+      }
+      const need = Math.min(def.kills, guards);
+      const gate: GateState = { def, open: need === 0, kills: 0, elites: 0, need, needElites: Math.min(def.elites, elites) };
+      this.gates.push(gate);
+      if (!gate.open) setGateSealed(this.layout, def, true);
+    }
+  }
+
+  private guardFell(index: number, def: EnemyDef): void {
+    const gate = this.gates[index];
+    if (!gate || gate.open) return;
+    gate.kills++;
+    if (def.elite) gate.elites++;
+    if (gate.kills < gate.need || gate.elites < gate.needElites) return;
+    gate.open = true;
+    setGateSealed(this.layout, gate.def, false);
+    this.flows.clear();
+    this.events.push({ e: 'gate', id: index });
+    this.events.push({ e: 'say', who: 'Sigillo di Sangue', text: 'Il sangue versato basta: il sigillo si spezza.' });
   }
 
   /** The boss of the map is dead: the portal opens and the survivors breathe. */

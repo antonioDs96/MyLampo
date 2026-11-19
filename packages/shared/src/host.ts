@@ -31,11 +31,13 @@ import { HUB_LINES } from './lore';
 import { clonePlayer, neutralCmd } from './player';
 import {
   bountiesUnlocked,
+  applyBlueprintBuild,
   buyCosmetic,
   buyNode,
   checkpointOf,
   emptyProfile,
   equipCosmetic,
+  grantStarter,
   isProfileId,
   loadoutOf,
   regionBossUnlocked,
@@ -306,7 +308,8 @@ export class GameHost {
     for (const o of this.clients.values()) if (o !== c && o.profileId === raw) return;
     const fresh = c.profile;
     c.profileId = raw;
-    c.profile = this.archive?.load(raw) ?? emptyProfile();
+    const saved = this.archive?.load(raw);
+    c.profile = saved ?? grantStarter(emptyProfile());
     // Anything earned before the client introduced itself is kept.
     c.profile.gems += fresh.gems;
     c.profile.threads += fresh.threads;
@@ -345,6 +348,8 @@ export class GameHost {
     } else if (op === 'buy') {
       if (!(TREE_SLOTS as string[]).includes(slot)) return;
       if (this.deny(c, buyNode(c.profile, c.hero, slot as ShopSlot, path))) return;
+    } else if (op === 'blueprint') {
+      if (this.deny(c, applyBlueprintBuild(c.profile, c.hero))) return;
     } else return;
     this.world.retune(c.id, treeOf(c.profile, c.hero));
     this.pushProfile(c);
@@ -941,6 +946,7 @@ export class GameHost {
       syn: [...world.synergy],
       left: world.enemiesLeft(),
       time: Math.round(world.time * 10) / 10,
+      gates: world.gates.map((g) => [g.open ? 1 : 0, g.kills, g.need, g.elites, g.needElites]),
     };
   }
 }

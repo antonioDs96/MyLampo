@@ -200,6 +200,7 @@ describe('skill tree', () => {
 
   it('cannot buy without Gems', () => {
     const profile = emptyProfile();
+    profile.gems = 0;
     expect(buyNode(profile, 'jusef', 'r', '').ok).toBe(false);
     expect(profile.trees.jusef).toBeUndefined();
   });

@@ -169,6 +169,8 @@ export interface Snapshot {
   left: number;
   /** Seconds since this map started. */
   time: number;
+  /** Blood Gates in layout order: [open 0|1, guards slain, guards needed, elites slain, elites needed]. */
+  gates?: number[][];
 }
 
 export type ClientMsg =
@@ -187,7 +189,7 @@ export type ClientMsg =
   /** Ping system: mark a spot in the world and on the radar. */
   | { t: 'mark'; kind: PingKind; x: number; z: number }
   /** Iej. */
-  | { t: 'tree'; op: 'buy' | 'respec'; slot: string; path?: string }
+  | { t: 'tree'; op: 'buy' | 'respec' | 'blueprint'; slot: string; path?: string }
   /** Saraya. */
   | { t: 'cosm'; op: 'buy' | 'equip'; id: string; slot?: string }
   /** Eleonora (Host only). An empty id tears the contract up. */

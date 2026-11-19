@@ -1,8 +1,8 @@
 /**
  * Turns a handoff diorama into the BuiltLevel the campaign already bakes.
  * Garrison counts have no coordinates in the catalog, so each unit is seated
- * on a free walkable cell of its zone. Blood gates stay open: the live layout
- * cannot raise a wall and lower it again.
+ * on a free walkable cell of its zone. Blood gates travel with the level and
+ * the World seals them when the map starts; nobody is seated on a gate cell.
  */
 import { NavGrid } from '../navigation/NavMeshService';
 import { compileDiorama, type CompiledDioramaResult } from '../handoff/levelCompiler';
@@ -13,6 +13,7 @@ import {
   POIType,
   type ElevationLevel,
   type EnemySpawnDef,
+  type GateSpawnDef,
   type LevelId,
   type POIDef,
   type Vector2D,
@@ -24,7 +25,18 @@ const LEVEL_OF: Record<string, LevelId> = {
   badiscar_porto: 'porto',
   badiscar_cave: 'grotte',
   badiscar_masseus_arena: 'masseus',
+  kaza_canali: 'kaza_canali',
+  kaza_saline: 'kaza_saline',
+  kaza_cittadella: 'kaza_cittadella',
+  kaza_boss_arena: 'kaza_molo',
+  ujian_ponte: 'ujian_ponte',
+  ujian_terrazze: 'ujian_terrazze',
+  ujian_tempio: 'ujian_tempio',
+  ujian_boss_arena: 'ujian_soglia',
 };
+
+/** No garrison stands this close (in cells) to the party spawn of a map outside Badiscar. */
+const SPAWN_CLEARANCE = 7;
 
 interface Cell {
   x: number;
@@ -54,6 +66,7 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
   }
 
   const pois = poisOf(spec, compiled);
+  const gates = gatesOf(spec, compiled);
   const reserved = new Set<string>();
   for (const poi of pois) {
     if (poi.type === POIType.PILASTRO_BASTIONE) continue;
@@ -61,6 +74,7 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
       for (let dx = -1; dx <= 1; dx++) reserved.add(`${poi.gridX + dx},${poi.gridZ + dz}`);
     }
   }
+  for (const gate of gates) for (const cell of gate.cells) reserved.add(`${cell.x},${cell.z}`);
   const spawns = spawnsOf(id, spec, compiled, reserved);
   const spawn = pois.find((poi) => poi.type === POIType.SPAWN_PARTY);
   const origin = spawn ? grid.cellCenter(spawn.gridX, spawn.gridZ) : { x: 0, z: 0 };
@@ -68,6 +82,7 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
   for (const oz of [-2, 0, 2]) {
     for (const ox of [-2, 0, 2]) sockets.push({ x: origin.x + ox, z: origin.z + oz });
   }
+  const arena = spec.kind === 'boss_arena';
   return {
     id,
     name: spec.name,
@@ -79,7 +94,77 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
     sockets,
     sporeHazard: id === 'grotte',
     wallMaterial: materialAt(spec, 2),
+    gates,
+    bossCell: arena ? arenaCentre(compiled) ?? undefined : undefined,
+    doors: arena && spec.city !== 'badiscar' ? arenaDoors(spec, compiled) : undefined,
   };
+}
+
+function gatesOf(spec: DioramaSpec, compiled: CompiledDioramaResult): GateSpawnDef[] {
+  const gates: GateSpawnDef[] = [];
+  for (const zone of Object.values(spec.zones)) {
+    const gate = zone.bloodGate;
+    if (!gate || !gate.isSealedOnInit) continue;
+    const cells = gate.gateCells
+      .filter((cell) => cell.x >= 0 && cell.y >= 0 && cell.x < compiled.size && cell.y < compiled.size)
+      .filter((cell) => compiled.walkableGrid[cell.y * compiled.size + cell.x] === 1)
+      .map((cell) => ({ x: cell.x, z: cell.y }));
+    if (cells.length === 0) continue;
+    gates.push({ id: gate.id, zone: zone.zoneId, cells, kills: gate.requiredTotalKills, elites: gate.requiredEliteKills });
+  }
+  return gates;
+}
+
+/** The walkable floor nearest the middle of an arena, dry ground first. */
+function arenaCentre(compiled: CompiledDioramaResult): Cell | null {
+  const mid = (compiled.size - 1) / 2;
+  let best: Cell | null = null;
+  let bestScore = Infinity;
+  for (let z = 0; z < compiled.size; z++) {
+    for (let x = 0; x < compiled.size; x++) {
+      const key = z * compiled.size + x;
+      if (compiled.walkableGrid[key] !== 1 || !compiled.reachableCells.has(key)) continue;
+      const score = Math.hypot(x - mid, z - mid) + (compiled.elevationGrid[key] === 0 ? 0 : 3);
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, z };
+      }
+    }
+  }
+  return best;
+}
+
+/** Four doors around the arena for the boss's summons, on dry floor away from the party. */
+function arenaDoors(spec: DioramaSpec, compiled: CompiledDioramaResult): Vector2D[] {
+  const size = compiled.size;
+  const mid = (size - 1) / 2;
+  const reach = size * 0.3;
+  const doors: Vector2D[] = [];
+  for (const [ax, az] of [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ] as const) {
+    let best: Cell | null = null;
+    let bestScore = Infinity;
+    for (let z = 0; z < size; z++) {
+      for (let x = 0; x < size; x++) {
+        const key = z * size + x;
+        if (compiled.walkableGrid[key] !== 1 || !compiled.reachableCells.has(key)) continue;
+        if (compiled.elevationGrid[key] !== 0) continue;
+        if (Math.max(Math.abs(x - spec.spawn.x), Math.abs(z - spec.spawn.y)) < 6) continue;
+        if (doors.some((door) => Math.max(Math.abs(door.x - x), Math.abs(door.z - z)) < 4)) continue;
+        const score = Math.hypot(x - (mid + ax * reach), z - (mid + az * reach));
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x, z };
+        }
+      }
+    }
+    if (best) doors.push(best);
+  }
+  return doors;
 }
 
 function materialAt(spec: DioramaSpec, elevation: ElevationLevel): MaterialType {
@@ -228,9 +313,13 @@ function spawnsOf(id: LevelId, spec: DioramaSpec, compiled: CompiledDioramaResul
   const used = new Set(reserved);
   const spawns: EnemySpawnDef[] = [];
   const arena = spec.kind === 'boss_arena';
-  const minZ = arena ? 0 : 8;
+  // Badiscar keeps its first eight rows (the landing) clear. Elsewhere the party can enter from any side.
+  const away =
+    spec.city === 'badiscar'
+      ? (cell: Cell) => arena || cell.z >= 8
+      : (cell: Cell) => Math.max(Math.abs(cell.x - spec.spawn.x), Math.abs(cell.z - spec.spawn.y)) >= SPAWN_CLEARANCE;
   let n = 0;
-  const push = (type: EnemyType, cell: Cell, min: 1 | 4 | 7) => {
+  const push = (type: EnemyType, cell: Cell, min: 1 | 4 | 7, zone?: string) => {
     spawns.push({
       id: `${id}-${type}-${cell.x}-${cell.z}-${n++}`,
       type,
@@ -238,12 +327,13 @@ function spawnsOf(id: LevelId, spec: DioramaSpec, compiled: CompiledDioramaResul
       gridZ: cell.z,
       facingAngleDeg: 180,
       minPlayersRequired: min,
+      zone,
     });
     used.add(`${cell.x},${cell.z}`);
   };
 
   for (const zone of Object.values(spec.zones)) {
-    const cells = zoneCells(compiled, zone.zoneId, used, minZ);
+    const cells = zoneCells(compiled, zone.zoneId, used, away);
     const elevOf = (cell: Cell) => clampElevation(compiled.elevationGrid[cell.z * compiled.size + cell.x]!);
     const low = cells.filter((cell) => elevOf(cell) === -1);
     const dry = cells.filter((cell) => elevOf(cell) !== -1);
@@ -257,14 +347,14 @@ function spawnsOf(id: LevelId, spec: DioramaSpec, compiled: CompiledDioramaResul
       [EnemyType.GRANCHIO_PIETRA, zone.garrison.hazardTraps, low.length > 0 ? low : cells],
     ];
     for (const [type, count, pool] of jobs) {
-      for (const cell of pick(pool, count, used)) push(type, cell, 1);
+      for (const cell of pick(pool, count, used)) push(type, cell, 1, zone.zoneId);
     }
   }
 
   if (!arena) {
     const bossType =
       id === 'porto' ? EnemyType.MINIBOSS_ANCORA : id === 'grotte' ? EnemyType.MINIBOSS_MADRE : EnemyType.MINIBOSS_NOSTROMO;
-    const boss = bossCell(compiled, spec, used);
+    const boss = spec.city === 'badiscar' ? bossCell(compiled, spec, used) : portalGuardCell(compiled, spec, used);
     if (boss) push(bossType, boss, 1);
     let shadows = spawns.filter((spawn) => spawn.minPlayersRequired > 1).length;
     for (const spawn of spawns) {
@@ -285,13 +375,13 @@ function spawnsOf(id: LevelId, spec: DioramaSpec, compiled: CompiledDioramaResul
   return spawns;
 }
 
-function zoneCells(compiled: CompiledDioramaResult, zoneId: string, used: Set<string>, minZ: number): Cell[] {
+function zoneCells(compiled: CompiledDioramaResult, zoneId: string, used: Set<string>, away: (cell: Cell) => boolean): Cell[] {
   const cells: Cell[] = [];
-  for (let z = minZ; z < compiled.size; z++) {
+  for (let z = 0; z < compiled.size; z++) {
     for (let x = 0; x < compiled.size; x++) {
       const key = z * compiled.size + x;
       if (compiled.zoneGrid[key] !== zoneId || compiled.walkableGrid[key] !== 1) continue;
-      if (!compiled.reachableCells.has(key) || used.has(`${x},${z}`)) continue;
+      if (!compiled.reachableCells.has(key) || used.has(`${x},${z}`) || !away({ x, z })) continue;
       cells.push({ x, z });
     }
   }
@@ -318,6 +408,32 @@ function pick(cells: Cell[], count: number, used: Set<string>): Cell[] {
     out.push(found);
   }
   return out;
+}
+
+/** The Mini-Boss holds the portal's zone: dry floor nearest its middle, a few steps from the portal. */
+function portalGuardCell(compiled: CompiledDioramaResult, spec: DioramaSpec, used: Set<string>): Cell | null {
+  const size = compiled.size;
+  const portalZone = compiled.zoneGrid[spec.portal.y * size + spec.portal.x];
+  const zone = Object.values(spec.zones).find((entry) => entry.zoneId === portalZone);
+  const bounds = zone?.boundingBox;
+  const midX = bounds ? (bounds.minX + bounds.maxX) / 2 : spec.portal.x;
+  const midZ = bounds ? (bounds.minY + bounds.maxY) / 2 : spec.portal.y;
+  let best: Cell | null = null;
+  let bestScore = Infinity;
+  for (let z = 0; z < size; z++) {
+    for (let x = 0; x < size; x++) {
+      const key = z * size + x;
+      if (compiled.zoneGrid[key] !== portalZone || compiled.walkableGrid[key] !== 1) continue;
+      if (!compiled.reachableCells.has(key) || used.has(`${x},${z}`)) continue;
+      if (Math.max(Math.abs(x - spec.portal.x), Math.abs(z - spec.portal.y)) < 3) continue;
+      const score = Math.hypot(x - midX, z - midZ) + (compiled.elevationGrid[key] === 0 ? 0 : 4);
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x, z };
+      }
+    }
+  }
+  return best;
 }
 
 function bossCell(compiled: CompiledDioramaResult, spec: DioramaSpec, used: Set<string>): Cell | null {
