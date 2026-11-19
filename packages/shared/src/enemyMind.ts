@@ -1,9 +1,6 @@
 /**
  * Each enemy type plays a character: who it hunts, how it moves, which attack it prefers.
  * Beating them is a read — not a DPS race. Scoring is deterministic so tests (and players) can trust it.
- *
- * A MindHint is Jev's latest legal choice. The mind still owns the rules: range, phase,
- * downed heroes and the training dummy are never overridden. Without a hint, the persona decides alone.
  */
 import { HEROES, type Archetype } from './heroes';
 import { Act, type ActId, type EnemyTypeId, type HeroId } from './types';
@@ -24,176 +21,6 @@ export type EnemyMind =
   | 'warden';
 
 export type SteerMode = 'chase' | 'kite' | 'flank' | 'backstep' | 'circle' | 'hold';
-
-/** The kind of attack a hero can learn to fear. */
-export type AttackFamily = 'blue' | 'red' | 'shot' | 'blast' | 'rush';
-
-export interface SufferRead {
-  /** Family that has actually been hurting this hero. */
-  family: AttackFamily | '';
-  /** Family this hero keeps stopping. */
-  resisted: AttackFamily | '';
-}
-
-export type TauntTone = 'cruel' | 'mock' | 'dry';
-
-export interface RoomOrder {
-  focusId: string | null;
-  punish: AttackFamily | 'mix' | null;
-  shape: 'surround' | 'peel' | 'hold' | null;
-  tone: TauntTone | null;
-  until: number;
-}
-
-const FAMILY_IT: Record<AttackFamily, string> = {
-  blue: 'i blu',
-  red: 'i rossi',
-  shot: 'i dardi',
-  blast: 'le aree',
-  rush: 'le cariche',
-};
-
-/** Italian name of an attack family, the same words the banner uses. */
-export function familyWordIt(family: AttackFamily): string {
-  return FAMILY_IT[family];
-}
-
-function lineOf(lines: string[], salt: string, avoid = ''): string {
-  let h = 0;
-  for (let i = 0; i < salt.length; i++) h = (h * 33 + salt.charCodeAt(i)) >>> 0;
-  const start = h % lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[(start + i) % lines.length]!;
-    if (line !== avoid) return line;
-  }
-  return lines[start]!;
-}
-
-/** A short Italian taunt: unhinged irony. Jev picks a shade; the words stay in the game. */
-export function tauntLine(args: {
-  who: string;
-  hero: string;
-  read: SufferRead;
-  punish: RoomOrder['punish'];
-  shape: RoomOrder['shape'];
-  tone: TauntTone;
-  /** Advances the line so the same observation does not repeat the last sentence. */
-  n?: number;
-  avoid?: string;
-  /** Someone else is eating the hits while this hero watches. */
-  witness?: { hero: string; family: AttackFamily };
-}): { who: string; text: string } {
-  const fam = args.read.family ? FAMILY_IT[args.read.family] : args.punish && args.punish !== 'mix' ? FAMILY_IT[args.punish] : '';
-  const stopped = args.read.resisted ? FAMILY_IT[args.read.resisted] : '';
-  const seen = args.witness ? FAMILY_IT[args.witness.family] : '';
-  const salt = `${args.hero}|${args.tone}|${fam}|${seen}|${args.witness?.hero ?? ''}|${args.shape ?? ''}|${args.n ?? 0}`;
-  let lines: string[];
-  if (fam) {
-    lines = [
-      `${args.hero}, ${fam} ti usano da sacco.`,
-      `Oh ${args.hero}, ${fam} ti schiaffeggiano.`,
-      `${args.hero}, ${fam} ti piegano il mento.`,
-      `${args.hero}, ${fam} hanno scelto il molle.`,
-      `Ancora ${fam}, ${args.hero}? Bersaglio perfetto.`,
-      `${args.hero}, ${fam} ridono di te.`,
-    ];
-  } else if (stopped) {
-    lines = [
-      `${args.hero} para ${stopped} e si crede.`,
-      `${args.hero}, bella parata su ${stopped}. Inutile.`,
-    ];
-  } else if (args.witness) {
-    const other = args.witness.hero;
-    lines = [
-      `${args.hero} fa il bullo. ${other} incassa ${seen}.`,
-      `${args.hero} sogghigna. ${other} prende ${seen}.`,
-      `${args.hero} si nasconde. ${other} prende ${seen}.`,
-      `${args.hero} fa il tifo. ${other} mangia ${seen}.`,
-    ];
-  } else if (args.shape === 'surround') {
-    lines = [
-      `${args.hero} in mezzo. Il più lento.`,
-      `Intorno a ${args.hero}. Che sfottò.`,
-    ];
-  } else if (args.shape === 'peel') {
-    lines = [
-      `${args.hero}, tu sei lo spuntino.`,
-      `${args.hero}, il branco ride di te.`,
-    ];
-  } else if (args.shape === 'hold') {
-    lines = [
-      `${args.hero}, da qui si vede chi trema.`,
-      `${args.hero}, da lontano sei ridicolo.`,
-    ];
-  } else {
-    lines = [
-      `${args.hero}, il più molle si vede.`,
-      `${args.hero}, il vizio deve ancora uscire.`,
-    ];
-  }
-  return { who: args.who, text: lineOf(lines, salt, args.avoid) };
-}
-
-export function familyOf(atk: { kind: 'blue' | 'red'; proj?: unknown; aoe?: number; special?: string; lunge: number }): AttackFamily {
-  if (atk.proj) return 'shot';
-  if (atk.aoe) return 'blast';
-  if (atk.special === 'teleport' || atk.lunge >= 8) return 'rush';
-  return atk.kind;
-}
-
-/** Two landed hits of one family, ahead of the others, mean "he suffers this — do more of it". */
-export function sufferRead(marks: { family: AttackFamily; landed: boolean }[]): SufferRead {
-  const land: Partial<Record<AttackFamily, number>> = {};
-  const stop: Partial<Record<AttackFamily, number>> = {};
-  for (const mark of marks) {
-    if (mark.landed) land[mark.family] = (land[mark.family] ?? 0) + 1;
-    else stop[mark.family] = (stop[mark.family] ?? 0) + 1;
-  }
-  let family: AttackFamily | '' = '';
-  let best = 2;
-  for (const key of Object.keys(land) as AttackFamily[]) {
-    const n = land[key] ?? 0;
-    if (n > best) {
-      best = n;
-      family = key;
-    }
-  }
-  let resisted: AttackFamily | '' = '';
-  let worst = 1;
-  for (const key of Object.keys(stop) as AttackFamily[]) {
-    const n = stop[key] ?? 0;
-    if (n > worst && n > (land[key] ?? 0)) {
-      worst = n;
-      resisted = key;
-    }
-  }
-  return { family, resisted };
-}
-
-/** Same read, in Italian and with an image the taunt can steal. */
-export function sufferSentenceIt(name: string, read: SufferRead): string {
-  const fam = read.family ? FAMILY_IT[read.family] : '';
-  const stop = read.resisted ? FAMILY_IT[read.resisted] : '';
-  if (fam && stop) return `${name} prende ${fam} in faccia a ripetizione, però para bene ${stop}`;
-  if (fam) return `${name} prende ${fam} in faccia a ripetizione, non riesce proprio a evitarli`;
-  if (stop) return `${name} para bene ${stop}, tutto il resto gli passa sopra`;
-  return `${name} non ha ancora un punto debole evidente`;
-}
-
-export function sufferSentence(name: string, read: SufferRead): string {
-  if (read.family && read.resisted) return `${name} suffers ${read.family} and stops ${read.resisted}. Do more ${read.family}.`;
-  if (read.family) return `${name} suffers ${read.family}. Do more of that.`;
-  if (read.resisted) return `${name} stops ${read.resisted}. Use something else.`;
-  return `${name} has no clear weakness yet.`;
-}
-
-/** What Jev wants this foe to do. Empty fields leave that choice to the persona. */
-export interface MindHint {
-  attackId: string | null;
-  wait: boolean;
-  targetId: string | null;
-  steer: SteerMode | null;
-}
 
 export interface Persona {
   mind: EnemyMind;
@@ -299,15 +126,13 @@ export interface PreySocial {
 const THREAT_PULL = 0.12;
 const CROWD_PUSH = 8;
 
-/** Lower is more attractive. A Jev target is pulled in front of the persona's preference. */
+/** Lower is more attractive. The persona picks; a hero already mobbed is left to the others. */
 export function preyScore(
   persona: Persona,
   hunter: HunterView,
   prey: PreyView,
   pack: HunterView[],
   party: PreyView[],
-  hint?: MindHint,
-  order?: { focusId?: string | null; shape?: RoomOrder['shape'] },
   social?: PreySocial,
 ): number {
   const hero = HEROES[prey.hero];
@@ -316,14 +141,11 @@ export function preyScore(
   const isolated = isolationOf(prey, party);
   let s = dist;
 
-  if (hint?.targetId === prey.id) s -= 1000;
   // Aggro fragmentation: whoever hurts this foe draws it, and a hero already mobbed is left to the others.
   if (social && persona.mind !== 'dummy') {
     s -= Math.min(12, social.threat * THREAT_PULL);
     s += Math.max(0, social.crowd - social.share + 1) * CROWD_PUSH;
   }
-  const holdTank = order?.shape === 'peel' && (persona.mind === 'bully' || persona.mind === 'warden');
-  if (!holdTank && order?.focusId === prey.id) s -= 14;
   if (prey.id === hunter.target) s -= 3;
   if (prey.id === hunter.lastHitBy) s -= 3.5;
   if (persona.hunts.includes(hero.archetype)) s -= 7;
@@ -385,8 +207,6 @@ export interface AttackCtx {
   clustered: number;
   behind: boolean;
   lastKind: 'blue' | 'red' | '';
-  /** What this hero has been failing to stop. */
-  suffer?: SufferRead;
 }
 
 /** Multiplier applied to an attack's authored weight. 0 = never pick. */
@@ -446,8 +266,6 @@ export function attackWeightMul(mind: EnemyMind, atk: EnemyAttackDef, ctx: Attac
       if (atk.proj) m *= 0.5;
       break;
   }
-  if (ctx.suffer?.family && familyOf(atk) === ctx.suffer.family) m *= 1.8;
-  if (ctx.suffer?.resisted && familyOf(atk) === ctx.suffer.resisted) m *= 0.7;
   return m;
 }
 
@@ -459,9 +277,7 @@ export function pickAttackIndex(
   ctx: AttackCtx,
   lastAtk: number,
   roll: number,
-  hint?: MindHint,
 ): number {
-  if (hint?.wait) return -1;
   let total = 0;
   const ok: { i: number; w: number }[] = [];
   for (let i = 0; i < attacks.length; i++) {
@@ -476,10 +292,6 @@ export function pickAttackIndex(
     total += w;
   }
   if (ok.length === 0) return -1;
-  if (hint?.attackId) {
-    const chosen = ok.find((o) => attacks[o.i]?.id === hint.attackId);
-    if (chosen) return chosen.i;
-  }
   let r = roll * total;
   for (const o of ok) {
     r -= o.w;
@@ -519,12 +331,7 @@ export function steerMode(
     chargeMin: number;
     chargeMax: number;
   },
-  hint?: MindHint,
-  order?: { shape?: RoomOrder['shape'] },
 ): SteerMode {
-  if (mind !== 'dummy' && hint?.steer) return hint.steer;
-  if (mind !== 'dummy' && order?.shape === 'surround' && (mind === 'assassin' || mind === 'hunter' || mind === 'pack')) return 'flank';
-  if (mind !== 'dummy' && order?.shape === 'hold' && (mind === 'sniper' || mind === 'priest')) return 'kite';
   switch (mind) {
     case 'dummy':
       return 'hold';

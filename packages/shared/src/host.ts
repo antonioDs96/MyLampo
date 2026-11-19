@@ -25,7 +25,6 @@ import { MAX_PLAYERS, TICK_HZ, TUNING, WORLD_DT, WORLD_HZ } from './constants';
 import { COSMETIC_BY_ID, LOADOUT_SLOTS, emptyLoadout, type LoadoutSlot } from './cosmetics';
 import { addPurse, afterWipe, companyBonus, deathTax, emptyPurse, fervorBonus, type Purse } from './economy';
 import { HEROES, isHeroId } from './heroes';
-import type { JevAdvisor } from './jevMind';
 import { parseLayout } from './layout';
 import { HUB_LINES } from './lore';
 import { clonePlayer, neutralCmd } from './player';
@@ -64,7 +63,6 @@ import {
 } from './protocol';
 import { TREE_SLOTS, type ShopSlot } from './skillTree';
 import { Act, type GameEvent, type HeroId, type InputCmd, type PingKind } from './types';
-import type { QuipWriter } from './quips';
 import { World, type PlayerSetup, type PlayerStats, type WorldOpts } from './world';
 
 export interface HostIO {
@@ -154,10 +152,6 @@ export class GameHost {
   /** Solo / offline UI pause: freezes the simulation without dropping the world. */
   private paused = false;
   private readonly archive?: ProfileArchive;
-  /** Tactical Jev advisor. Absent when the server has no TypeSafe key. */
-  private readonly jev?: JevAdvisor;
-  /** Lite model for enemy one-liners. Absent: the written taunt is used. */
-  private readonly quips?: QuipWriter;
 
   constructor(
     io: HostIO,
@@ -165,13 +159,9 @@ export class GameHost {
     seed: number,
     archive?: ProfileArchive,
     isPublic = false,
-    jev?: JevAdvisor,
-    quips?: QuipWriter,
   ) {
     this.io = io;
     this.archive = archive;
-    this.jev = jev;
-    this.quips = quips;
     this.code = code;
     this.isPublic = isPublic;
     this.seed = seed >>> 0 || 1;
@@ -457,11 +447,9 @@ export class GameHost {
 
   // ---------------------------------------------------------------- worlds
 
-  /** New room, fresh foe ids: drop cached Jev answers before they latch onto the wrong body. */
   private openWorld(opts: WorldOpts): World {
-    this.jev?.reset();
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    return new World({ ...opts, seed: this.seed, jev: this.jev, quips: this.quips });
+    return new World({ ...opts, seed: this.seed });
   }
 
   private announce(info: WorldInfo): void {

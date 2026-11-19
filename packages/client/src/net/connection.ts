@@ -1,14 +1,8 @@
 import { Client, type Room } from '@colyseus/sdk';
 import {
   GameHost,
-  JevUnavailable,
-  createJevAdvisor,
-  type CaptainAnswer,
   type ClientMsg,
-  type JevAdvisor,
-  type JevRawAnswer,
   type ProfileArchive,
-  type RoomBrief,
   type ServerMsg,
 } from '@malampu/shared';
 
@@ -27,52 +21,6 @@ export interface Connection {
 }
 
 const LOCAL_ID = 'solo';
-
-/** Solo sim lives in the tab. Decisions go to the game server, which holds the TypeSafe key. */
-async function postTactic(payload: { samples?: unknown; room?: RoomBrief }): Promise<Response> {
-  try {
-    return await fetch(`${serverEndpoint()}/api/jev/tactic`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(500),
-    });
-  } catch (err) {
-    const name = err instanceof Error ? err.name : '';
-    throw new JevUnavailable(name !== 'TimeoutError' && name !== 'AbortError');
-  }
-}
-
-function soloJev(): JevAdvisor {
-  return createJevAdvisor({
-    transport: async (samples) => {
-      const res = await postTactic({ samples });
-      if (res.status === 503 || res.status === 404) throw new JevUnavailable(true);
-      if (!res.ok) throw new JevUnavailable(false);
-      const body = (await res.json()) as { answers?: JevRawAnswer[] };
-      return Array.isArray(body.answers) ? body.answers : [];
-    },
-    roomTransport: async (brief) => {
-      const res = await postTactic({ room: brief });
-      if (res.status === 503 || res.status === 404) throw new JevUnavailable(true);
-      if (!res.ok) throw new JevUnavailable(false);
-      const body = (await res.json()) as { order?: CaptainAnswer };
-      return (
-        body.order ?? {
-          focusId: null,
-          focusConfidence: 0,
-          punish: null,
-          punishConfidence: 0,
-          shape: null,
-          shapeConfidence: 0,
-          tone: null,
-          toneConfidence: 0,
-          elites: [],
-        }
-      );
-    },
-  });
-}
 
 /** Runs the same game host the server uses, in memory, for solo play without a server. */
 export class LocalConnection implements Connection {
@@ -93,7 +41,6 @@ export class LocalConnection implements Connection {
       (Math.random() * 0xffffffff) >>> 0,
       archive,
       false,
-      soloJev(),
     );
     this.host.join(LOCAL_ID, name);
   }
