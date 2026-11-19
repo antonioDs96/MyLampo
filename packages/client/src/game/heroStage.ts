@@ -124,6 +124,15 @@ export class HeroStage {
     this.rim.renderPriority = 9;
     this.light.includedOnlyMeshes = [pedestal];
     this.rim.includedOnlyMeshes = [pedestal];
+    this.setShown(false);
+  }
+
+  /** The pedestal is drawn only while Hero Selection or the Hero Sheet owns the camera. */
+  setShown(on: boolean): void {
+    this.view?.root.setEnabled(on);
+    for (const mesh of this.props) mesh.setEnabled(on);
+    this.light.setEnabled(on);
+    this.rim.setEnabled(on);
   }
 
   /** Puts a hero on the pedestal. `clip` is the pose held (the equipped Idle pose, or plain Idle). */

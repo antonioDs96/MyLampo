@@ -26,6 +26,17 @@ const LEVEL_OF: Record<string, LevelId> = {
   badiscar_masseus_arena: 'masseus',
 };
 
+/**
+ * Foes already standing when one hero walks in.
+ * The catalog garrison is the whole company. These are the counts the authored
+ * ports used for a single player; everyone else sleeps until a larger party wakes them.
+ */
+const SOLO_GARRISON: Record<'falesie' | 'porto' | 'grotte', number> = {
+  falesie: 14,
+  porto: 13,
+  grotte: 9,
+};
+
 interface Cell {
   x: number;
   z: number;
@@ -68,7 +79,7 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
   for (const oz of [-2, 0, 2]) {
     for (const ox of [-2, 0, 2]) sockets.push({ x: origin.x + ox, z: origin.z + oz });
   }
-  return {
+  const built: BuiltLevel = {
     id,
     name: spec.name,
     width: size,
@@ -80,6 +91,8 @@ export function levelFromDiorama(spec: DioramaSpec): BuiltLevel {
     sporeHazard: id === 'grotte',
     wallMaterial: materialAt(spec, 2),
   };
+  if (id === 'falesie' || id === 'porto' || id === 'grotte') keepSoloGarrison(grid, spawns, SOLO_GARRISON[id]);
+  return built;
 }
 
 function materialAt(spec: DioramaSpec, elevation: ElevationLevel): MaterialType {
@@ -266,23 +279,57 @@ function spawnsOf(id: LevelId, spec: DioramaSpec, compiled: CompiledDioramaResul
       id === 'porto' ? EnemyType.MINIBOSS_ANCORA : id === 'grotte' ? EnemyType.MINIBOSS_MADRE : EnemyType.MINIBOSS_NOSTROMO;
     const boss = bossCell(compiled, spec, used);
     if (boss) push(bossType, boss, 1);
-    let shadows = spawns.filter((spawn) => spawn.minPlayersRequired > 1).length;
-    for (const spawn of spawns) {
-      if (shadows >= 6) break;
-      if (
-        spawn.type === bossType ||
-        spawn.type === EnemyType.SENTINELLA_RONDA ||
-        spawn.type === EnemyType.GUARDIANO_PIETRA ||
-        spawn.type === EnemyType.GRANCHIO_PIETRA ||
-        spawn.minPlayersRequired > 1
-      ) {
-        continue;
-      }
-      spawn.minPlayersRequired = 4;
-      shadows++;
-    }
   }
   return spawns;
+}
+
+function isMiniBoss(spawn: EnemySpawnDef): boolean {
+  return (
+    spawn.type === EnemyType.MINIBOSS_ANCORA ||
+    spawn.type === EnemyType.MINIBOSS_MADRE ||
+    spawn.type === EnemyType.MINIBOSS_NOSTROMO
+  );
+}
+
+/**
+ * Leaves `solo` foes awake, including the mini-boss, and sleeps the rest.
+ * A watchman with a partner, a buried crab and a stone guard stay up when the map has them:
+ * those are the fights one hero can still read. The other awake foes are spread down the route.
+ */
+function keepSoloGarrison(grid: NavGrid, spawns: EnemySpawnDef[], solo: number): void {
+  const rest = spawns.filter((spawn) => !isMiniBoss(spawn));
+  let budget = Math.max(0, solo - (spawns.length - rest.length));
+  if (budget >= rest.length) return;
+  const keep = new Set<EnemySpawnDef>();
+  const take = (spawn: EnemySpawnDef | undefined): void => {
+    if (!spawn || keep.has(spawn) || budget <= 0) return;
+    keep.add(spawn);
+    budget -= 1;
+  };
+  const sentinel = rest.find((spawn) => {
+    if (spawn.type !== EnemyType.SENTINELLA_RONDA) return false;
+    const ahead = grid.tile(spawn.gridX, spawn.gridZ - 2);
+    if (!ahead?.walkable) return false;
+    const home = grid.cellCenter(spawn.gridX, spawn.gridZ);
+    const look = grid.cellCenter(spawn.gridX, spawn.gridZ - 2);
+    return grid.lineOfSight(home.x, home.z, look.x, look.z);
+  });
+  take(sentinel);
+  if (sentinel) {
+    take(
+      rest.find(
+        (spawn) => spawn.type === EnemyType.CORSARO_MELEE && Math.hypot(spawn.gridX - sentinel.gridX, spawn.gridZ - sentinel.gridZ) < 9,
+      ),
+    );
+  }
+  take(rest.find((spawn) => spawn.type === EnemyType.GRANCHIO_PIETRA && grid.tile(spawn.gridX, spawn.gridZ)?.elevation === -1));
+  take(rest.find((spawn) => spawn.type === EnemyType.GUARDIANO_PIETRA && grid.tile(spawn.gridX, spawn.gridZ)?.elevation !== -1));
+  const pool = rest.filter((spawn) => !keep.has(spawn));
+  if (budget > 0 && pool.length > 0) {
+    const step = pool.length / budget;
+    for (let n = 0; n < budget; n++) keep.add(pool[Math.min(pool.length - 1, Math.floor(n * step))]!);
+  }
+  for (const spawn of rest) if (!keep.has(spawn)) spawn.minPlayersRequired = 4;
 }
 
 function zoneCells(compiled: CompiledDioramaResult, zoneId: string, used: Set<string>, minZ: number): Cell[] {

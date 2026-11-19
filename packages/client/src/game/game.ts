@@ -1391,6 +1391,8 @@ export class Game {
     if (stageOn !== this.stageOn) {
       this.stageOn = stageOn;
       this.scene.activeCamera = stageOn ? this.stage.camera : this.cam.camera;
+      // The portrait is a full hero mesh. Leave it off while the world is on screen.
+      this.stage.setShown(stageOn);
     }
     this.hud.setVisible(!!this.info && !stageOn);
 
