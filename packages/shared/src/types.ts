@@ -342,7 +342,6 @@ export type GameEvent =
   | { e: 'wave'; n: number; of: number }
   | { e: 'clear' }
   | { e: 'say'; who: string; text: string }
-  | { e: 'taunt'; who: string; text: string; id: number }
   | { e: 'hint'; text: string }
   | { e: 'phase'; n: number }
   | { e: 'poise'; id: number; dmg: number; x: number; z: number }

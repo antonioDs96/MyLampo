@@ -6,8 +6,6 @@ import { isProfileId, PUBLIC_ROOM_ID, sanitizeProfile } from '@malampu/shared';
 import compression from 'compression';
 import express from 'express';
 import { defaultProfileFile, FileProfileStore } from './profileStore';
-import { jevEnabled, mountJevRoute } from './jev';
-import { quipLabel, quipsEnabled } from './quips';
 import { closePublicRooms, ensurePublicRoom, MalampuRoom, openPublicRooms, ROOM_NAME } from './room';
 
 export interface AppOptions {
@@ -40,7 +38,6 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
         res.json({ ok: true });
       });
       mountProfileApi(app, archive);
-      mountJevRoute(app);
       if (!staticDir) return;
       app.use(compression());
       // Hashed build files never change; the page itself must always be fresh.
@@ -58,16 +55,6 @@ export async function startApp(options: AppOptions): Promise<RunningApp> {
   if (!options.quiet) {
     console.log(`Malampu in ascolto sulla porta ${options.port}${staticDir ? ` (client da ${staticDir})` : ' (solo server di gioco)'}`);
     console.log(`Taverna pubblica ${PUBLIC_ROOM_ID} pronta.`);
-    console.log(
-      jevEnabled()
-        ? 'Jev tattico attivo: i mostri scelgono tra le mosse legali.'
-        : 'Jev tattico spento. Imposta TYPESAFE_API_KEY per le decisioni dei mostri.',
-    );
-    console.log(
-      quipsEnabled()
-        ? `Battute del modello attivo (${quipLabel()}).`
-        : 'Battute scritte. Per generarle: GROQ_API_KEY, OPENAI_API_KEY, o LLM_API_KEY.',
-    );
   }
 
   return {

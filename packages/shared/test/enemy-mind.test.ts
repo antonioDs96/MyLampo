@@ -8,13 +8,9 @@ import {
   HEROES,
   World,
   attackWeightMul,
-  familyOf,
   isolationOf,
-  sufferRead,
-  tauntLine,
   parseLayout,
   personaOf,
-  pickAttackIndex,
   preyScore,
   steerMode,
   type HunterView,
@@ -117,79 +113,6 @@ describe('enemy personas', () => {
     expect(
       steerMode('sniper', { dist: 6, gap: 5, preferred: 13, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }),
     ).toBe('kite');
-  });
-
-  it('follows a Jev hint when the choice is legal and ignores it when it is not', () => {
-    const persona = personaOf('tagliagole_reietti');
-    const h = hunter({ type: 'tagliagole_reietti', x: 0, z: 4 });
-    const tank = prey({ id: 'tank', hero: 'alexios', x: 0, z: 0 });
-    const mage = prey({ id: 'mage', hero: 'gabryel', x: 8, z: 0 });
-    const party = [tank, mage];
-    const hint = { attackId: 'tridente', wait: false, targetId: 'tank', steer: 'flank' as const };
-    expect(preyScore(persona, h, tank, [], party, hint)).toBeLessThan(preyScore(persona, h, mage, [], party, hint));
-
-    const block = { dist: 2.8, blocking: true, dodging: false, attacking: false, clustered: 1, behind: false, lastKind: '' as const };
-    const blue = pickAttackIndex('duelist', ENEMIES.predone_sahuagin.attacks, 0, 2.8, block, -1, 0.99, hint);
-    expect(ENEMIES.predone_sahuagin.attacks[blue]?.id).toBe('tridente');
-    expect(pickAttackIndex('duelist', ENEMIES.predone_sahuagin.attacks, 0, 2.8, block, -1, 0.2, { ...hint, wait: true })).toBe(-1);
-
-    const tooFar = pickAttackIndex('duelist', ENEMIES.predone_sahuagin.attacks, 0, 20, block, -1, 0.2, {
-      ...hint,
-      attackId: 'tridente',
-    });
-    expect(tooFar).toBe(-1);
-
-    expect(
-      steerMode('bully', { dist: 6, gap: 5, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }, hint),
-    ).toBe('flank');
-    expect(
-      steerMode('dummy', { dist: 2, gap: 1, preferred: 0, cool: 0, los: true, wantAttack: true, chargeMin: 5, chargeMax: 14 }, hint),
-    ).toBe('hold');
-  });
-
-  it('does more of the attack family a hero keeps failing to stop', () => {
-    expect(familyOf(ENEMIES.predone_sahuagin.attacks[0]!)).toBe('blue');
-    expect(familyOf(ENEMIES.madre_spore.attacks[0]!)).toBe('shot');
-    const read = sufferRead([
-      { family: 'red', landed: true },
-      { family: 'red', landed: true },
-      { family: 'red', landed: true },
-      { family: 'blue', landed: false },
-      { family: 'blue', landed: false },
-    ]);
-    expect(read).toEqual({ family: 'red', resisted: 'blue' });
-    const plain = { dist: 3.2, blocking: false, dodging: false, attacking: false, clustered: 1, behind: false, lastKind: '' as const };
-    const open = { ...plain, suffer: read };
-    const red = ENEMIES.corsaro_annegato.attacks[1]!;
-    const blue = ENEMIES.corsaro_annegato.attacks[0]!;
-    expect(attackWeightMul('duelist', red, open)).toBeGreaterThan(attackWeightMul('duelist', red, plain));
-    expect(attackWeightMul('duelist', blue, open)).toBeLessThan(attackWeightMul('duelist', blue, plain));
-  });
-
-  it('writes a taunt from the weakness instead of inventing one', () => {
-    const line = tauntLine({
-      who: 'Inquisitore del Sole Nero',
-      hero: 'Vyncent',
-      read: { family: 'red', resisted: 'blue' },
-      punish: 'red',
-      shape: null,
-      tone: 'mock',
-    });
-    expect(line.who).toBe('Inquisitore del Sole Nero');
-    expect(line.text).toContain('Vyncent');
-    expect(line.text).toContain('i rossi');
-    const again = tauntLine({
-      who: 'Inquisitore del Sole Nero',
-      hero: 'Vyncent',
-      read: { family: 'red', resisted: 'blue' },
-      punish: 'red',
-      shape: null,
-      tone: 'mock',
-      n: 1,
-      avoid: line.text,
-    });
-    expect(again.text).not.toBe(line.text);
-    expect(again.text).toContain('i rossi');
   });
 });
 

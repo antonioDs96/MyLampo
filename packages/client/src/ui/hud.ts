@@ -40,15 +40,6 @@ interface Pointer {
   used: boolean;
 }
 
-interface Blade {
-  root: HTMLElement;
-  whoEl: HTMLElement;
-  textEl: HTMLElement;
-  used: boolean;
-  who: string;
-  text: string;
-}
-
 const STATUS_LABEL: Record<number, [string, string]> = {
   [PS.Regen]: ['Ristoro', 'good'],
   [PS.DmgUp]: ['Armonia', 'good'],
@@ -122,7 +113,6 @@ export class Hud {
   private readonly bars = new Map<number, Bar>();
   private readonly tags = new Map<string, Tag>();
   private readonly pointers = new Map<string, Pointer>();
-  private readonly blades = new Map<number, Blade>();
   private readonly lines: { who: string; text: string }[] = [];
   private lineTimer = 0;
   private hintTimer = 0;
@@ -460,7 +450,6 @@ export class Hud {
     for (const b of this.bars.values()) b.used = false;
     for (const t of this.tags.values()) t.used = false;
     for (const p of this.pointers.values()) p.used = false;
-    for (const b of this.blades.values()) b.used = false;
   }
 
   /** Arrow on the edge of the screen toward something out of view (an ally, a ping). */
@@ -517,38 +506,6 @@ export class Hud {
     }
   }
 
-  /** Gold rule and italic line, anchored to the right of whoever is speaking. */
-  blade(id: number, x: number, y: number, who: string, text: string): void {
-    let b = this.blades.get(id);
-    if (!b) {
-      const whoEl = h('b');
-      const textEl = h('span');
-      const root = h('div', { class: 'blade' }, whoEl, textEl);
-      b = { root, whoEl, textEl, used: true, who: '', text: '' };
-      this.blades.set(id, b);
-      this.world.append(root);
-    }
-    b.used = true;
-    b.root.classList.remove('hidden');
-    b.root.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
-    if (b.who !== who) {
-      b.who = who;
-      b.whoEl.textContent = who;
-    }
-    if (b.text !== text) {
-      b.text = text;
-      b.textEl.textContent = text;
-    }
-  }
-
-  /** Keep the line mounted while the speaker slips out of frame, so it does not replay. */
-  holdBlade(id: number): void {
-    const b = this.blades.get(id);
-    if (!b) return;
-    b.used = true;
-    b.root.classList.add('hidden');
-  }
-
   endFrame(): void {
     for (const [id, b] of this.bars) {
       if (b.used) continue;
@@ -564,11 +521,6 @@ export class Hud {
       if (p.used) continue;
       p.root.remove();
       this.pointers.delete(id);
-    }
-    for (const [id, b] of this.blades) {
-      if (b.used) continue;
-      b.root.remove();
-      this.blades.delete(id);
     }
   }
 
