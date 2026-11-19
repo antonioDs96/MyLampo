@@ -28,7 +28,7 @@ export type SoundId =
   | 'swing' | 'swingHeavy' | 'shoot' | 'cast' | 'hit' | 'hitHeavy' | 'kill' | 'block' | 'parry' | 'pdodge' | 'dodge'
   | 'hurt' | 'hurtRed' | 'gbreak' | 'down' | 'revive' | 'heal' | 'ability' | 'ult' | 'broken' | 'exec'
   | 'warnBlue' | 'warnRed' | 'slam' | 'drum' | 'silence' | 'spawn' | 'wave' | 'clear' | 'victory' | 'defeat'
-  | 'ui' | 'uiBack' | 'deny' | 'charge' | 'chargeFull' | 'mutation' | 'roar' | 'pop' | 'bolt';
+  | 'ui' | 'uiBack' | 'deny' | 'charge' | 'chargeFull' | 'mutation' | 'roar' | 'pop' | 'bolt' | 'ocarina';
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -213,6 +213,12 @@ export class Audio {
         this.tone({ type: 'sine', from: 220, to: 880, dur: 0.8, gain: 0.16 * v, delay: 0.05 });
         this.hiss({ dur: 0.9, from: 300, to: 6000, gain: 0.2 * v, q: 0.8 });
         this.tone({ type: 'sine', from: 60, to: 30, dur: 0.9, gain: 0.4 * v, delay: 0.35 });
+        break;
+      case 'ocarina':
+        for (const [i, f] of [784, 988, 1175, 784, 1319].entries()) {
+          this.tone({ type: 'sine', from: f, dur: 0.22, gain: 0.09 * v, delay: i * 0.16, attack: 0.02 });
+        }
+        this.tone({ type: 'triangle', from: 1568, to: 784, dur: 0.45, gain: 0.04 * v, delay: 0.72 });
         break;
       case 'broken':
         this.clang(520, 0.5, 0.16 * v);

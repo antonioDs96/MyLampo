@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   abilityMods,
   abilityTooltip,
+  applyBlueprintBuild,
   catalogEffects,
   Act,
   afterWipe,
@@ -196,6 +197,39 @@ describe('skill tree', () => {
     expect(respecTree(profile, 'jusef')).toBe(spent);
     expect(profile.gems).toBe(5000);
     expect(profile.trees.jusef).toEqual(emptyTree());
+  });
+
+  it('lets Iej sell a wind after the branch, and the next grade of that wind', () => {
+    const profile = emptyProfile();
+    profile.gems = 5000;
+    expect(buyNode(profile, 'jusef', 'e', '').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', '').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', 'A').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', 'A').ok).toBe(true);
+    expect(buyNode(profile, 'jusef', 'e', 'SCIROCCO').ok).toBe(true);
+    expect(profile.trees.jusef!.e).toEqual({ tier: 5, branch: 'A', wind: 'SCIROCCO' });
+    expect(buyNode(profile, 'jusef', 'e', 'TRAMONTANA').ok).toBe(false);
+    expect(buyNode(profile, 'jusef', 'e', 'SCIROCCO').ok).toBe(true);
+    expect(profile.trees.jusef!.e.tier).toBe(6);
+  });
+
+  it('names the ability bound to each key', () => {
+    const bare = emptyTree();
+    expect(abilityTooltip('albereth', 'e', bare).name).toBe("Passo d'Ombra");
+    expect(abilityTooltip('albereth', 'r', bare).name).toBe("Melodia dell'Inganno");
+    expect(abilityTooltip('jusef', 'e', bare).name).toBe('Canto di Ristoro');
+    expect(abilityTooltip('dalith', 'e', bare).name).toBe('Rotazione dei Veli');
+    expect(abilityTooltip('dalith', 'r', bare).name).toBe('Danza della Memoria');
+  });
+
+  it('applies the blueprint without stopping on the wind', () => {
+    const profile = emptyProfile();
+    profile.gems = 5000;
+    expect(applyBlueprintBuild(profile, 'jusef').ok).toBe(true);
+    expect(profile.trees.jusef!.e).toMatchObject({ tier: 5, branch: 'A', wind: 'SCIROCCO' });
+    expect(profile.trees.jusef!.r).toMatchObject({ tier: 4, branch: 'A' });
+    expect(profile.trees.jusef!.passive).toBe(2);
+    expect(profile.trees.jusef!.keystone).toBe(true);
   });
 
   it('cannot buy without Gems', () => {

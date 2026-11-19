@@ -824,6 +824,30 @@ describe('impact physics', () => {
   });
 });
 
+describe('Albereth', () => {
+  it('steps into shadow with Passo d’Ombra', () => {
+    const { world, p } = setup('albereth');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x + 2, p.z);
+    e.target = p.id;
+    tap(world, 'a', Btn.Ability);
+    run(world, 'a', T(HEROES.albereth.ability.dur) + 2);
+    expect(hasStatus(p.st, PS.Stealth)).toBe(true);
+    expect(e.target).toBe('');
+  });
+
+  it('plays Melodia dell’Inganno as the ultimate', () => {
+    const { world, p } = setup('albereth');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x + 2, p.z);
+    p.ult = 100;
+    tap(world, 'a', 0);
+    tap(world, 'a', Btn.Ult);
+    run(world, 'a', T(HEROES.albereth.ult.dur) + 2);
+    expect(e.hp).toBeLessThan(e.maxHp);
+    expect(hasStatus(e.st, ES.Confused)).toBe(true);
+    expect(hasStatus(p.st, PS.Stealth)).toBe(false);
+  });
+});
+
 describe('Dalìth', () => {
   function hitCultist(nearAnthon: boolean, far = false): number {
     const world = makeWorld();
@@ -840,11 +864,50 @@ describe('Dalìth', () => {
     return e.maxHp - e.hp;
   }
 
+  it('kicks with the Rotazione dei Veli and turns a light shot aside', () => {
+    const { world, p } = setup('dalith');
+    const e = passiveEnemy(world, 'predone_sahuagin', p.x + 2, p.z);
+    const before = e.hp;
+    const gap = Math.hypot(e.x - p.x, e.z - p.z);
+    world.projectiles.push({
+      id: 1,
+      kind: 'bolt',
+      x: p.x,
+      z: p.z + 1.8,
+      dx: 0,
+      dz: -1,
+      speed: 0,
+      r: 0.2,
+      dmg: 8,
+      poise: 0,
+      owner: '',
+      src: e.id,
+      ttl: 5,
+      pierce: 0,
+      aoe: 0,
+      red: false,
+      effect: '',
+      hit: [],
+      eye: 1,
+    });
+    tap(world, 'a', Btn.Ability);
+    run(world, 'a', T(HEROES.dalith.ability.dur) + 2);
+    expect(e.hp).toBeLessThan(before);
+    expect(Math.hypot(e.x - p.x, e.z - p.z)).toBeGreaterThan(gap);
+    expect(hasStatus(e.st, ES.Confused)).toBe(false);
+    const shot = world.projectiles[0];
+    expect(shot?.owner).toBe(p.id);
+    expect(shot?.kind).toBe('reflected');
+  });
+
   it('reads nearby bodies with the Danza della Memoria', () => {
     const { world, p } = setup('dalith');
     const e = passiveEnemy(world, 'predone_sahuagin', p.x + 2, p.z);
-    tap(world, 'a', Btn.Ability);
-    run(world, 'a', T(HEROES.dalith.ability.dur) + 2);
+    p.ult = 100;
+    tap(world, 'a', 0);
+    tap(world, 'a', Btn.Ult);
+    run(world, 'a', T(HEROES.dalith.ult.dur) + 2);
+    expect(e.hp).toBeLessThan(e.maxHp);
     expect(hasStatus(e.st, ES.Confused)).toBe(true);
     expect(hasStatus(e.st, ES.Marked)).toBe(true);
     expect(hasStatus(p.st, PS.Haste)).toBe(true);

@@ -91,14 +91,17 @@ export function canBuyNode(hero: HeroId, tree: HeroTree, slot: ShopSlot, choice:
   const next = node.tier + 1;
   const ability = slot === 'e' ? spec.specialE : spec.ultimateR;
   if (next <= 2) return priced(nodeCost(slot, next), gems);
-  const branch = (choice || node.branch) as PathId;
-  if (!PATH_IDS.includes(branch)) return { ok: false, why: 'path' };
-  if (node.branch && node.branch !== branch) return { ok: false, why: 'path' };
+  // Tier 3 is the branch choice. Later tiers keep that branch: a wind name must not replace it.
+  const pickedBranch = PATH_IDS.includes(choice as PathId) ? (choice as PathId) : '';
+  const branch: PathId | '' = next === 3 ? pickedBranch : node.branch;
+  if (!branch) return { ok: false, why: 'path' };
+  if (pickedBranch && pickedBranch !== branch) return { ok: false, why: 'path' };
   if (next <= 4) return priced(nodeCost(slot, next), gems);
   const route = ability.branches.find((entry) => entry.branch === branch);
   const wind = next === 5 ? choice : node.wind;
-  if (!route || !route.windRoutes[wind]) return { ok: false, why: 'wind' };
-  if (node.wind && node.wind !== wind) return { ok: false, why: 'wind' };
+  if (!route || !wind || !route.windRoutes[wind]) return { ok: false, why: 'wind' };
+  if (node.wind && wind !== node.wind) return { ok: false, why: 'wind' };
+  if (next > 5 && choice !== node.wind) return { ok: false, why: 'wind' };
   return priced(nodeCost(slot, next), gems);
 }
 
@@ -348,7 +351,7 @@ export interface AbilitySheet {
 
 /** Single source of truth for the numbers the World casts and the Hero Sheet prints. */
 export const ABILITY_SHEET: Record<string, AbilitySheet> = {
-  ocarina: { dmg: 0, radius: 8, range: 0, effect: 'Confonde i nemici per 5 s' },
+  ocarina: { dmg: 22, radius: 8, range: 0, effect: 'Melodia: 22 danni sonici e confusione per 5 s' },
   canto: { dmg: 0, heal: 0.36, radius: 12, range: 0, effect: 'Cura nel tempo (4 s) e toglie i rallentamenti' },
   balzo: { dmg: 22, radius: 3.6, range: 7, effect: 'Balzo sul bersaglio e schianto' },
   provocazione: { dmg: 0, radius: 10, range: 0, effect: 'Attira i nemici; −45% danni subiti per 5 s' },
@@ -356,7 +359,8 @@ export const ABILITY_SHEET: Record<string, AbilitySheet> = {
   gelo: { dmg: 18, radius: 8.5, range: 0, effect: 'Cono di gelo: congela per 3 s' },
   bolla: { dmg: 0, radius: 7.2, range: 0, effect: 'Bolla: −50% danni e immunità al Silenzio per 9 s' },
   ondata: { dmg: 30, radius: 7, range: 0, effect: 'Magia selvaggia: uno di cinque effetti a caso' },
-  danza: { dmg: 0, radius: 7.5, range: 0, effect: 'Confonde e marchia; +18% rapidità per 4 s' },
+  veli: { dmg: 16, radius: 2.8, range: 0, effect: 'Calcio a 360°: 16 danni, spinta e devia i colpi leggeri' },
+  danza: { dmg: 20, radius: 7, range: 0, effect: 'Onda di seta, confonde e marchia; +18% rapidità per 4 s' },
   ombra: { dmg: 0, radius: 3, range: 0, effect: 'Invisibile per 7 s; il primo colpo raddoppia' },
   ballata: { dmg: 0, heal: 0.25, radius: 14, range: 0, effect: 'Rialza i caduti, cura, +30% danni e +15% rapidità per 10 s' },
   licantropo: { dmg: 0, heal: 0.15, radius: 4, range: 0, effect: 'Forma di lupo per 12 s: +50% danni, non barcolla' },
@@ -365,7 +369,6 @@ export const ABILITY_SHEET: Record<string, AbilitySheet> = {
   furia: { dmg: 0, radius: 4, range: 0, effect: 'Furia per 10 s: +35% danni, +30% rapidità' },
   chiavistello: { dmg: 45, heal: 0.48, radius: 13, range: 0, effect: 'Cura tutta la Compagnia e spezza il Silenzio' },
   collasso: { dmg: 50, tick: 8, radius: 8, range: 9, effect: 'Buco nero che attira per 4 s e poi collassa' },
-  spirale: { dmg: 32, radius: 8, range: 0, effect: 'Spirale: confonde, marchia e accelera gli alleati' },
 };
 
 export function abilitySheet(id: string): AbilitySheet {
@@ -464,6 +467,8 @@ export interface TreeRow {
   next: boolean;
   /** Sent as `path` when this row is the one Iej can sell. */
   choice: string;
+  /** Tier 3 picks the branch. Tier 5 picks the wind. Later rows just climb. */
+  pick: '' | 'branch' | 'wind';
 }
 
 export interface TreeBranchView {
@@ -501,6 +506,7 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
         got: tree.passive >= tier.tier,
         next: tree.passive + 1 === tier.tier,
         choice: '',
+        pick: '',
       })),
       keystone: {
         title: passive.uniqueKeystone.name,
@@ -509,6 +515,7 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
         got: tree.keystone,
         next: !tree.keystone && tree.passive + tree.e.tier + tree.r.tier >= 3,
         choice: '',
+        pick: '',
       },
     },
     e: activeView('e', spec.specialE, tree.e),
@@ -519,13 +526,13 @@ export function treeView(hero: HeroId, tree: HeroTree): { passive: PassiveView; 
 function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNode): ActiveView {
   const shared: TreeRow[] = [ability.tier1, ability.tier2].map((step, index) => {
     const tier = index + 1;
-    return { title: step.title, effect: step.effect, cost: nodeCost(slot, tier), got: node.tier >= tier, next: node.tier + 1 === tier, choice: '' };
+    return { title: step.title, effect: step.effect, cost: nodeCost(slot, tier), got: node.tier >= tier, next: node.tier + 1 === tier, choice: '', pick: '' };
   });
   const branches = ability.branches.map((branch) => {
     const mine = node.branch === branch.branch;
     const rows: TreeRow[] = [
-      row(slot, branch.branch, 3, branch.tier3.title, branch.tier3.effect, mine && node.tier >= 3, node.tier === 2),
-      row(slot, branch.branch, 4, branch.tier4.title, branch.tier4.effect, mine && node.tier >= 4, mine && node.tier === 3),
+      row(slot, branch.branch, 3, branch.tier3.title, branch.tier3.effect, mine && node.tier >= 3, node.tier === 2, 'branch'),
+      row(slot, branch.branch, 4, branch.tier4.title, branch.tier4.effect, mine && node.tier >= 4, mine && node.tier === 3, ''),
     ];
     for (const [wind, leaves] of Object.entries(branch.windRoutes)) {
       for (const leaf of leaves) {
@@ -539,6 +546,7 @@ function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNod
             leaf.effect,
             onWind && node.tier >= leaf.tier,
             (node.tier === 4 && mine && leaf.tier === 5) || (onWind && node.tier + 1 === leaf.tier),
+            leaf.tier === 5 ? 'wind' : '',
           ),
         );
       }
@@ -548,6 +556,15 @@ function activeView(slot: AbilitySlot, ability: AbilityTreeSpec, node: ActiveNod
   return { slot, name: ability.name, summary: ability.baseSummary, shared, branches };
 }
 
-function row(slot: AbilitySlot, choice: string, tier: number, title: string, effect: string, got: boolean, next: boolean): TreeRow {
-  return { title, effect, cost: nodeCost(slot, tier), got, next, choice };
+function row(
+  slot: AbilitySlot,
+  choice: string,
+  tier: number,
+  title: string,
+  effect: string,
+  got: boolean,
+  next: boolean,
+  pick: TreeRow['pick'],
+): TreeRow {
+  return { title, effect, cost: nodeCost(slot, tier), got, next, choice, pick };
 }

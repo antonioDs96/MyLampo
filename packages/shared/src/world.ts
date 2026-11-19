@@ -1298,8 +1298,14 @@ export class World {
     const cast = (what: string, r: number, x = p.x, z = p.z) =>
       this.events.push({ e: 'cast', id: p.id, what, x, z, yaw: p.yaw, r });
     switch (id) {
-      case 'ocarina': {
-        for (const e of this.enemiesNear(p.x, p.z, R)) this.confuse(e, 5);
+      case 'ombra': {
+        addStatus(p.st, PS.Stealth, T(7), 0);
+        for (const e of this.enemies) {
+          if (e.target === p.id && !ENEMIES[e.type].dummy) {
+            e.target = '';
+            e.retarget = 0;
+          }
+        }
         cast(id, R);
         break;
       }
@@ -1379,12 +1385,11 @@ export class World {
         cast(`ondata_${roll}`, (roll === 1 ? 14 : roll === 3 ? 10 : 7) * area);
         break;
       }
-      case 'danza': {
+      case 'veli': {
         for (const e of this.enemiesNear(p.x, p.z, R)) {
-          this.confuse(e, 4);
-          addStatus(e.st, ES.Marked, 7, 0);
+          if (this.damageEnemy(e, D, 14, p, { kb: 3.4 }) && e.state !== EState.Dead) this.freeze(e, 0.35);
         }
-        addStatus(p.st, PS.Haste, T(4), 0.18);
+        this.veilShots(p, R);
         cast(id, R);
         break;
       }
@@ -1407,13 +1412,10 @@ export class World {
     const cast = (r: number, x = p.x, z = p.z) =>
       this.events.push({ e: 'cast', id: p.id, what: id, x, z, yaw: p.yaw, r });
     switch (id) {
-      case 'ombra': {
-        addStatus(p.st, PS.Stealth, T(7), 0);
-        for (const e of this.enemies) {
-          if (e.target === p.id && !ENEMIES[e.type].dummy) {
-            e.target = '';
-            e.retarget = 0;
-          }
+      case 'ocarina': {
+        for (const e of this.enemiesNear(p.x, p.z, R)) {
+          this.damageEnemy(e, D, 16, p, { kb: 2, magic });
+          if (e.state !== EState.Dead) this.confuse(e, 5);
         }
         cast(R);
         break;
@@ -1472,22 +1474,42 @@ export class World {
         cast(R, at.x, at.z);
         break;
       }
-      case 'spirale': {
+      case 'danza': {
         for (const e of this.enemiesNear(p.x, p.z, R)) {
-          this.damageEnemy(e, D, 28, p, { kb: 5, heavy: true, magic });
+          this.damageEnemy(e, D, 18, p, { kb: 3, magic });
           if (e.state !== EState.Dead) {
-            this.confuse(e, 5);
-            addStatus(e.st, ES.Marked, 8, 0);
+            this.confuse(e, 4);
+            addStatus(e.st, ES.Marked, 7, 0);
           }
         }
-        for (const a of this.alliesNear(p.x, p.z, R + 1)) {
-          addStatus(a.st, PS.Haste, T(a.id === p.id ? 5 : 4), a.id === p.id ? 0.2 : 0.1);
-        }
+        addStatus(p.st, PS.Haste, T(4), 0.18);
         cast(R);
         break;
       }
     }
     this.aftermath(p, 'r', m, cx, cz, R);
+  }
+
+  /** Rotazione dei Veli turns aside light enemy shots already inside the kick. */
+  private veilShots(p: PlayerState, radius: number): void {
+    for (const pr of this.projectiles) {
+      if (pr.owner || pr.red || pr.kind === 'reflected') continue;
+      if (Math.hypot(pr.x - p.x, pr.z - p.z) > radius + pr.r + 0.6) continue;
+      const src = this.enemies.find((e) => e.id === pr.src);
+      pr.owner = p.id;
+      if (src && this.hittable(src)) {
+        const d = Math.hypot(src.x - pr.x, src.z - pr.z) || 1;
+        pr.dx = (src.x - pr.x) / d;
+        pr.dz = (src.z - pr.z) / d;
+      } else {
+        pr.dx = -pr.dx;
+        pr.dz = -pr.dz;
+      }
+      pr.kind = 'reflected';
+      pr.ttl = Math.max(pr.ttl, 1.2);
+      pr.hit = [];
+      this.events.push({ e: 'fx', what: 'reflect', x: pr.x, z: pr.z, r: 0.8 });
+    }
   }
 
   addZone(kind: string, x: number, z: number, r: number, dur: number, owner: string, power: number): Zone {

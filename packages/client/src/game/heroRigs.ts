@@ -94,9 +94,9 @@ const RIGS: Record<string, HeroRig> = {
     lights: [once('Punch_Combo', 0.7), once('Punch_Combo_1', 0.7), once('Punch_Combo_2', 0.85), once('Punch_Combo', 0.7)],
     heavy: once('Axe_Spin_Attack', 0.9),
     charge: windup('Axe_Spin_Attack'),
-    // Same spiral as the charged strike. The hash clip is the old ocarina pose, not a strike.
-    ability: once('Axe_Spin_Attack', 0.9),
-    ult: once('Punch_Combo_2', 0.9),
+    // Passo d'Ombra is a short step. The hash clip is the ocarina pose for Melodia dell'Inganno.
+    ability: once('Roll_Dodge_4', 0.5),
+    ult: once('_01a1f14e_f840_7778_aff4_c9d5e8935472', 1.15),
     // Sword_Parry_Backward_2 is the file's sword parry. The blades only come up in the
     // last third, so the guard starts there and holds that pose while block is held.
     block: { clip: 'Sword_Parry_Backward_2', loop: false, from: 0.66, to: 1, span: 0.22 },
@@ -241,6 +241,7 @@ const RIGS: Record<string, HeroRig> = {
     ],
     heavy: once('Sweep_Kick', 0.9),
     charge: windup('Sweep_Kick', 0.35),
+    // Rotazione dei Veli is the spinning kick. Danza della Memoria is the jazz dance.
     ability: once('Lunge_Spin_Kick', 0.85),
     ult: once('jazz_danc', 1.0),
     // No clip is only a boxing guard. This one holds both hands up; the Boxing_Guard clips are strikes.
