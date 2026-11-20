@@ -90,7 +90,7 @@ function piece(p: Pick<TavernPiece, 'id' | 'x' | 'z'> & Partial<TavernPiece>): T
 export function tavernPieces(a: TavernAnchors): TavernPiece[] {
   // Uniform scale. The mesh is centred, so half its depth sits behind the
   // anchor; that half is parked on the north wall and Carl stands in the bar.
-  const counterH = 2.35;
+  const counterH = 3.2;
   const counterDepth = 1.113 * (counterH / 0.847);
   const barZ = a.z1 - 0.5 - counterDepth / 2 + 0.2;
   const south = { x: 0, z: 1 };
@@ -110,9 +110,9 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
       height: counterH,
       face: north,
     }),
-    piece({ id: 'counter-w', x: a.carl.x - 1.25, z: barZ, r: 1.2 }),
-    piece({ id: 'counter-c', x: a.carl.x, z: barZ - 0.15, r: 1.05 }),
-    piece({ id: 'counter-e', x: a.carl.x + 1.25, z: barZ, r: 1.2 }),
+    piece({ id: 'counter-w', x: a.carl.x - 1.8, z: barZ, r: 1.75 }),
+    piece({ id: 'counter-c', x: a.carl.x, z: barZ - 0.15, r: 1.55 }),
+    piece({ id: 'counter-e', x: a.carl.x + 1.8, z: barZ, r: 1.75 }),
   );
 
   out.push(
@@ -121,27 +121,28 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
       model: 'map-table',
       x: a.table.x,
       z: a.table.z,
-      height: 1.15,
+      height: 2.25,
       rot: 0,
     }),
   );
 
-  const tables: [string, number, number, number][] = [
-    ['nw', a.table.x - 14, a.table.z + 12, 0.4],
-    ['ne', a.table.x + 14, a.table.z + 11, 1.1],
-    ['sw', a.table.x - 12, a.table.z - 10, 0.15],
-    ['se', a.table.x + 13, a.table.z - 7, 2.2],
-    ['ee', a.table.x + 16, a.table.z + 5, 0.7],
-    ['ww', a.table.x - 16, a.table.z + 6, 1.8],
+  // Two columns of three, flanking the map table on a clear aisle.
+  const tables: [string, number, number][] = [
+    ['nw', a.table.x - 10, a.table.z + 8],
+    ['ne', a.table.x + 10, a.table.z + 8],
+    ['w', a.table.x - 10, a.table.z],
+    ['e', a.table.x + 10, a.table.z],
+    ['sw', a.table.x - 10, a.table.z - 8],
+    ['se', a.table.x + 10, a.table.z - 8],
   ];
-  for (const [id, x, z, rot] of tables) {
-    out.push(piece({ id: `table-${id}`, model: 'table', x, z, rot, height: 0.9, r: 0.95 }));
+  for (const [id, x, z] of tables) {
+    out.push(piece({ id: `table-${id}`, model: 'table', x, z, height: 1.15, r: 1.35 }));
   }
 
   const barrels: [string, number, number, number, number][] = [
-    ['bar-w', a.carl.x - 3.7, a.z1 - 1.35, 0.4, 1.15],
-    ['bar-w2', a.carl.x - 4.45, a.z1 - 2.05, 1.7, 1.0],
-    ['bar-e', a.carl.x + 3.75, a.z1 - 1.4, 2.4, 1.2],
+    ['bar-w', a.carl.x - 5.1, a.z1 - 1.45, 0.4, 1.15],
+    ['bar-w2', a.carl.x - 5.9, a.z1 - 2.35, 1.7, 1.0],
+    ['bar-e', a.carl.x + 5.15, a.z1 - 1.5, 2.4, 1.2],
     ['sw', a.x0 + 2.5, a.z0 + 2.7, 0.6, 1.1],
     ['sw2', a.x0 + 3.45, a.z0 + 1.85, 1.9, 0.95],
     ['se', a.x1 - 2.7, a.z0 + 2.6, 0.2, 1.15],
@@ -155,11 +156,11 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
     piece({
       id: 'board',
       model: 'board',
-      x: a.x0 + 0.85,
-      z: a.eleonora.z + 3.3,
-      height: 2.15,
+      x: a.x0 + 0.55,
+      z: a.eleonora.z + 1.9,
+      height: 3.1,
       face: west,
-      r: 0.4,
+      r: 0.7,
       clip: true,
     }),
     piece({
@@ -186,9 +187,9 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
     piece({
       id: 'cabinet',
       model: 'cabinet',
-      x: a.carl.x + 12,
-      z: a.z1 - 0.62,
-      height: 2.0,
+      x: a.carl.x + 10,
+      z: a.z1 - 0.7,
+      height: 3.4,
       face: north,
       r: 0.6,
     }),
@@ -230,9 +231,9 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
         id: `banner-${id}`,
         model: 'banner',
         x,
-        y: 2.5,
+        y: 2.55,
         z,
-        height: 1.45,
+        height: 2.45,
         anchor: 'center',
         face,
         clip: true,

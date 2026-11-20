@@ -22,7 +22,7 @@ import type { Flame } from './arena';
 /** Wall modules share this height so corners, the arch and the window course line up. */
 const WALL_H = 4;
 /** Floor tiles step on this grid. The walkable rect of the hub divides it evenly. */
-const TILE = 4;
+const TILE = 2;
 
 interface Box {
   min: Vector3;
