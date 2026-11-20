@@ -164,7 +164,7 @@ export class CharacterView {
 
     const mat = new StandardMaterial(`figure:${name}`, this.scene);
     // The emissive texture is added, then multiplied by the diffuse colour.
-    // Lighting stays off so the dungeon lights do not shade the painted albedo a second time.
+    // Lighting stays off so the room lights do not shade a painted albedo a second time.
     mat.emissiveTexture = figure.texture;
     mat.linkEmissiveWithDiffuse = true;
     mat.diffuseColor = c3(this.look.tint);
