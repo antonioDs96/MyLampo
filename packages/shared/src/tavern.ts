@@ -88,14 +88,18 @@ function piece(p: Pick<TavernPiece, 'id' | 'x' | 'z'> & Partial<TavernPiece>): T
 
 /** Furniture, wall dressing and the collision circles that match them. */
 export function tavernPieces(a: TavernAnchors): TavernPiece[] {
-  const barZ = a.carl.z - 1.05;
+  // Uniform scale. The mesh is centred, so half its depth sits behind the
+  // anchor; that half is parked on the north wall and Carl stands in the bar.
+  const counterH = 2.35;
+  const counterDepth = 1.113 * (counterH / 0.847);
+  const barZ = a.z1 - 0.5 - counterDepth / 2 + 0.2;
   const south = { x: 0, z: 1 };
   const north = { x: 0, z: -1 };
   const east = { x: -1, z: 0 };
   const west = { x: 1, z: 0 };
   const out: TavernPiece[] = [];
 
-  // The bar replaces the north training row. Carl stands just behind it; two
+  // The bar replaces the north training row. Carl stands inside it; the
   // circles keep the counter solid without sealing the side aisles.
   out.push(
     piece({
@@ -103,11 +107,12 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
       model: 'counter',
       x: a.carl.x,
       z: barZ,
-      height: 1.48,
+      height: counterH,
       face: north,
     }),
-    piece({ id: 'counter-w', x: a.carl.x - 0.85, z: barZ, r: 0.98 }),
-    piece({ id: 'counter-e', x: a.carl.x + 0.85, z: barZ, r: 0.98 }),
+    piece({ id: 'counter-w', x: a.carl.x - 1.25, z: barZ, r: 1.2 }),
+    piece({ id: 'counter-c', x: a.carl.x, z: barZ - 0.15, r: 1.05 }),
+    piece({ id: 'counter-e', x: a.carl.x + 1.25, z: barZ, r: 1.2 }),
   );
 
   out.push(
@@ -134,9 +139,9 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
   }
 
   const barrels: [string, number, number, number, number][] = [
-    ['bar-w', a.carl.x - 2.7, a.carl.z - 0.35, 0.4, 1.15],
-    ['bar-w2', a.carl.x - 3.45, a.carl.z - 1.15, 1.7, 1.0],
-    ['bar-e', a.carl.x + 2.75, a.carl.z - 0.4, 2.4, 1.2],
+    ['bar-w', a.carl.x - 3.7, a.z1 - 1.35, 0.4, 1.15],
+    ['bar-w2', a.carl.x - 4.45, a.z1 - 2.05, 1.7, 1.0],
+    ['bar-e', a.carl.x + 3.75, a.z1 - 1.4, 2.4, 1.2],
     ['sw', a.x0 + 2.5, a.z0 + 2.7, 0.6, 1.1],
     ['sw2', a.x0 + 3.45, a.z0 + 1.85, 1.9, 0.95],
     ['se', a.x1 - 2.7, a.z0 + 2.6, 0.2, 1.15],
@@ -160,8 +165,8 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
     piece({
       id: 'loom',
       model: 'loom',
-      x: a.saraya.x - 2.15,
-      z: a.saraya.z + 2.7,
+      x: a.saraya.x - 1.15,
+      z: a.saraya.z + 0.85,
       height: 1.9,
       face: east,
       r: 1.05,
@@ -170,10 +175,12 @@ export function tavernPieces(a: TavernAnchors): TavernPiece[] {
       id: 'fireplace',
       model: 'fireplace',
       x: a.carl.x - 12,
-      z: a.z1 - 0.72,
-      height: 2.25,
+      // Chimney back is 0.397 model-units behind the centre. Height matches
+      // the walls so the flue meets the top of the room.
+      z: a.z1 - 0.5 - 0.397 * (4 / 2) + 0.28,
+      height: 4,
       face: north,
-      r: 0.7,
+      r: 1.05,
       light: true,
     }),
     piece({

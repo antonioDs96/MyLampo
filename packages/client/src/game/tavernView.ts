@@ -231,8 +231,29 @@ export class TavernView {
         const glassBatch = batch('window', true);
         if (glass && glassBatch) {
           const gbox = boxOf(glass);
-          const gs = (WALL_H * 0.78) / gbox.size.y;
-          addInstance(glassBatch.mesh, gbox, gs, gs, gs, yawForRun(gbox, { x: -1, z: 0 }), 0, a.x1 - 0.35, WALL_H * 0.56, center, 'center');
+          // Opening measured on the room-side face of wall-window, in that
+          // model's units. Width and height are fitted separately so the
+          // shutter lands in the hole instead of covering the frame.
+          const holeW = 1.126 * hs;
+          const holeH = 1.276 * hs;
+          const holeY = (((-0.738 + 0.538) / 2) - wbox.min.y) * hs;
+          const thick = horizontalSize(wbox).thick * hs;
+          const moduleX = a.x1 - WALL_HALF + thick / 2;
+          const gsx = holeW / gbox.size.x;
+          const gsy = holeH / gbox.size.y;
+          addInstance(
+            glassBatch.mesh,
+            gbox,
+            gsx,
+            gsy,
+            gsx,
+            yawForRun(gbox, { x: -1, z: 0 }),
+            0,
+            moduleX - 0.03,
+            holeY,
+            center,
+            'center',
+          );
         }
       } else {
         this.fill(wallBatch.mesh, box, eastFrom, eastTo, 'z', a.x1, -1);
@@ -246,7 +267,11 @@ export class TavernView {
         const doorBatch = batch('door', true);
         if (door && doorBatch) {
           const dbox = boxOf(door);
-          const ds = archScale * 0.78;
+          // The arch opening is 1.20 model-units wide at the threshold and
+          // the crown sits just above a door scaled to that width.
+          const ds = (1.2 * archScale) / dbox.size.x;
+          const archThick = horizontalSize(abox).thick * archScale;
+          const archZ = a.z0 + WALL_HALF - archThick / 2;
           addInstance(
             doorBatch.mesh,
             dbox,
@@ -257,7 +282,7 @@ export class TavernView {
             0,
             midX,
             0,
-            a.z0 + WALL_HALF + 0.08,
+            archZ,
             'floor',
           );
         }
