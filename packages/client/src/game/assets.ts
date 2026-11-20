@@ -62,6 +62,9 @@ export const HERO_FIGURES = [
   'albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith',
 ];
 
+/** Static tavern characters in public/assets/npcs. */
+export const NPC_FIGURES = ['carl', 'eleonora', 'saraya'];
+
 /** Skinned heroes, loaded from `{name}-rig.glb`. */
 export const HERO_RIGS = ['albereth', 'jusef', 'vyncent', 'alexios', 'rycard', 'fabyorn', 'gabryel', 'anthon', 'dalith'];
 
@@ -150,12 +153,13 @@ export class Assets {
 
   async load(onProgress: (done: number, total: number) => void): Promise<void> {
     const total =
-      CHAR_MODELS.length + HERO_FIGURES.length + HERO_RIGS.length + HERO_PROPS.length + WEAPON_MODELS.length + ENV_MODELS.length + TAVERN_MODELS.length;
+      CHAR_MODELS.length + HERO_FIGURES.length + NPC_FIGURES.length + HERO_RIGS.length + HERO_PROPS.length + WEAPON_MODELS.length + ENV_MODELS.length + TAVERN_MODELS.length;
     let done = 0;
     const tick = () => onProgress(++done, total);
     const jobs: (() => Promise<void>)[] = [
       ...CHAR_MODELS.map((n) => () => this.loadChar(n).then(tick)),
       ...HERO_FIGURES.map((n) => () => this.loadFigure(n).then(tick)),
+      ...NPC_FIGURES.map((n) => () => this.loadFigure(n, `/assets/npcs/${n}.glb`).then(tick)),
       ...HERO_RIGS.map((n) => () => this.loadRig(n).then(tick)),
       ...HERO_PROPS.map((n) => () => this.loadWeapon(n, `/assets/heroes/${n}.glb`).then(tick)),
       ...WEAPON_MODELS.map((n) => () => this.loadWeapon(n).then(tick)),
@@ -181,8 +185,8 @@ export class Assets {
     this.chars.set(name, { name, container, texture: albedoOf(container), groups });
   }
 
-  private async loadFigure(name: string): Promise<void> {
-    const container = await LoadAssetContainerAsync(`/assets/heroes/${name}.glb`, this.scene, LOAD_OPTIONS);
+  private async loadFigure(name: string, url = `/assets/heroes/${name}.glb`): Promise<void> {
+    const container = await LoadAssetContainerAsync(url, this.scene, LOAD_OPTIONS);
     for (const g of container.animationGroups) g.stop();
     const texture = albedoOf(container);
     if (!texture) {

@@ -14,7 +14,7 @@ export interface Look {
   /** Character GLB in assets/chars. Rigged fallback when `figure` is absent. */
   model: string;
   /**
-   * Painted hero mesh in assets/heroes, with no skeleton.
+   * Painted mesh with no skeleton, in assets/heroes or assets/npcs.
    * Used on the selection stage, and in play when `rig` is absent.
    */
   figure?: string;
@@ -455,12 +455,12 @@ export const ENEMY_LOOKS: Record<EnemyTypeId, Look> = {
 export const NPC_LOOKS: Record<'carl' | 'iej' | 'saraya' | 'eleonora', Look> = {
   carl: {
     model: 'Barbarian',
+    figure: 'carl',
     scale: 1.18,
     tint: [1, 1, 1],
-    recolor: { from: [[185, 240]], hue: 30, sat: 0.5, val: 0.85 },
-    show: ['Mug'],
+    show: [],
     idle: 'Idle',
-    run: 'Walking_A',
+    run: 'Idle',
   },
   iej: {
     model: 'Mage',
@@ -474,21 +474,21 @@ export const NPC_LOOKS: Record<'carl' | 'iej' | 'saraya' | 'eleonora', Look> = {
   },
   saraya: {
     model: 'Rogue',
+    figure: 'saraya',
     scale: 0.98,
     tint: [1, 1, 1],
-    recolor: { from: [[125, 200]], hue: 322, sat: 0.7, val: 0.8 },
-    show: ['Rogue_Cape'],
+    show: [],
     idle: 'Idle',
-    run: 'Walking_A',
+    run: 'Idle',
   },
   eleonora: {
     model: 'Knight',
+    figure: 'eleonora',
     scale: 1.04,
     tint: [1, 1, 1],
-    recolor: { from: [[318, 12]], hue: 210, sat: 0.6, val: 0.6 },
-    show: ['1H_Sword', 'Knight_Cape'],
+    show: [],
     idle: 'Idle',
-    run: 'Walking_A',
+    run: 'Idle',
   },
 };
 
